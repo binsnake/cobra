@@ -15,6 +15,18 @@ use crate::semilinear::{
     create_atom, decompose_atom, AtomId, OperatorFamily, SemilinearIR, WeightedAtom,
 };
 
+/// Mask of bits of `x` that survive `coeff.wrapping_mul(x)` modulo
+/// `2^bitwidth`. Bit `i` survives iff `i + coeff.trailing_zeros() < bitwidth`.
+#[must_use]
+fn effective_mask(coeff: u64, bitwidth: u32) -> u64 {
+    let tz = coeff.trailing_zeros();
+    if tz >= bitwidth {
+        0
+    } else {
+        bitmask(bitwidth - tz)
+    }
+}
+
 /// True iff `old_coeff * (bit & bitmask) == new_coeff * (bit & bitmask)`
 /// mod `2^bitwidth` for every single-bit `bit`.
 #[must_use]
@@ -24,46 +36,26 @@ pub fn can_change_coefficient_to(
     bitmask_val: u64,
     bitwidth: u32,
 ) -> bool {
+    // Equivalent to `(old_coeff - new_coeff) * (bit & bitmask_val) == 0`
+    // for every single bit. That holds iff every set bit of
+    // `bitmask_val` lies at position `>= bitwidth - tz(d)`.
     let modmask = bitmask(bitwidth);
-    for i in 0..bitwidth {
-        let bit = 1u64 << i;
-        if (modmask & old_coeff.wrapping_mul(bit & bitmask_val))
-            != (modmask & new_coeff.wrapping_mul(bit & bitmask_val))
-        {
-            return false;
-        }
-    }
-    true
+    let d = old_coeff.wrapping_sub(new_coeff) & modmask;
+    (bitmask_val & effective_mask(d, bitwidth)) == 0
 }
 
 /// True iff `coeff * (old_mask & x) == coeff * (new_mask & x)` mod
 /// `2^bitwidth` for all `x`.
 #[must_use]
 pub fn can_change_mask_to(coeff: u64, old_mask: u64, new_mask: u64, bitwidth: u32) -> bool {
-    let modmask = bitmask(bitwidth);
-    for i in 0..bitwidth {
-        let bit = 1u64 << i;
-        if (modmask & coeff.wrapping_mul(bit & old_mask))
-            != (modmask & coeff.wrapping_mul(bit & new_mask))
-        {
-            return false;
-        }
-    }
-    true
+    // Differing bits must all be zeroed by `coeff`.
+    ((old_mask ^ new_mask) & effective_mask(coeff, bitwidth)) == 0
 }
 
 /// Strip bits from `mask` whose contribution is zeroed by `coeff`.
 #[must_use]
 pub fn reduce_mask(coeff: u64, mask: u64, bitwidth: u32) -> u64 {
-    let modmask = bitmask(bitwidth);
-    let mut reduced = 0u64;
-    for i in 0..bitwidth {
-        let bit = 1u64 << i;
-        if (mask & bit) != 0 && (modmask & coeff.wrapping_mul(bit)) != 0 {
-            reduced |= bit;
-        }
-    }
-    reduced
+    mask & effective_mask(coeff, bitwidth)
 }
 
 #[derive(Clone)]
@@ -135,6 +127,14 @@ fn try_three_term_collapse(
     modmask: u64,
 ) -> bool {
     let modn = bitmask(ir.bitwidth);
+    // Index live terms by coefficient so for each pair (i, j) we can
+    // O(1)-locate a candidate k whose coeff equals (c_i + c_j) mod 2^bw.
+    let mut by_coeff: HashMap<u64, Vec<usize>> = HashMap::new();
+    for (idx, t) in group.iter().enumerate() {
+        if !t.consumed {
+            by_coeff.entry(t.coeff).or_default().push(idx);
+        }
+    }
     for i in 0..group.len() {
         if group[i].consumed {
             continue;
@@ -143,31 +143,29 @@ fn try_three_term_collapse(
             if group[j].consumed {
                 continue;
             }
-            for k in (j + 1)..group.len() {
-                if group[k].consumed {
+            let target = group[i].coeff.wrapping_add(group[j].coeff) & modn;
+            let Some(cands) = by_coeff.get(&target) else {
+                continue;
+            };
+            let (a_mask, b_mask) = (group[i].mask, group[j].mask);
+            for &k in cands {
+                if k == i || k == j || group[k].consumed {
                     continue;
                 }
-                for (ai, bi, ci) in [(i, j, k), (i, k, j), (j, k, i)] {
-                    let (a_coeff, a_mask) = (group[ai].coeff, group[ai].mask);
-                    let (b_coeff, b_mask) = (group[bi].coeff, group[bi].mask);
-                    let (c_coeff, c_mask) = (group[ci].coeff, group[ci].mask);
-                    if a_coeff.wrapping_add(b_coeff) & modn != c_coeff {
-                        continue;
-                    }
-                    if (a_mask & c_mask) != 0 || (b_mask & c_mask) != 0 {
-                        continue;
-                    }
-                    let mask_ac = (a_mask | c_mask) & modmask;
-                    let mask_bc = (b_mask | c_mask) & modmask;
-                    let aid_ac = create_masked_atom(ir, basis, mask_ac);
-                    let aid_bc = create_masked_atom(ir, basis, mask_bc);
-                    group[ai].atom_id = aid_ac;
-                    group[ai].mask = mask_ac;
-                    group[bi].atom_id = aid_bc;
-                    group[bi].mask = mask_bc;
-                    group[ci].consumed = true;
-                    return true;
+                let c_mask = group[k].mask;
+                if (a_mask & c_mask) != 0 || (b_mask & c_mask) != 0 {
+                    continue;
                 }
+                let mask_ac = (a_mask | c_mask) & modmask;
+                let mask_bc = (b_mask | c_mask) & modmask;
+                let aid_ac = create_masked_atom(ir, basis, mask_ac);
+                let aid_bc = create_masked_atom(ir, basis, mask_bc);
+                group[i].atom_id = aid_ac;
+                group[i].mask = mask_ac;
+                group[j].atom_id = aid_bc;
+                group[j].mask = mask_bc;
+                group[k].consumed = true;
+                return true;
             }
         }
     }
@@ -209,26 +207,40 @@ fn refine_group(group: &mut [RefineTerm], ir: &mut SemilinearIR, basis: &Expr, m
     }
 
     // Step 1: disjoint-mask merge with matching coefficient.
-    let mut merged = true;
-    while merged {
-        merged = false;
-        let n = group.len();
-        for i in 0..n {
-            if group[i].consumed {
-                continue;
+    // Bucket live terms by coefficient; within each bucket greedily
+    // merge terms whose masks are disjoint from an accumulator slot.
+    // Because (A|B) & C == 0 iff A & C == 0 and B & C == 0, a single
+    // pass reaches the same fixed point as the naive restart loop.
+    let mut buckets: HashMap<u64, Vec<usize>> = HashMap::new();
+    for (idx, t) in group.iter().enumerate() {
+        if !t.consumed {
+            buckets.entry(t.coeff).or_default().push(idx);
+        }
+    }
+    for indices in buckets.values() {
+        if indices.len() < 2 {
+            continue;
+        }
+        // Slots: (representative_idx, accumulated_mask).
+        let mut slots: Vec<(usize, u64)> = Vec::new();
+        for &idx in indices {
+            let m = group[idx].mask;
+            let mut placed = false;
+            for slot in slots.iter_mut() {
+                if (slot.1 & m) == 0 {
+                    let rep = slot.0;
+                    let merged_mask = (slot.1 | m) & modmask;
+                    let aid = create_masked_atom(ir, basis, merged_mask);
+                    group[rep].atom_id = aid;
+                    group[rep].mask = merged_mask;
+                    group[idx].consumed = true;
+                    slot.1 = merged_mask;
+                    placed = true;
+                    break;
+                }
             }
-            for j in (i + 1)..n {
-                if group[j].consumed {
-                    continue;
-                }
-                if group[i].coeff == group[j].coeff && (group[i].mask & group[j].mask) == 0 {
-                    let m = (group[i].mask | group[j].mask) & modmask;
-                    let aid = create_masked_atom(ir, basis, m);
-                    group[i].atom_id = aid;
-                    group[i].mask = m;
-                    group[j].consumed = true;
-                    merged = true;
-                }
+            if !placed {
+                slots.push((idx, m));
             }
         }
     }

@@ -66,22 +66,58 @@ fn eval_bitwise_at(expr: &Expr, vars: &[u64], mask: u64) -> u64 {
     }
 }
 
+/// Build a `structural_hash -> Vec<AtomId>` index over the current atom
+/// table. Lookups check the bucket for structural equality to handle
+/// the rare hash collision.
+fn build_atom_hash_index(ir: &SemilinearIR) -> HashMap<u64, Vec<AtomId>> {
+    let mut map: HashMap<u64, Vec<AtomId>> = HashMap::new();
+    for info in &ir.atom_table {
+        map.entry(info.structural_hash).or_default().push(info.atom_id);
+    }
+    map
+}
+
 /// Find a variable / already-materialised basis atom in `ir` matching
-/// the given basis expression. Falls back to creating a new atom.
-fn find_or_create_bare_atom(ir: &mut SemilinearIR, basis: &Expr) -> AtomId {
+/// the given basis expression. Falls back to creating a new atom. The
+/// `index` is consulted first (O(1) average) and updated on insertion.
+fn find_or_create_bare_atom(
+    ir: &mut SemilinearIR,
+    index: &mut HashMap<u64, Vec<AtomId>>,
+    basis: &Expr,
+) -> AtomId {
     let basis_hash = structural_hash(basis);
-    for (k, info) in ir.atom_table.iter().enumerate() {
-        if std::mem::discriminant(&info.original_subtree.kind)
-            == std::mem::discriminant(&basis.kind)
-        {
+    if let Some(bucket) = index.get(&basis_hash) {
+        for &aid in bucket {
+            let info = &ir.atom_table[aid as usize];
+            if std::mem::discriminant(&info.original_subtree.kind)
+                != std::mem::discriminant(&basis.kind)
+            {
+                continue;
+            }
             match (&info.original_subtree.kind, &basis.kind) {
-                (Kind::Variable(a), Kind::Variable(b)) if a == b => return k as AtomId,
-                _ if info.structural_hash == basis_hash => return k as AtomId,
+                (Kind::Variable(a), Kind::Variable(b)) if a == b => return aid,
+                _ if info.structural_hash == basis_hash => return aid,
                 _ => {}
             }
         }
     }
-    create_atom(ir, basis.clone_tree(), OperatorFamily::Mixed)
+    let new_id = create_atom(ir, basis.clone_tree(), OperatorFamily::Mixed);
+    index.entry(basis_hash).or_default().push(new_id);
+    new_id
+}
+
+/// Wrap `create_atom` so newly created atoms are also registered in the
+/// hash index used by `find_or_create_bare_atom`.
+fn create_atom_indexed(
+    ir: &mut SemilinearIR,
+    index: &mut HashMap<u64, Vec<AtomId>>,
+    subtree: Box<Expr>,
+    provenance: OperatorFamily,
+) -> AtomId {
+    let hash = structural_hash(&subtree);
+    let new_id = create_atom(ir, subtree, provenance);
+    index.entry(hash).or_default().push(new_id);
+    new_id
 }
 
 #[derive(Clone)]
@@ -166,6 +202,7 @@ pub fn recover_structure(ir: &mut SemilinearIR) {
     }
 
     let mut any_changed = false;
+    let mut atom_hash_index = build_atom_hash_index(ir);
     let hashes: Vec<u64> = basis_groups.keys().copied().collect();
     for hash in hashes {
         let entries_len = basis_groups.get(&hash).map_or(0, Vec::len);
@@ -174,62 +211,81 @@ pub fn recover_structure(ir: &mut SemilinearIR) {
         }
         let basis = basis_repr.get(&hash).expect("basis present").clone_tree();
 
+        // Group entries by their mask so an XOR/mask-elim partner can be
+        // found by complement-mask lookup instead of an O(n²) pair scan.
+        let mut mask_index: HashMap<u64, Vec<usize>> = HashMap::new();
+        {
+            let entries = basis_groups.get(&hash).expect("present");
+            for (idx, e) in entries.iter().enumerate() {
+                mask_index.entry(e.mask).or_default().push(idx);
+            }
+        }
+
         for i in 0..entries_len {
             if basis_groups.get(&hash).expect("present")[i].consumed {
                 continue;
             }
-            let mut matched = false;
-            for j in (i + 1)..entries_len {
-                let entries = basis_groups.get_mut(&hash).expect("present");
-                if entries[j].consumed {
-                    continue;
-                }
-                let (a_coeff, a_mask) = (entries[i].coeff, entries[i].mask);
-                let (b_coeff, b_mask) = (entries[j].coeff, entries[j].mask);
-                if (a_mask | b_mask) != modmask {
-                    continue;
-                }
-                if (a_mask & b_mask) != 0 {
-                    continue;
-                }
-
-                if a_coeff.wrapping_add(b_coeff) & modmask == 0 {
-                    // XOR recovery — choose the mask with fewer set bits as
-                    // the XOR constant so the added constant shrinks.
-                    let (src_is_a, src_mask, src_coeff, dst_coeff) =
-                        if a_mask.count_ones() <= b_mask.count_ones() {
-                            (true, a_mask, a_coeff, b_coeff)
-                        } else {
-                            (false, b_mask, b_coeff, a_coeff)
-                        };
-                    let xor_expr = Expr::xor(Expr::constant(src_mask), basis.clone_tree());
-                    let xor_id = create_atom(ir, xor_expr, OperatorFamily::Xor);
-                    let entries = basis_groups.get_mut(&hash).expect("present");
-                    let (src_idx, dst_idx) = if src_is_a { (i, j) } else { (j, i) };
-                    entries[src_idx].coeff = dst_coeff;
-                    entries[src_idx].atom_id = xor_id;
-                    entries[src_idx].mask = modmask;
-                    entries[dst_idx].consumed = true;
-                    ir.constant =
-                        ir.constant.wrapping_add(src_coeff.wrapping_mul(src_mask)) & modmask;
-                    any_changed = true;
-                    matched = true;
-                    break;
-                }
-
-                let diff = a_coeff.wrapping_sub(b_coeff) & modmask;
-                if diff != 0 {
-                    let bare = find_or_create_bare_atom(ir, &basis);
-                    let entries = basis_groups.get_mut(&hash).expect("present");
-                    entries[i].coeff = diff;
-                    entries[j].atom_id = bare;
-                    entries[j].mask = modmask;
-                    any_changed = true;
-                    matched = true;
+            let a_mask = basis_groups.get(&hash).expect("present")[i].mask;
+            let complement = modmask & !a_mask;
+            // A valid partner must have mask == complement so that
+            // (a_mask | b_mask) == modmask and (a_mask & b_mask) == 0.
+            let Some(candidates) = mask_index.get(&complement) else {
+                continue;
+            };
+            let mut partner: Option<usize> = None;
+            {
+                let entries = basis_groups.get(&hash).expect("present");
+                for &j in candidates {
+                    if j <= i {
+                        continue;
+                    }
+                    if entries[j].consumed {
+                        continue;
+                    }
+                    partner = Some(j);
                     break;
                 }
             }
-            let _ = matched;
+            let Some(j) = partner else {
+                continue;
+            };
+            let entries = basis_groups.get_mut(&hash).expect("present");
+            let (a_coeff, a_mask) = (entries[i].coeff, entries[i].mask);
+            let (b_coeff, b_mask) = (entries[j].coeff, entries[j].mask);
+
+            if a_coeff.wrapping_add(b_coeff) & modmask == 0 {
+                // XOR recovery — choose the mask with fewer set bits as
+                // the XOR constant so the added constant shrinks.
+                let (src_is_a, src_mask, src_coeff, dst_coeff) =
+                    if a_mask.count_ones() <= b_mask.count_ones() {
+                        (true, a_mask, a_coeff, b_coeff)
+                    } else {
+                        (false, b_mask, b_coeff, a_coeff)
+                    };
+                let xor_expr = Expr::xor(Expr::constant(src_mask), basis.clone_tree());
+                let xor_id =
+                    create_atom_indexed(ir, &mut atom_hash_index, xor_expr, OperatorFamily::Xor);
+                let entries = basis_groups.get_mut(&hash).expect("present");
+                let (src_idx, dst_idx) = if src_is_a { (i, j) } else { (j, i) };
+                entries[src_idx].coeff = dst_coeff;
+                entries[src_idx].atom_id = xor_id;
+                entries[src_idx].mask = modmask;
+                entries[dst_idx].consumed = true;
+                ir.constant =
+                    ir.constant.wrapping_add(src_coeff.wrapping_mul(src_mask)) & modmask;
+                any_changed = true;
+                continue;
+            }
+
+            let diff = a_coeff.wrapping_sub(b_coeff) & modmask;
+            if diff != 0 {
+                let bare = find_or_create_bare_atom(ir, &mut atom_hash_index, &basis);
+                let entries = basis_groups.get_mut(&hash).expect("present");
+                entries[i].coeff = diff;
+                entries[j].atom_id = bare;
+                entries[j].mask = modmask;
+                any_changed = true;
+            }
         }
     }
 
@@ -278,6 +334,7 @@ pub fn coalesce_terms(ir: &mut SemilinearIR) {
     }
 
     let mut any_changed = false;
+    let mut atom_hash_index = build_atom_hash_index(ir);
     let hashes: Vec<u64> = basis_groups.keys().copied().collect();
 
     for hash in hashes {
@@ -320,10 +377,10 @@ pub fn coalesce_terms(ir: &mut SemilinearIR) {
         }
         for (coeff, mask) in coeff_to_mask {
             let aid = if mask == modmask {
-                find_or_create_bare_atom(ir, &basis)
+                find_or_create_bare_atom(ir, &mut atom_hash_index, &basis)
             } else {
                 let and_expr = Expr::and(basis.clone_tree(), Expr::constant(mask));
-                create_atom(ir, and_expr, OperatorFamily::And)
+                create_atom_indexed(ir, &mut atom_hash_index, and_expr, OperatorFamily::And)
             };
             basis_groups
                 .get_mut(&hash)

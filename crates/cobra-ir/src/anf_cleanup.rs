@@ -15,7 +15,7 @@
 //!
 //! The winner is whichever rule produces the lowest [`anf_expr_cost`].
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use cobra_core::expr::{Expr, Kind};
 
@@ -224,7 +224,9 @@ struct FactorCandidate {
     covered_indices: Vec<u32>,
 }
 
-fn find_best_factor(form: &AnfForm) -> Option<FactorCandidate> {
+type AnfCache = HashMap<(Vec<u32>, u8), Box<Expr>>;
+
+fn find_best_factor(form: &AnfForm, cache: &mut AnfCache) -> Option<FactorCandidate> {
     if form.monomials.len() < 2 {
         return None;
     }
@@ -290,7 +292,7 @@ fn find_best_factor(form: &AnfForm) -> Option<FactorCandidate> {
             continue;
         }
 
-        let inner_expr = cleanup_anf(&inner);
+        let inner_expr = cleanup_anf_memo(&inner, cache);
         let factored_cost = 1 + factor_cost + anf_expr_cost(&inner_expr);
         if factored_cost < raw_cost {
             let saving = raw_cost - factored_cost;
@@ -330,27 +332,49 @@ fn find_partial_or(monomials: &[u32]) -> Option<PartialOrCandidate> {
         return None;
     }
 
+    // A var_mask yields a valid partial-OR family iff every non-empty submask
+    // of var_mask is present in `mono_set`. In particular, var_mask itself is
+    // a non-empty submask of itself, so var_mask MUST be a monomial. This
+    // reduces candidates from O(2^nv) to O(|monomials|).
+    //
+    // Map each var_mask to its original `s`-index (bits packed according to
+    // `var_bits` position) so we iterate candidates in the exact same order
+    // as the original enumeration. This preserves first-wins tie-breaking on
+    // equal savings.
+    let mut pos_in_var_bits = [0u8; 32];
+    for (b, &bit) in var_bits.iter().enumerate() {
+        pos_in_var_bits[bit.trailing_zeros() as usize] = b as u8;
+    }
+    let pack_s = |var_mask: u32| -> u32 {
+        let mut s = 0u32;
+        let mut m = var_mask;
+        while m != 0 {
+            let bit_idx = m.trailing_zeros();
+            s |= 1u32 << pos_in_var_bits[bit_idx as usize];
+            m &= m - 1;
+        }
+        s
+    };
+
+    let mut candidates: Vec<(u32, u32)> = monomials
+        .iter()
+        .copied()
+        .filter(|m| m.count_ones() >= 2)
+        .map(|m| (pack_s(m), m))
+        .collect();
+    candidates.sort_unstable_by_key(|&(s, _)| s);
+
     let mut best: Option<PartialOrCandidate> = None;
     let mut best_saving: u32 = 0;
-    let limit = 1u32 << nv;
-    for s in 3..limit {
-        let subset_size = s.count_ones();
-        if subset_size < 2 {
-            continue;
-        }
-        let mut var_mask = 0u32;
-        for (b, &bit) in var_bits.iter().enumerate() {
-            if (s >> b) & 1 == 1 {
-                var_mask |= bit;
-            }
-        }
+    for &(_s, var_mask) in &candidates {
+        let subset_size = var_mask.count_ones();
         let family_size = (1usize << subset_size) - 1;
         // Full-family case is handled by Rule 1.
         if family_size >= monomials.len() {
             continue;
         }
 
-        // Enumerate all non-empty submasks of var_mask.
+        // Enumerate all non-empty submasks of var_mask; all must be monomials.
         let mut family_masks: Vec<u32> = Vec::with_capacity(family_size);
         let mut sub = var_mask;
         let mut ok = true;
@@ -425,18 +449,33 @@ fn find_absorption(form: &AnfForm) -> Option<AbsorptionCandidate> {
 /// Build the optimal `Expr` tree for an ANF monomial set.
 #[must_use]
 pub fn cleanup_anf(form: &AnfForm) -> Box<Expr> {
+    let mut cache = AnfCache::new();
+    cleanup_anf_memo(form, &mut cache)
+}
+
+fn cleanup_anf_memo(form: &AnfForm, cache: &mut AnfCache) -> Box<Expr> {
     if form.monomials.is_empty() {
         return Expr::constant(u64::from(form.constant_bit));
+    }
+
+    // Memoization: key on (sorted monomials, constant_bit). The monomials are
+    // kept sorted by every AnfForm constructor / mutation in this module, so
+    // the raw Vec<u32> is already canonical.
+    let key = (form.monomials.clone(), form.constant_bit);
+    if let Some(cached) = cache.get(&key) {
+        return cached.clone();
     }
 
     // Rule 1: full OR family (exact match across all monomials).
     if let Some(var_mask) = detect_or_family(&form.monomials) {
         let or_expr = build_or_chain(var_mask);
-        return if form.constant_bit != 0 {
+        let result = if form.constant_bit != 0 {
             Expr::xor(Expr::constant(1), or_expr)
         } else {
             or_expr
         };
+        cache.insert(key, result.clone());
+        return result;
     }
 
     let raw = emit_raw_anf(form);
@@ -463,7 +502,7 @@ pub fn cleanup_anf(form: &AnfForm) -> Box<Expr> {
         let result = if remainder.monomials.is_empty() && remainder.constant_bit == 0 {
             or_expr
         } else {
-            let rem_expr = cleanup_anf(&remainder);
+            let rem_expr = cleanup_anf_memo(&remainder, cache);
             Expr::xor(or_expr, rem_expr)
         };
         let cost = anf_expr_cost(&result);
@@ -474,7 +513,7 @@ pub fn cleanup_anf(form: &AnfForm) -> Box<Expr> {
     }
 
     // Rule 3: common-cube factor.
-    if let Some(factor) = find_best_factor(form) {
+    if let Some(factor) = find_best_factor(form, cache) {
         let covered_set: HashSet<u32> = factor.covered_indices.iter().copied().collect();
         let mut inner = AnfForm {
             constant_bit: 0,
@@ -490,7 +529,7 @@ pub fn cleanup_anf(form: &AnfForm) -> Box<Expr> {
             }
         }
         inner.monomials.sort_by(|a, b| monomial_less(*a, *b));
-        let inner_expr = cleanup_anf(&inner);
+        let inner_expr = cleanup_anf_memo(&inner, cache);
         let factor_expr = build_monomial(factor.factor_mask);
         let factored = Expr::and(factor_expr, inner_expr);
 
@@ -509,7 +548,7 @@ pub fn cleanup_anf(form: &AnfForm) -> Box<Expr> {
         let result = if remainder.monomials.is_empty() && remainder.constant_bit == 0 {
             factored
         } else {
-            let rem_expr = cleanup_anf(&remainder);
+            let rem_expr = cleanup_anf_memo(&remainder, cache);
             Expr::xor(factored, rem_expr)
         };
         let cost = anf_expr_cost(&result);
@@ -533,7 +572,9 @@ pub fn cleanup_anf(form: &AnfForm) -> Box<Expr> {
         }
     }
 
-    best.unwrap_or(raw)
+    let result = best.unwrap_or(raw);
+    cache.insert(key, result.clone());
+    result
 }
 
 /// Convenience wrapper: build the ANF-optimised Expr from a

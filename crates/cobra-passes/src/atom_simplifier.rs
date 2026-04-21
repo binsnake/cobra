@@ -214,53 +214,37 @@ pub fn simplify_structure(ir: &mut SemilinearIR) {
     result.sort_by_key(|t| t.atom_id);
     ir.terms = result;
 
-    // Complement recognition.
+    // Complement recognition: index eligible terms by (coeff, support, truth_table)
+    // so each term can look up its bitwise-complement partner in O(1).
+    type Key = (u64, Vec<cobra_ir::semilinear::GlobalVarIdx>, Vec<u64>);
+    let mut index: std::collections::HashMap<Key, usize> = std::collections::HashMap::new();
     let mut removed = vec![false; ir.terms.len()];
+
     for i in 0..ir.terms.len() {
-        if removed[i] {
+        let term = &ir.terms[i];
+        let info = &ir.atom_table[term.atom_id as usize];
+        let key = &info.key;
+        if key.truth_table.is_empty() {
             continue;
         }
-        for j in (i + 1)..ir.terms.len() {
-            if removed[j] {
-                continue;
-            }
-            if ir.terms[i].coeff != ir.terms[j].coeff {
-                continue;
-            }
-            let ki = &ir.atom_table[ir.terms[i].atom_id as usize].key;
-            let kj = &ir.atom_table[ir.terms[j].atom_id as usize].key;
-            if ki.truth_table.is_empty() || kj.truth_table.is_empty() {
-                continue;
-            }
-            if ki.support != kj.support {
-                continue;
-            }
-            if ki.truth_table.len() != kj.truth_table.len() {
-                continue;
-            }
-            let si = &ir.atom_table[ir.terms[i].atom_id as usize];
-            let sj = &ir.atom_table[ir.terms[j].atom_id as usize];
-            if has_constant_or_shr(&si.original_subtree)
-                || has_constant_or_shr(&sj.original_subtree)
-            {
-                continue;
-            }
-            let complementary = ki
-                .truth_table
-                .iter()
-                .zip(kj.truth_table.iter())
-                .all(|(a, b)| *a == ((!*b) & mask));
-            if !complementary {
-                continue;
-            }
-            ir.constant = ir
-                .constant
-                .wrapping_add(ir.terms[i].coeff.wrapping_mul(mask))
-                & mask;
-            removed[i] = true;
-            removed[j] = true;
-            break;
+        if has_constant_or_shr(&info.original_subtree) {
+            continue;
         }
+        let complement_tt: Vec<u64> = key.truth_table.iter().map(|t| (!*t) & mask).collect();
+        let lookup: Key = (term.coeff, key.support.clone(), complement_tt);
+        if let Some(&j) = index.get(&lookup) {
+            if !removed[j] {
+                ir.constant = ir
+                    .constant
+                    .wrapping_add(term.coeff.wrapping_mul(mask))
+                    & mask;
+                removed[i] = true;
+                removed[j] = true;
+                continue;
+            }
+        }
+        let self_key: Key = (term.coeff, key.support.clone(), key.truth_table.clone());
+        index.insert(self_key, i);
     }
     let kept: Vec<WeightedAtom> = ir
         .terms

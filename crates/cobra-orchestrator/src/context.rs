@@ -120,9 +120,12 @@ pub fn determinism_seeds_ahash() -> ahash::RandomState {
 /// `replace_by_hash`.
 #[must_use]
 pub fn expr_identity_hash(expr: &cobra_core::expr::Expr) -> u64 {
-    // `ahash::RandomState` has an inherent `hash_one` that shadows
-    // `BuildHasher::hash_one` — no extra trait import needed.
-    determinism_seeds_ahash().hash_one(expr)
+    // `ahash::RandomState` is cached in a `OnceLock` so we build it once
+    // per process. The deterministic seeds mean the cached instance is
+    // equivalent to a freshly-built one, preserving hash stability.
+    use std::sync::OnceLock;
+    static STATE: OnceLock<ahash::RandomState> = OnceLock::new();
+    STATE.get_or_init(determinism_seeds_ahash).hash_one(expr)
 }
 
 #[cfg(test)]

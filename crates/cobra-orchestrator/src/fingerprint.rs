@@ -33,7 +33,7 @@ pub fn compute_fingerprint(item: &WorkItem, bitwidth: u32) -> StateFingerprint {
         hash_combine(h, u64::from(item.evaluator_override.is_some()))
     };
 
-    let (payload_hash, vars) = match &item.payload {
+    let (payload_hash, vars_hash) = match &item.payload {
         StateData::FoldedAst(p) => {
             let mut h = expr_identity_hash(&p.expr);
             if let Some(ctx) = &p.solve_ctx {
@@ -46,14 +46,14 @@ pub fn compute_fingerprint(item: &WorkItem, bitwidth: u32) -> StateFingerprint {
                 }
             }
             h = hash_combine(h, u64::from(item.group_id.unwrap_or(u32::MAX)));
-            (h, Vec::new())
+            (h, 0u64)
         }
         StateData::Signature(p) => {
             let mut h = p.ctx.sig.len() as u64;
             for v in &p.ctx.sig {
                 h = hash_combine(h, *v);
             }
-            (fold_control(h), p.ctx.real_vars.clone())
+            (fold_control(h), hash_var_list(&p.ctx.real_vars))
         }
         StateData::SignatureCoeff(p) => {
             let mut h = p.ctx.sig.len() as u64;
@@ -63,7 +63,7 @@ pub fn compute_fingerprint(item: &WorkItem, bitwidth: u32) -> StateFingerprint {
             for c in &p.coeffs {
                 h = hash_combine(h, *c);
             }
-            (fold_control(h), p.ctx.real_vars.clone())
+            (fold_control(h), hash_var_list(&p.ctx.real_vars))
         }
         StateData::CoreCandidate(p) => {
             let mut h = expr_identity_hash(&p.core_expr);
@@ -75,7 +75,7 @@ pub fn compute_fingerprint(item: &WorkItem, bitwidth: u32) -> StateFingerprint {
             for r in &p.target.remap_support {
                 h = hash_combine(h, u64::from(*r));
             }
-            (h, Vec::new())
+            (h, 0u64)
         }
         StateData::Remainder(p) => {
             let mut h = p.origin as u64;
@@ -95,19 +95,19 @@ pub fn compute_fingerprint(item: &WorkItem, bitwidth: u32) -> StateFingerprint {
                 h = hash_combine(h, u64::from(*r));
             }
             h = hash_combine(h, u64::from(item.group_id.unwrap_or(u32::MAX)));
-            (h, Vec::new())
+            (h, 0u64)
         }
         StateData::SemilinearNormalized(p) => (
             hash_semilinear_fingerprint_key(&build_semilinear_fingerprint_key(&p.ctx.ir)),
-            Vec::new(),
+            0u64,
         ),
         StateData::SemilinearChecked(p) => (
             hash_semilinear_fingerprint_key(&build_semilinear_fingerprint_key(&p.ctx.ir)),
-            Vec::new(),
+            0u64,
         ),
         StateData::SemilinearRewritten(p) => (
             hash_semilinear_fingerprint_key(&build_semilinear_fingerprint_key(&p.ctx.ir)),
-            Vec::new(),
+            0u64,
         ),
         StateData::LiftedSkeleton(p) => {
             let mut h = expr_identity_hash(&p.outer_expr);
@@ -127,22 +127,22 @@ pub fn compute_fingerprint(item: &WorkItem, bitwidth: u32) -> StateFingerprint {
                 h = hash_combine(h, u64::from(b.outer_var_index));
                 h = hash_combine(h, b.structural_hash);
             }
-            (h, Vec::new())
+            (h, 0u64)
         }
         StateData::Candidate(p) => {
             let h = hash_combine(
                 expr_identity_hash(&p.expr),
                 u64::from(p.needs_original_space_verification),
             );
-            (h, p.real_vars.clone())
+            (h, hash_var_list(&p.real_vars))
         }
-        StateData::CompetitionResolved(p) => (u64::from(p.group_id), Vec::new()),
+        StateData::CompetitionResolved(p) => (u64::from(p.group_id), 0u64),
     };
 
     StateFingerprint {
         kind,
         payload_hash,
-        vars,
+        vars_hash,
         bitwidth,
         provenance,
     }
@@ -199,7 +199,22 @@ pub fn hash_semilinear_fingerprint_key(key: &SemilinearFingerprintKey) -> u64 {
 }
 
 fn hash_string(s: &str) -> u64 {
-    crate::context::determinism_seeds_ahash().hash_one(s)
+    use std::sync::OnceLock;
+    static STATE: OnceLock<ahash::RandomState> = OnceLock::new();
+    STATE
+        .get_or_init(crate::context::determinism_seeds_ahash)
+        .hash_one(s)
+}
+
+/// Order-sensitive hash of a variable-name list. Used by
+/// `StateFingerprint::vars_hash` to replace the old `Vec<String>`
+/// clones on every fingerprint computation.
+fn hash_var_list(vars: &[String]) -> u64 {
+    let mut h = vars.len() as u64;
+    for v in vars {
+        h = hash_combine(h, hash_string(v));
+    }
+    h
 }
 
 #[cfg(test)]
@@ -254,8 +269,19 @@ mod tests {
             needs_original_space_verification: true,
         })));
         let fp = compute_fingerprint(&item, 64);
-        assert_eq!(fp.vars, vec!["x".to_owned(), "y".to_owned()]);
+        assert_eq!(fp.vars_hash, hash_var_list(&["x".into(), "y".into()]));
+        assert_ne!(fp.vars_hash, 0);
         assert_eq!(fp.kind, StateKind::CandidateExpr);
+        // Different real_vars produce different vars_hash.
+        let other = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
+            expr: Expr::variable(0),
+            real_vars: vec!["a".into(), "b".into()],
+            cost: ExprCost::default(),
+            producing_pass: crate::enums::PassId::VerifyCandidate,
+            needs_original_space_verification: true,
+        })));
+        let fp2 = compute_fingerprint(&other, 64);
+        assert_ne!(fp.vars_hash, fp2.vars_hash);
     }
 
     #[test]

@@ -91,9 +91,25 @@ pub fn replace_by_hash(
     target_hash: u64,
     replacement: &mut Option<Box<Expr>>,
 ) -> (Box<Expr>, bool) {
+    // Precompute structural hashes for every node in a single postorder
+    // pass, keyed by raw pointer. `root` is owned and no child is moved
+    // until we match, so these pointers remain valid for the walk below.
+    let mut hashes: std::collections::HashMap<*const Expr, u64> =
+        std::collections::HashMap::with_capacity(16);
+    precompute_hashes(&root, &mut hashes);
     let mut replaced = false;
-    let out = replace_by_hash_rec(root, target_hash, replacement, &mut replaced);
+    let out = replace_by_hash_rec(root, target_hash, replacement, &mut replaced, &hashes);
     (out, replaced)
+}
+
+fn precompute_hashes(
+    node: &Expr,
+    out: &mut std::collections::HashMap<*const Expr, u64>,
+) {
+    for child in &node.children {
+        precompute_hashes(child, out);
+    }
+    out.insert(node as *const Expr, expr_identity_hash(node));
 }
 
 #[allow(clippy::unnecessary_box_returns)]
@@ -102,11 +118,16 @@ fn replace_by_hash_rec(
     target_hash: u64,
     replacement: &mut Option<Box<Expr>>,
     replaced: &mut bool,
+    hashes: &std::collections::HashMap<*const Expr, u64>,
 ) -> Box<Expr> {
     if *replaced {
         return root;
     }
-    if expr_identity_hash(&root) == target_hash {
+    let this_hash = hashes
+        .get(&(root.as_ref() as *const Expr))
+        .copied()
+        .unwrap_or_else(|| expr_identity_hash(&root));
+    if this_hash == target_hash {
         if let Some(new_root) = replacement.take() {
             *replaced = true;
             return new_root;
@@ -115,7 +136,7 @@ fn replace_by_hash_rec(
     let mut root = root;
     for i in 0..root.children.len() {
         let child = std::mem::replace(&mut root.children[i], Expr::constant(0));
-        let rebuilt = replace_by_hash_rec(child, target_hash, replacement, replaced);
+        let rebuilt = replace_by_hash_rec(child, target_hash, replacement, replaced, hashes);
         root.children[i] = rebuilt;
         if *replaced {
             break;

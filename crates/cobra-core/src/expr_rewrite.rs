@@ -268,9 +268,29 @@ fn extract_common_factor(mut expr: Box<Expr>) -> Box<Expr> {
         all_factors.push(factors);
     }
 
+    // Hash every factor once. For each term, build a map from factor hash
+    // to the list of factor indices sharing that hash. A candidate common
+    // factor is one whose hash appears in every term's map; we then verify
+    // with structural equality to guard against collisions.
+    let factor_hashes: Vec<Vec<u64>> = all_factors
+        .iter()
+        .map(|fs| fs.iter().map(|f| expr_hash(f)).collect())
+        .collect();
+    let per_term_maps: Vec<HashMap<u64, Vec<usize>>> = factor_hashes
+        .iter()
+        .map(|hs| {
+            let mut m: HashMap<u64, Vec<usize>> = HashMap::with_capacity(hs.len());
+            for (i, h) in hs.iter().enumerate() {
+                m.entry(*h).or_default().push(i);
+            }
+            m
+        })
+        .collect();
+
     // For each non-constant, non-bare-variable factor of the first term,
-    // search for a matching factor in every other term. The first such
-    // universal match wins; extract it and recurse on the remainder.
+    // check whether its hash is present in every other term and, if so,
+    // verify a structurally-equal match exists. The first such universal
+    // factor wins; extract it and recurse on the remainder.
     for fi in 0..all_factors[0].len() {
         let kind_matches = {
             let c = &all_factors[0][fi];
@@ -279,19 +299,25 @@ fn extract_common_factor(mut expr: Box<Expr>) -> Box<Expr> {
         if !kind_matches {
             continue;
         }
-        let candidate_hash = expr_hash(&all_factors[0][fi]);
-        let candidate_discriminant = std::mem::discriminant(&all_factors[0][fi].kind);
+        let candidate_hash = factor_hashes[0][fi];
+        let candidate = &all_factors[0][fi];
+        let candidate_discriminant = std::mem::discriminant(&candidate.kind);
 
         let mut match_indices: Vec<usize> = vec![fi];
         let mut universal = true;
-        for factors in all_factors.iter().skip(1) {
+        for ti in 1..all_factors.len() {
+            let Some(bucket) = per_term_maps[ti].get(&candidate_hash) else {
+                universal = false;
+                break;
+            };
             let mut found: Option<usize> = None;
-            for (fj, f) in factors.iter().enumerate() {
+            for &fj in bucket {
+                let f = &all_factors[ti][fj];
                 if matches!(f.kind, Kind::Constant(_)) {
                     continue;
                 }
-                if expr_hash(f) == candidate_hash
-                    && std::mem::discriminant(&f.kind) == candidate_discriminant
+                if std::mem::discriminant(&f.kind) == candidate_discriminant
+                    && **f == **candidate
                 {
                     found = Some(fj);
                     break;

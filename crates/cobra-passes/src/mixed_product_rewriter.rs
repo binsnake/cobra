@@ -103,6 +103,27 @@ pub fn node_count(expr: &Expr) -> u32 {
     n
 }
 
+/// Single-pass fusion of `count_rewriteable_sites` + `node_count`.
+/// Returns `(sites, nodes)` in one traversal, saving a walk per rewrite round.
+fn count_sites_and_nodes_impl(expr: &Expr, ctx: RewriteContext) -> (u32, u32) {
+    let child_ctx = child_context(expr, ctx);
+    let mut sites = 0u32;
+    let mut nodes = 1u32;
+    if matches!(expr.kind, Kind::Xor) && expr.children.len() == 2 && child_ctx.unsupported() {
+        sites += 1;
+    }
+    for c in &expr.children {
+        let (cs, cn) = count_sites_and_nodes_impl(c, child_ctx);
+        sites += cs;
+        nodes += cn;
+    }
+    (sites, nodes)
+}
+
+fn count_sites_and_nodes(expr: &Expr) -> (u32, u32) {
+    count_sites_and_nodes_impl(expr, RewriteContext::default())
+}
+
 #[allow(clippy::boxed_local)]
 fn apply_xor_lowering(expr: Box<Expr>, ctx: RewriteContext) -> Box<Expr> {
     let mut e = *expr;
@@ -142,9 +163,9 @@ pub fn rewrite_mixed_products(expr: Box<Expr>, opts: &RewriteOptions) -> Rewrite
         };
     }
 
-    let initial_count = node_count(&expr);
+    let (initial_sites, initial_count) = count_sites_and_nodes(&expr);
     let mut old_flags = cls.flags & unsupported_flag_mask();
-    let mut old_sites = count_rewriteable_sites(&expr);
+    let mut old_sites = initial_sites;
 
     let mut result = RewriteResult {
         expr,
@@ -154,13 +175,12 @@ pub fn rewrite_mixed_products(expr: Box<Expr>, opts: &RewriteOptions) -> Rewrite
 
     for round in 1..=opts.max_rounds {
         let new_expr = apply_xor_lowering(result.expr.clone_tree(), RewriteContext::default());
-        let new_count = node_count(&new_expr);
+        let (new_sites, new_count) = count_sites_and_nodes(&new_expr);
         if new_count > initial_count.saturating_mul(opts.max_node_growth) {
             break;
         }
         let new_cls = classify_structural(&new_expr);
         let new_flags = new_cls.flags & unsupported_flag_mask();
-        let new_sites = count_rewriteable_sites(&new_expr);
 
         if (new_flags & !old_flags).bits() != 0 {
             break;

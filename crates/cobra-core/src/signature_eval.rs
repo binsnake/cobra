@@ -29,16 +29,24 @@ pub fn evaluate_boolean_signature_from_evaluator(
     let mut sig = vec![0u64; len];
     let mut point = vec![0u64; num_vars as usize];
     let mut workspace = Workspace::default();
-    for (i, slot) in sig.iter_mut().enumerate() {
-        for (v, p) in point.iter_mut().enumerate().take(num_vars as usize) {
-            *p = ((i >> v) & 1) as u64;
+    for i in 0..len {
+        // Incrementally maintain `point` so it matches the standard binary
+        // encoding of `i`: point[v] = (i >> v) & 1. Going from i-1 to i flips
+        // bits 0..=i.trailing_zeros(); across all iterations this averages O(1)
+        // flips per step instead of O(num_vars).
+        if i != 0 {
+            let tz = (i as u32).trailing_zeros() as usize;
+            // tz < 64 here since i != 0; also tz < nv because i < 2^nv.
+            for p in point.iter_mut().take(tz + 1) {
+                *p ^= 1;
+            }
         }
         let raw = if eval.has_compiled() {
             eval.eval_with(&point, &mut workspace)
         } else {
             eval.eval(&point)
         };
-        *slot = raw & mask;
+        sig[i] = raw & mask;
     }
     sig
 }

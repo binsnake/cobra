@@ -10,34 +10,60 @@
 use cobra_core::arith::{bitmask, mod_neg, mod_shr};
 use cobra_core::expr::{Expr, Kind};
 
-fn eval_semilinear_recursive(expr: &Expr, len: usize, bitwidth: u32, bit_pos: u32) -> Vec<u64> {
+fn pool_take(pool: &mut Vec<Vec<u64>>, len: usize) -> Vec<u64> {
+    match pool.pop() {
+        Some(mut v) => {
+            v.clear();
+            v.resize(len, 0);
+            v
+        }
+        None => vec![0u64; len],
+    }
+}
+
+fn eval_semilinear_recursive(
+    expr: &Expr,
+    len: usize,
+    bitwidth: u32,
+    bit_pos: u32,
+    pool: &mut Vec<Vec<u64>>,
+) -> Vec<u64> {
     let mask = bitmask(bitwidth);
     let bit_val: u64 = if bit_pos < 64 { 1u64 << bit_pos } else { 0 };
 
     match &expr.kind {
-        Kind::Constant(c) => vec![*c & mask; len],
+        Kind::Constant(c) => {
+            let mut v = pool_take(pool, len);
+            let cv = *c & mask;
+            for slot in &mut v {
+                *slot = cv;
+            }
+            v
+        }
         Kind::Variable(idx) => {
             let shift = *idx;
-            (0..len)
-                .map(|i| if ((i >> shift) & 1) != 0 { bit_val } else { 0 })
-                .collect()
+            let mut v = pool_take(pool, len);
+            for (i, slot) in v.iter_mut().enumerate() {
+                *slot = if ((i >> shift) & 1) != 0 { bit_val } else { 0 };
+            }
+            v
         }
         Kind::Not => {
-            let mut c = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos);
+            let mut c = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos, pool);
             for v in &mut c {
                 *v = (!*v) & mask;
             }
             c
         }
         Kind::Neg => {
-            let mut c = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos);
+            let mut c = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos, pool);
             for v in &mut c {
                 *v = mod_neg(*v, bitwidth);
             }
             c
         }
         Kind::Shr(k) => {
-            let mut c = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos);
+            let mut c = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos, pool);
             if *k >= 64 {
                 c.fill(0);
             } else {
@@ -48,41 +74,49 @@ fn eval_semilinear_recursive(expr: &Expr, len: usize, bitwidth: u32, bit_pos: u3
             c
         }
         Kind::Add => {
-            let l = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos);
-            let r = eval_semilinear_recursive(&expr.children[1], len, bitwidth, bit_pos);
-            l.iter()
-                .zip(r.iter())
-                .map(|(a, b)| a.wrapping_add(*b) & mask)
-                .collect()
+            let mut l = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos, pool);
+            let r = eval_semilinear_recursive(&expr.children[1], len, bitwidth, bit_pos, pool);
+            for (a, b) in l.iter_mut().zip(r.iter()) {
+                *a = a.wrapping_add(*b) & mask;
+            }
+            pool.push(r);
+            l
         }
         Kind::Mul => {
-            let l = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos);
-            let r = eval_semilinear_recursive(&expr.children[1], len, bitwidth, bit_pos);
-            l.iter()
-                .zip(r.iter())
-                .map(|(a, b)| a.wrapping_mul(*b) & mask)
-                .collect()
+            let mut l = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos, pool);
+            let r = eval_semilinear_recursive(&expr.children[1], len, bitwidth, bit_pos, pool);
+            for (a, b) in l.iter_mut().zip(r.iter()) {
+                *a = a.wrapping_mul(*b) & mask;
+            }
+            pool.push(r);
+            l
         }
         Kind::And => {
-            let l = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos);
-            let r = eval_semilinear_recursive(&expr.children[1], len, bitwidth, bit_pos);
-            l.iter().zip(r.iter()).map(|(a, b)| a & b).collect()
+            let mut l = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos, pool);
+            let r = eval_semilinear_recursive(&expr.children[1], len, bitwidth, bit_pos, pool);
+            for (a, b) in l.iter_mut().zip(r.iter()) {
+                *a &= *b;
+            }
+            pool.push(r);
+            l
         }
         Kind::Or => {
-            let l = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos);
-            let r = eval_semilinear_recursive(&expr.children[1], len, bitwidth, bit_pos);
-            l.iter()
-                .zip(r.iter())
-                .map(|(a, b)| (a | b) & mask)
-                .collect()
+            let mut l = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos, pool);
+            let r = eval_semilinear_recursive(&expr.children[1], len, bitwidth, bit_pos, pool);
+            for (a, b) in l.iter_mut().zip(r.iter()) {
+                *a = (*a | *b) & mask;
+            }
+            pool.push(r);
+            l
         }
         Kind::Xor => {
-            let l = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos);
-            let r = eval_semilinear_recursive(&expr.children[1], len, bitwidth, bit_pos);
-            l.iter()
-                .zip(r.iter())
-                .map(|(a, b)| (a ^ b) & mask)
-                .collect()
+            let mut l = eval_semilinear_recursive(&expr.children[0], len, bitwidth, bit_pos, pool);
+            let r = eval_semilinear_recursive(&expr.children[1], len, bitwidth, bit_pos, pool);
+            for (a, b) in l.iter_mut().zip(r.iter()) {
+                *a = (*a ^ *b) & mask;
+            }
+            pool.push(r);
+            l
         }
     }
 }
@@ -99,7 +133,8 @@ pub fn evaluate_semilinear_row(
     bit_pos: u32,
 ) -> Vec<u64> {
     let len = 1usize << num_vars;
-    let mut r = eval_semilinear_recursive(expr, len, bitwidth, bit_pos);
+    let mut pool: Vec<Vec<u64>> = Vec::new();
+    let mut r = eval_semilinear_recursive(expr, len, bitwidth, bit_pos, &mut pool);
     if bit_pos > 0 && bit_pos < 64 {
         let mask = bitmask(bitwidth);
         for v in &mut r {

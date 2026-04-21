@@ -134,17 +134,32 @@ pub fn allocate_fresh_virtual_names(
     out
 }
 
+fn build_atom_index(atoms: &[DeduplicatedAtom<'_>]) -> HashMap<u64, Vec<usize>> {
+    let mut idx: HashMap<u64, Vec<usize>> = HashMap::with_capacity(atoms.len());
+    for (i, atom) in atoms.iter().enumerate() {
+        idx.entry(atom.hash).or_default().push(i);
+    }
+    idx
+}
+
 fn find_virtual_index(
     node: &Expr,
     atoms: &[DeduplicatedAtom<'_>],
+    index: &HashMap<u64, Vec<usize>>,
     vars: &[String],
     bitwidth: u32,
 ) -> Option<u32> {
     let h = expr_identity_hash(node);
+    let bucket = index.get(&h)?;
+    // Fast path: single-entry bucket (the common case). Trust the
+    // structural hash to identify the atom without re-rendering.
+    if bucket.len() == 1 {
+        return Some(atoms[bucket[0]].virtual_index);
+    }
     let rendered = render(node, vars, bitwidth);
-    for atom in atoms {
-        if atom.hash == h && atom.rendered == rendered {
-            return Some(atom.virtual_index);
+    for &i in bucket {
+        if atoms[i].rendered == rendered {
+            return Some(atoms[i].virtual_index);
         }
     }
     None
@@ -158,12 +173,24 @@ pub fn replace_atoms_with_virtual(
     vars: &[String],
     bitwidth: u32,
 ) -> Box<Expr> {
+    let index = build_atom_index(atoms);
+    replace_atoms_with_virtual_inner(node, parent_is_bitwise, atoms, &index, vars, bitwidth)
+}
+
+fn replace_atoms_with_virtual_inner(
+    node: &Expr,
+    parent_is_bitwise: bool,
+    atoms: &[DeduplicatedAtom<'_>],
+    index: &HashMap<u64, Vec<usize>>,
+    vars: &[String],
+    bitwidth: u32,
+) -> Box<Expr> {
     if parent_is_bitwise
         && is_pure_arithmetic(node)
         && has_var_dep(node)
         && !matches!(node.kind, Kind::Variable(_))
     {
-        if let Some(vi) = find_virtual_index(node, atoms, vars, bitwidth) {
+        if let Some(vi) = find_virtual_index(node, atoms, index, vars, bitwidth) {
             return Expr::variable(vi);
         }
     }
@@ -171,8 +198,14 @@ pub fn replace_atoms_with_virtual(
     let mut result = node.clone_tree();
     for i in 0..result.children.len() {
         let child = std::mem::replace(&mut result.children[i], Expr::constant(0));
-        result.children[i] =
-            replace_atoms_with_virtual(&child, current_is_bitwise, atoms, vars, bitwidth);
+        result.children[i] = replace_atoms_with_virtual_inner(
+            &child,
+            current_is_bitwise,
+            atoms,
+            index,
+            vars,
+            bitwidth,
+        );
     }
     result
 }
@@ -184,13 +217,27 @@ pub fn replace_repeats_with_virtual(
     vars: &[String],
     bitwidth: u32,
 ) -> Box<Expr> {
+    let index = build_atom_index(atoms);
+    replace_repeats_with_virtual_inner(node, atoms, &index, vars, bitwidth)
+}
+
+fn replace_repeats_with_virtual_inner(
+    node: &Expr,
+    atoms: &[DeduplicatedAtom<'_>],
+    index: &HashMap<u64, Vec<usize>>,
+    vars: &[String],
+    bitwidth: u32,
+) -> Box<Expr> {
     if !matches!(node.kind, Kind::Constant(_) | Kind::Variable(_)) {
         let h = expr_identity_hash(node);
-        for atom in atoms {
-            if atom.hash == h {
-                let rendered = render(node, vars, bitwidth);
-                if atom.rendered == rendered {
-                    return Expr::variable(atom.virtual_index);
+        if let Some(bucket) = index.get(&h) {
+            if bucket.len() == 1 {
+                return Expr::variable(atoms[bucket[0]].virtual_index);
+            }
+            let rendered = render(node, vars, bitwidth);
+            for &i in bucket {
+                if atoms[i].rendered == rendered {
+                    return Expr::variable(atoms[i].virtual_index);
                 }
             }
         }
@@ -198,7 +245,8 @@ pub fn replace_repeats_with_virtual(
     let mut result = node.clone_tree();
     for i in 0..result.children.len() {
         let child = std::mem::replace(&mut result.children[i], Expr::constant(0));
-        result.children[i] = replace_repeats_with_virtual(&child, atoms, vars, bitwidth);
+        result.children[i] =
+            replace_repeats_with_virtual_inner(&child, atoms, index, vars, bitwidth);
     }
     result
 }
@@ -238,7 +286,6 @@ pub const MAX_LIFTABLE_NODES: u32 = 50_000;
 #[derive(Clone)]
 pub struct RepeatEntry<'a> {
     pub hash: u64,
-    pub rendered: String,
     pub first_occurrence: &'a Expr,
     pub count: u32,
     pub size: u32,
@@ -249,43 +296,44 @@ pub struct RepeatEntry<'a> {
 pub fn collect_non_leaf_subtrees<'a>(
     node: &'a Expr,
     preorder_counter: &mut u32,
-    vars: &[String],
-    bitwidth: u32,
     by_hash: &mut HashMap<u64, Vec<usize>>,
     entries: &mut Vec<RepeatEntry<'a>>,
-) {
+) -> u32 {
+    // Single postorder pass: compute subtree size bottom-up and
+    // dedup non-leaf entries by structural hash only. The hash uses
+    // a static RandomState, so hash-equal subtrees are treated as
+    // equivalent (collision probability 2^-64 is accepted — the
+    // codebase already relies on hash-only identity elsewhere).
     let my_order = *preorder_counter;
     *preorder_counter += 1;
     let is_leaf = matches!(node.kind, Kind::Constant(_) | Kind::Variable(_));
+    let mut size: u32 = 1;
+    for child in &node.children {
+        size = size.saturating_add(collect_non_leaf_subtrees(
+            child,
+            preorder_counter,
+            by_hash,
+            entries,
+        ));
+    }
     if !is_leaf {
         let hash = expr_identity_hash(node);
-        let rendered = render(node, vars, bitwidth);
-        let node_size = count_nodes(node);
-        let mut found = false;
         if let Some(idxs) = by_hash.get(&hash) {
-            for &idx in idxs {
-                if entries[idx].rendered == rendered {
-                    entries[idx].count += 1;
-                    found = true;
-                    break;
-                }
+            if let Some(&idx) = idxs.first() {
+                entries[idx].count += 1;
+                return size;
             }
         }
-        if !found {
-            by_hash.entry(hash).or_default().push(entries.len());
-            entries.push(RepeatEntry {
-                hash,
-                rendered,
-                first_occurrence: node,
-                count: 1,
-                size: node_size,
-                first_preorder: my_order,
-            });
-        }
+        by_hash.entry(hash).or_default().push(entries.len());
+        entries.push(RepeatEntry {
+            hash,
+            first_occurrence: node,
+            count: 1,
+            size,
+            first_preorder: my_order,
+        });
     }
-    for child in &node.children {
-        collect_non_leaf_subtrees(child, preorder_counter, vars, bitwidth, by_hash, entries);
-    }
+    size
 }
 
 #[must_use]

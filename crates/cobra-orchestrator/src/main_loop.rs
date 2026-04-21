@@ -22,9 +22,8 @@ use crate::attempt_cache::PassAttemptCache;
 use crate::competition::{release_handle, submit_candidate, CandidateRecord};
 use crate::context::{OrchestratorContext, OrchestratorPolicy, OrchestratorTelemetry, RunMetadata};
 use crate::enums::{ItemDisposition, PassDecision, PassId};
-use crate::fingerprint::compute_fingerprint;
 use crate::ranker::unsupported_rank_better;
-use crate::registry::PassDescriptor;
+use crate::registry::{build_pass_index, PassDescriptor};
 use crate::scheduler::select_next_pass;
 use crate::state::StateData;
 use crate::work_item::{
@@ -81,6 +80,8 @@ pub fn run_main_loop(
     // rewrite instead of returning UnchangedUnsupported.
     let mut best_rewrite: Option<BestRewrite> = None;
     let original_cost: Option<ExprCost> = original_expr.map(|e| compute_cost(e).cost);
+
+    let pass_index = build_pass_index(registry);
 
     while !worklist.is_empty() && expansions < policy.max_expansions {
         let mut item = worklist.pop().expect("non-empty worklist");
@@ -190,10 +191,10 @@ pub fn run_main_loop(
         };
 
         // Pre-attempt bookkeeping.
-        let fp = compute_fingerprint(&item, ctx.bitwidth);
+        let fp = item.fingerprint(ctx.bitwidth).into_owned();
         item.attempted_mask |= 1u64 << pass_id.as_u8();
 
-        let Some(desc) = registry.iter().find(|d| d.id == pass_id) else {
+        let Some(desc) = pass_index[pass_id.as_u8() as usize] else {
             continue;
         };
         telemetry.passes_attempted.push(pass_id);

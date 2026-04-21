@@ -338,6 +338,13 @@ fn build_inner_compositions(pool: &[Atom], vmap: &ValMap, mask: u64) -> InnerCom
     for &g_in in &ALL_GATES {
         for bi in 0..pn {
             for ci in bi..pn {
+                // Idempotent self-application produces a ProbeVals already in vmap:
+                // And(x,x) = Or(x,x) = x; Xor(x,x) = 0 (constant atom); Add(x,x) = 2*x
+                // often collides with existing atoms. Skip the trivial same-operand cases
+                // for idempotent gates up front to avoid the apply_gate + lookup work.
+                if bi == ci && matches!(g_in, Gate::And | Gate::Or) {
+                    continue;
+                }
                 let v = pool[bi].vals.apply_gate(&pool[ci].vals, g_in, mask);
                 if vmap.contains(&v) || inner.index.contains(&v) {
                     continue;
@@ -789,37 +796,35 @@ fn layer4(
                         if !compatible(&pool[bi].vals, &lifted, g2) {
                             continue;
                         }
-                        for ii in 0..inn {
-                            if !probe0_matches(
-                                pool[bi].vals.0[0],
-                                inner[ii].vals.0[0],
-                                lifted.0[0],
-                                g2,
-                                mask,
-                            ) {
+                        let b0 = pool[bi].vals.0[0];
+                        let t0 = lifted.0[0];
+                        for (&key, bucket) in &inner_cache.mul_probe0_buckets {
+                            if !probe0_matches(b0, key, t0, g2, mask) {
                                 continue;
                             }
-                            let matches_lifted = match g2 {
-                                Gate::And => and_matches(&pool[bi].vals, &inner[ii].vals, &lifted),
-                                Gate::Or => or_matches(&pool[bi].vals, &inner[ii].vals, &lifted),
-                                _ => unreachable!(),
-                            };
-                            if !matches_lifted {
-                                continue;
-                            }
-                            let g2_e = gate_expr(
-                                g2,
-                                pool[bi].expr.clone_tree(),
-                                make_inner(pool, &inner[ii]),
-                            );
-                            let wrapped = if wrap == 0 {
-                                Expr::neg(g2_e)
-                            } else {
-                                Expr::not(g2_e)
-                            };
-                            let e = gate_expr(g1, pool[ai].expr.clone_tree(), wrapped);
-                            if try_update(&mut best, e, eval, nv, bw, baseline) {
-                                return best;
+                            for &ii in bucket {
+                                let matches_lifted = match g2 {
+                                    Gate::And => and_matches(&pool[bi].vals, &inner[ii].vals, &lifted),
+                                    Gate::Or => or_matches(&pool[bi].vals, &inner[ii].vals, &lifted),
+                                    _ => unreachable!(),
+                                };
+                                if !matches_lifted {
+                                    continue;
+                                }
+                                let g2_e = gate_expr(
+                                    g2,
+                                    pool[bi].expr.clone_tree(),
+                                    make_inner(pool, &inner[ii]),
+                                );
+                                let wrapped = if wrap == 0 {
+                                    Expr::neg(g2_e)
+                                } else {
+                                    Expr::not(g2_e)
+                                };
+                                let e = gate_expr(g1, pool[ai].expr.clone_tree(), wrapped);
+                                if try_update(&mut best, e, eval, nv, bw, baseline) {
+                                    return best;
+                                }
                             }
                         }
                     }

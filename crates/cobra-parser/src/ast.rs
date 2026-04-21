@@ -137,14 +137,26 @@ fn apply_pow(lhs: Box<Expr>, rhs: &Expr, mask: u64) -> Result<Box<Expr>> {
     if exp == 0 {
         return Ok(Expr::constant(1 & mask));
     }
+    Ok(pow_by_squaring(&lhs, exp))
+}
+
+// Build a balanced Mul tree for `base^exp` (exp >= 1) using exponentiation
+// by squaring. Depth is ceil(log2(exp)) instead of exp-1 for the linear chain.
+// For odd exp we emit `pow(base, exp-1) * base` so that `a ** 3` still shapes
+// as `(a * a) * a` — root Mul whose left child is Mul.
+fn pow_by_squaring(base: &Expr, exp: u64) -> Box<Expr> {
+    debug_assert!(exp >= 1);
     if exp == 1 {
-        return Ok(lhs);
+        return base.clone_tree();
     }
-    let mut result = lhs.clone_tree();
-    for _ in 2..=exp {
-        result = Expr::mul(result, lhs.clone_tree());
+    if exp % 2 == 0 {
+        let half = pow_by_squaring(base, exp / 2);
+        let half_again = half.clone_tree();
+        Expr::mul(half, half_again)
+    } else {
+        let rest = pow_by_squaring(base, exp - 1);
+        Expr::mul(rest, base.clone_tree())
     }
-    Ok(result)
 }
 
 fn apply_shl(lhs: Box<Expr>, rhs: &Expr, mask: u64) -> Result<Box<Expr>> {

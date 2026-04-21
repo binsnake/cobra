@@ -52,25 +52,35 @@ pub fn apply_atom_identities(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
     for child in children {
         expr.children.push(apply_atom_identities(child, bitwidth));
     }
-    let candidates = try_match_all(&expr, bitwidth);
-    if candidates.is_empty() {
-        return expr;
-    }
-    let baseline = compute_cost(&expr).cost;
-    let eval = cobra_core::evaluator::Evaluator::from_expr(&expr, bitwidth);
-    let num_vars = eval.input_arity();
-    for candidate in candidates {
-        if !is_better(&compute_cost(&candidate).cost, &baseline) {
-            continue;
+    // Loop at this node: after a rewrite, re-attempt matchers at the
+    // replacement root only. Children of any replacement are either
+    // unchanged (already simplified bottom-up) or freshly constructed
+    // nodes with no further rewrite opportunities, so re-descending
+    // into them would be wasted work.
+    loop {
+        let candidates = try_match_all(&expr, bitwidth);
+        if candidates.is_empty() {
+            return expr;
         }
-        if !full_width_check_eval(&eval, num_vars, &candidate, bitwidth, 256).passed {
-            continue;
+        let baseline = compute_cost(&expr).cost;
+        let eval = cobra_core::evaluator::Evaluator::from_expr(&expr, bitwidth);
+        let num_vars = eval.input_arity();
+        let mut replaced = None;
+        for candidate in candidates {
+            if !is_better(&compute_cost(&candidate).cost, &baseline) {
+                continue;
+            }
+            if !full_width_check_eval(&eval, num_vars, &candidate, bitwidth, 256).passed {
+                continue;
+            }
+            replaced = Some(candidate);
+            break;
         }
-        // Re-run bottom-up on the new tree — the rewrite may have
-        // exposed another identity.
-        return apply_atom_identities(candidate, bitwidth);
+        match replaced {
+            Some(new_expr) => expr = new_expr,
+            None => return expr,
+        }
     }
-    expr
 }
 
 #[allow(clippy::unnecessary_wraps)]
@@ -184,18 +194,21 @@ fn try_match_all(node: &Expr, bitwidth: u32) -> Vec<Box<Expr>> {
     if let Some(c) = match_and_via_not_or_minus_not(node) {
         out.push(c);
     }
-    if let Some(c) = match_and_via_not_or_plus_a_plus_one(node, bitwidth) {
+    // Flatten addends once for all Add-based matchers. For non-Add nodes
+    // this is a single-element Vec which the matchers reject cheaply.
+    let addends = flatten_addends(node);
+    if let Some(c) = match_and_via_not_or_plus_a_plus_one(&addends, bitwidth) {
         out.push(c);
     }
-    if let Some(c) = match_xor_via_ornot_flat(node, bitwidth) {
+    if let Some(c) = match_xor_via_ornot_flat(&addends, bitwidth) {
         out.push(c);
     }
     // Relaxed matchers — try every Or-with-Not site in the addend list
     // and emit candidate `A & Y` / `A ^ Y` shapes. Catches cases where
     // constant folding or seed-time pattern simplification has rewritten
     // the strict 3/4-term forms.
-    match_and_via_ornot_lax(node, &mut out);
-    match_xor_via_ornot_lax(node, &mut out);
+    match_and_via_ornot_lax(node, &addends, &mut out);
+    match_xor_via_ornot_lax(node, &addends, &mut out);
     out
 }
 
@@ -238,9 +251,11 @@ fn match_and_via_not_or_minus_not(node: &Expr) -> Option<Box<Expr>> {
 }
 
 /// `(~A | X) + A + 1  →  A & X`
-fn match_and_via_not_or_plus_a_plus_one(node: &Expr, bitwidth: u32) -> Option<Box<Expr>> {
+fn match_and_via_not_or_plus_a_plus_one(
+    addends: &[Addend<'_>],
+    bitwidth: u32,
+) -> Option<Box<Expr>> {
     let mask = bitmask(bitwidth);
-    let addends = flatten_addends(node);
     // Three terms, all positive: one `Or(Not(A), X)`, one `A`, and one
     // `Constant(1)` (mod mask).
     if addends.len() != 3 {
@@ -279,9 +294,11 @@ fn match_and_via_not_or_plus_a_plus_one(node: &Expr, bitwidth: u32) -> Option<Bo
 }
 
 /// `A - B - 2*(A | ~B) - 2  →  A ^ B`
-fn match_xor_via_ornot_flat(node: &Expr, bitwidth: u32) -> Option<Box<Expr>> {
+fn match_xor_via_ornot_flat(
+    addends: &[Addend<'_>],
+    bitwidth: u32,
+) -> Option<Box<Expr>> {
     let mask = bitmask(bitwidth);
-    let addends = flatten_addends(node);
     // Expect exactly 4 addends: +A, -B, -2*(A|~B), -2. Matchers below
     // are commutative across the addend list.
     if addends.len() != 4 {
@@ -357,13 +374,12 @@ fn match_xor_via_ornot_flat(node: &Expr, bitwidth: u32) -> Option<Box<Expr>> {
 /// check in the caller verifies whether the full identity holds; this
 /// lets us catch shapes like `(~X|Y) + A + 2` where constant folding
 /// has reshuffled the 3-term form.
-fn match_and_via_ornot_lax(node: &Expr, out: &mut Vec<Box<Expr>>) {
+fn match_and_via_ornot_lax(node: &Expr, addends: &[Addend<'_>], out: &mut Vec<Box<Expr>>) {
     if !matches!(node.kind, Kind::Add) {
         return;
     }
-    let addends = flatten_addends(node);
     let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
-    for a in &addends {
+    for a in addends {
         if a.negated {
             continue;
         }
@@ -399,12 +415,11 @@ fn match_and_via_ornot_lax(node: &Expr, out: &mut Vec<Box<Expr>>) {
 /// folding (Mul(2, Or)), and whatever partial mixes the parser and
 /// pattern simplifier leave behind. The full-width check in the caller
 /// gates correctness.
-fn match_xor_via_ornot_lax(node: &Expr, out: &mut Vec<Box<Expr>>) {
+fn match_xor_via_ornot_lax(node: &Expr, addends: &[Addend<'_>], out: &mut Vec<Box<Expr>>) {
     if !matches!(node.kind, Kind::Add) {
         return;
     }
-    let addends = flatten_addends(node);
-    for a in &addends {
+    for a in addends {
         let or_node: Option<&Expr> = match a.expr.kind {
             Kind::Or if a.expr.children.len() == 2 => Some(a.expr),
             Kind::Mul if a.expr.children.len() == 2 => {
@@ -584,7 +599,8 @@ mod tests {
             ),
             Expr::constant(1),
         );
-        let cand = match_and_via_not_or_plus_a_plus_one(&lhs, 64).expect("match");
+        let addends = flatten_addends(&lhs);
+        let cand = match_and_via_not_or_plus_a_plus_one(&addends, 64).expect("match");
         assert!(matches!(cand.kind, Kind::And));
     }
 
@@ -606,7 +622,8 @@ mod tests {
             ),
             Expr::neg(Expr::constant(2)),
         );
-        let cand = match_xor_via_ornot_flat(&lhs, 64).expect("match");
+        let addends = flatten_addends(&lhs);
+        let cand = match_xor_via_ornot_flat(&addends, 64).expect("match");
         assert!(matches!(cand.kind, Kind::Xor));
     }
 

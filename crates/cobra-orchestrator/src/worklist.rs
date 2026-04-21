@@ -1,8 +1,14 @@
 //! Worklist over [`WorkItem`]s with multi-key priority ordering.
 //!
-//! queue with a `std::vector` and does an O(n) pick on `Pop`. Priority
-//! (implemented in `IsBetterPriority`) ranks by band / sub-band /
-//! depth / provenance / history size, with lower values winning. The
+//! Priority (implemented in `is_better_priority`) ranks by band /
+//! sub-band / depth / provenance / history size — lower values win.
+//! Ties are broken by FIFO insertion order via a monotonic sequence
+//! number so that pop order is deterministic and stable.
+//!
+//! Backed by `std::collections::BinaryHeap` for O(log n) push and pop.
+
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 
 use crate::enums::StateKind;
 use crate::work_item::WorkItem;
@@ -26,33 +32,72 @@ fn sub_band_of(item: &WorkItem) -> u8 {
     }
 }
 
-/// provenance, history length — all lower-wins. Returns `true` iff
-/// `a` should pop before `b`.
+/// Priority key: band / sub-band / depth / provenance / history length —
+/// all lower-wins. Returns `true` iff `a` should pop before `b`.
 #[must_use]
 pub fn is_better_priority(a: &WorkItem, b: &WorkItem) -> bool {
-    let (ba, bb) = (band_of(a), band_of(b));
-    if ba != bb {
-        return ba < bb;
+    priority_key(a) < priority_key(b)
+}
+
+/// Multi-key priority tuple, lower = higher priority (pops first).
+/// Computed once at push time; stored alongside the item in the heap.
+type PriorityKey = (u8, u8, u32, u8, usize);
+
+fn priority_key(item: &WorkItem) -> PriorityKey {
+    (
+        band_of(item),
+        sub_band_of(item),
+        item.depth,
+        item.features.provenance as u8,
+        item.history.len(),
+    )
+}
+
+/// Heap entry: priority key + FIFO sequence number + the item itself.
+///
+/// `BinaryHeap` is a max-heap, but we want *lowest* priority key to
+/// pop first. `Ord` is implemented with the comparison reversed so
+/// the heap's "max" is the item the linear scan would pick.
+///
+/// Ties on priority key are broken by the sequence number: earlier
+/// insertions pop first. This preserves the stable FIFO order that
+/// the old `Vec` + `Vec::remove` implementation provided.
+#[derive(Debug)]
+struct HeapEntry {
+    key: PriorityKey,
+    seq: u64,
+    item: WorkItem,
+}
+
+impl PartialEq for HeapEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key && self.seq == other.seq
     }
-    let (sa, sb) = (sub_band_of(a), sub_band_of(b));
-    if sa != sb {
-        return sa < sb;
+}
+
+impl Eq for HeapEntry {}
+
+impl Ord for HeapEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Reversed: lower key wins → greater in heap order.
+        // On key tie, lower seq wins (FIFO) → greater in heap order.
+        other
+            .key
+            .cmp(&self.key)
+            .then_with(|| other.seq.cmp(&self.seq))
     }
-    if a.depth != b.depth {
-        return a.depth < b.depth;
+}
+
+impl PartialOrd for HeapEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
-    if a.features.provenance != b.features.provenance {
-        return (a.features.provenance as u8) < (b.features.provenance as u8);
-    }
-    if a.history.len() != b.history.len() {
-        return a.history.len() < b.history.len();
-    }
-    false
 }
 
 #[derive(Debug, Default)]
 pub struct Worklist {
-    items: Vec<WorkItem>,
+    heap: BinaryHeap<HeapEntry>,
+    next_seq: u64,
     high_water: usize,
 }
 
@@ -63,37 +108,28 @@ impl Worklist {
     }
 
     pub fn push(&mut self, item: WorkItem) {
-        self.items.push(item);
-        if self.items.len() > self.high_water {
-            self.high_water = self.items.len();
+        let key = priority_key(&item);
+        let seq = self.next_seq;
+        self.next_seq += 1;
+        self.heap.push(HeapEntry { key, seq, item });
+        if self.heap.len() > self.high_water {
+            self.high_water = self.heap.len();
         }
     }
 
-    /// Remove and return the highest-priority item, as ranked by
-    /// `Worklist::Pop` semantics — linear O(n) scan.
-    ///
-    /// Uses `Vec::remove` (not `swap_remove`) to preserve the relative
+    /// Remove and return the highest-priority item. O(log n).
     pub fn pop(&mut self) -> Option<WorkItem> {
-        if self.items.is_empty() {
-            return None;
-        }
-        let mut best = 0usize;
-        for i in 1..self.items.len() {
-            if is_better_priority(&self.items[i], &self.items[best]) {
-                best = i;
-            }
-        }
-        Some(self.items.remove(best))
+        self.heap.pop().map(|e| e.item)
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
+        self.heap.is_empty()
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.items.len()
+        self.heap.len()
     }
 
     #[must_use]

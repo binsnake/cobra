@@ -13,7 +13,6 @@ use std::collections::HashMap;
 
 use cobra_core::arith::{bitmask, mod_neg, mod_shr};
 use cobra_core::expr::{Expr, Kind};
-use cobra_core::expr_utils::has_var_dep;
 use cobra_core::result::{err, CobraError, Result};
 
 use crate::semilinear::{
@@ -21,16 +20,6 @@ use crate::semilinear::{
     OperatorFamily, SemilinearIR, WeightedAtom,
 };
 
-fn is_purely_bitwise(expr: &Expr) -> bool {
-    match expr.kind {
-        Kind::Constant(_) | Kind::Variable(_) => true,
-        Kind::And | Kind::Or | Kind::Xor => {
-            is_purely_bitwise(&expr.children[0]) && is_purely_bitwise(&expr.children[1])
-        }
-        Kind::Not | Kind::Shr(_) => is_purely_bitwise(&expr.children[0]),
-        Kind::Add | Kind::Mul | Kind::Neg => false,
-    }
-}
 
 fn has_constant(expr: &Expr) -> bool {
     if matches!(expr.kind, Kind::Constant(_)) {
@@ -44,6 +33,90 @@ fn contains_shr(expr: &Expr) -> bool {
         return true;
     }
     expr.children.iter().any(|c| contains_shr(c))
+}
+
+#[derive(Clone, Copy)]
+struct ExprInfo {
+    is_purely_bitwise: bool,
+    has_var_dep: bool,
+    has_constant: bool,
+    contains_shr: bool,
+}
+
+/// Single postorder walk computing all four predicates simultaneously.
+/// Results are memoized per subtree by pointer identity for the duration
+/// of one `collect_terms` invocation.
+fn compute_expr_info<'a>(
+    expr: &'a Expr,
+    cache: &mut HashMap<*const Expr, ExprInfo>,
+) -> ExprInfo {
+    let key = expr as *const Expr;
+    if let Some(info) = cache.get(&key) {
+        return *info;
+    }
+    let info = match &expr.kind {
+        Kind::Constant(_) => ExprInfo {
+            is_purely_bitwise: true,
+            has_var_dep: false,
+            has_constant: true,
+            contains_shr: false,
+        },
+        Kind::Variable(_) => ExprInfo {
+            is_purely_bitwise: true,
+            has_var_dep: true,
+            has_constant: false,
+            contains_shr: false,
+        },
+        Kind::And | Kind::Or | Kind::Xor => {
+            let l = compute_expr_info(&expr.children[0], cache);
+            let r = compute_expr_info(&expr.children[1], cache);
+            ExprInfo {
+                is_purely_bitwise: l.is_purely_bitwise && r.is_purely_bitwise,
+                has_var_dep: l.has_var_dep || r.has_var_dep,
+                has_constant: l.has_constant || r.has_constant,
+                contains_shr: l.contains_shr || r.contains_shr,
+            }
+        }
+        Kind::Not => {
+            let c = compute_expr_info(&expr.children[0], cache);
+            ExprInfo {
+                is_purely_bitwise: c.is_purely_bitwise,
+                has_var_dep: c.has_var_dep,
+                has_constant: c.has_constant,
+                contains_shr: c.contains_shr,
+            }
+        }
+        Kind::Shr(_) => {
+            let c = compute_expr_info(&expr.children[0], cache);
+            ExprInfo {
+                is_purely_bitwise: c.is_purely_bitwise,
+                has_var_dep: c.has_var_dep,
+                has_constant: c.has_constant,
+                contains_shr: true,
+            }
+        }
+        Kind::Add | Kind::Mul => {
+            let l = compute_expr_info(&expr.children[0], cache);
+            let r = compute_expr_info(&expr.children[1], cache);
+            ExprInfo {
+                is_purely_bitwise: false,
+                has_var_dep: l.has_var_dep || r.has_var_dep,
+                has_constant: l.has_constant || r.has_constant,
+                contains_shr: l.contains_shr || r.contains_shr,
+            }
+        }
+        Kind::Neg => {
+            let c = compute_expr_info(&expr.children[0], cache);
+            ExprInfo {
+                is_purely_bitwise: false,
+                has_var_dep: c.has_var_dep,
+                has_constant: c.has_constant,
+                contains_shr: c.contains_shr,
+            }
+        }
+    };
+    cache.insert(key, info);
+    info
 }
 
 fn eval_constant_bitwise(expr: &Expr, mask: u64) -> u64 {
@@ -153,7 +226,7 @@ struct CollectCtx {
     mask: u64,
     atom_map: HashMap<AtomKey, AtomId>,
     atom_table: Vec<AtomInfo>,
-    hash_cache: HashMap<u64, AtomId>,
+    hash_cache: HashMap<(u64, Vec<GlobalVarIdx>), AtomId>,
     encountered_nonlinear: bool,
 }
 
@@ -170,10 +243,8 @@ fn register_atom(ctx: &mut CollectCtx, expr: &Expr) -> AtomId {
 
     let struct_hash = structural_hash(expr);
 
-    if let Some(&existing) = ctx.hash_cache.get(&struct_hash) {
-        if ctx.atom_table[existing as usize].key.support == support {
-            return existing;
-        }
+    if let Some(&existing) = ctx.hash_cache.get(&(struct_hash, support.clone())) {
+        return existing;
     }
 
     let tt = compute_atom_truth_table(expr, &support, ctx.bitwidth);
@@ -193,7 +264,7 @@ fn register_atom(ctx: &mut CollectCtx, expr: &Expr) -> AtomId {
     if pure && !key.truth_table.is_empty() {
         ctx.atom_map.insert(key.clone(), atom_id);
     }
-    ctx.hash_cache.insert(struct_hash, atom_id);
+    ctx.hash_cache.insert((struct_hash, key.support.clone()), atom_id);
 
     ctx.atom_table.push(AtomInfo {
         atom_id,
@@ -215,12 +286,18 @@ fn collect_terms(ctx: &mut CollectCtx, expr: &Expr, coeff: u64) -> CollectResult
         };
     }
 
+    // Single-pass predicate computation over this subtree.
+    let mut info_cache: HashMap<*const Expr, ExprInfo> = HashMap::new();
+    let info = compute_expr_info(expr, &mut info_cache);
+
     // Lower XOR/OR with a constant operand to AND basis:
     //   a ^ c = a + c - 2*(a & c)
     //   a | c =  a + c - (a & c)
-    if matches!(expr.kind, Kind::Xor | Kind::Or) && is_purely_bitwise(expr) && has_var_dep(expr) {
-        let lhs_const = !has_var_dep(&expr.children[0]);
-        let rhs_const = !has_var_dep(&expr.children[1]);
+    if matches!(expr.kind, Kind::Xor | Kind::Or) && info.is_purely_bitwise && info.has_var_dep {
+        let l_info = compute_expr_info(&expr.children[0], &mut info_cache);
+        let r_info = compute_expr_info(&expr.children[1], &mut info_cache);
+        let lhs_const = !l_info.has_var_dep;
+        let rhs_const = !r_info.has_var_dep;
         if lhs_const || rhs_const {
             let (const_child, var_child) = if lhs_const {
                 (&expr.children[0], &expr.children[1])
@@ -246,14 +323,16 @@ fn collect_terms(ctx: &mut CollectCtx, expr: &Expr, coeff: u64) -> CollectResult
     }
 
     // Lower (~a) & c = c - (a & c) when a has variables.
-    if matches!(expr.kind, Kind::And) && is_purely_bitwise(expr) && has_var_dep(expr) {
+    if matches!(expr.kind, Kind::And) && info.is_purely_bitwise && info.has_var_dep {
         for side in 0..2 {
             let lhs = &expr.children[side];
             let rhs = &expr.children[1 - side];
             if !matches!(lhs.kind, Kind::Not) {
                 continue;
             }
-            if !has_var_dep(lhs) || has_var_dep(rhs) {
+            let lhs_info = compute_expr_info(lhs, &mut info_cache);
+            let rhs_info = compute_expr_info(rhs, &mut info_cache);
+            if !lhs_info.has_var_dep || rhs_info.has_var_dep {
                 continue;
             }
             let inner = &lhs.children[0];
@@ -272,7 +351,7 @@ fn collect_terms(ctx: &mut CollectCtx, expr: &Expr, coeff: u64) -> CollectResult
         }
     }
 
-    if is_purely_bitwise(expr) && has_var_dep(expr) {
+    if info.is_purely_bitwise && info.has_var_dep {
         let aid = register_atom(ctx, expr);
         return CollectResult {
             constant: 0,
@@ -283,7 +362,7 @@ fn collect_terms(ctx: &mut CollectCtx, expr: &Expr, coeff: u64) -> CollectResult
         };
     }
 
-    if !has_var_dep(expr) {
+    if !info.has_var_dep {
         let v = eval_constant_arith(expr, ctx.mask, ctx.bitwidth);
         return CollectResult {
             constant: coeff.wrapping_mul(v) & ctx.mask,
@@ -305,8 +384,10 @@ fn collect_terms(ctx: &mut CollectCtx, expr: &Expr, coeff: u64) -> CollectResult
             collect_terms(ctx, &expr.children[0], neg)
         }
         Kind::Mul => {
-            let lhs_const = !has_var_dep(&expr.children[0]);
-            let rhs_const = !has_var_dep(&expr.children[1]);
+            let l_info = compute_expr_info(&expr.children[0], &mut info_cache);
+            let r_info = compute_expr_info(&expr.children[1], &mut info_cache);
+            let lhs_const = !l_info.has_var_dep;
+            let rhs_const = !r_info.has_var_dep;
             if lhs_const {
                 let c = eval_constant_arith(&expr.children[0], ctx.mask, ctx.bitwidth);
                 return collect_terms(ctx, &expr.children[1], coeff.wrapping_mul(c) & ctx.mask);
@@ -322,23 +403,9 @@ fn collect_terms(ctx: &mut CollectCtx, expr: &Expr, coeff: u64) -> CollectResult
             }
         }
         Kind::Shr(_) => {
-            if is_purely_bitwise(expr) && has_var_dep(expr) {
-                let aid = register_atom(ctx, expr);
-                return CollectResult {
-                    constant: 0,
-                    terms: vec![WeightedAtom {
-                        coeff,
-                        atom_id: aid,
-                    }],
-                };
-            }
-            if !has_var_dep(expr) {
-                let v = eval_constant_arith(expr, ctx.mask, ctx.bitwidth);
-                return CollectResult {
-                    constant: coeff.wrapping_mul(v) & ctx.mask,
-                    terms: Vec::new(),
-                };
-            }
+            // info.is_purely_bitwise && info.has_var_dep and !info.has_var_dep
+            // cases already handled above; reaching here means Shr of a
+            // non-bitwise operand with variables.
             ctx.encountered_nonlinear = true;
             CollectResult {
                 constant: 0,

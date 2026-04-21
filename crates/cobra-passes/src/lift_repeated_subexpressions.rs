@@ -74,8 +74,6 @@ pub fn run_lift_repeated_subexpressions(
     collect_non_leaf_subtrees(
         &ast.expr,
         &mut preorder,
-        &vars,
-        ctx.bitwidth,
         &mut by_hash,
         &mut entries,
     );
@@ -135,7 +133,7 @@ pub fn run_lift_repeated_subexpressions(
         .map(|(i, sel)| DeduplicatedAtom {
             subtree: sel.first_occurrence,
             hash: sel.hash,
-            rendered: sel.rendered.clone(),
+            rendered: cobra_core::expr::render(sel.first_occurrence, &vars, ctx.bitwidth),
             virtual_index: original_var_count + i as u32,
         })
         .collect();

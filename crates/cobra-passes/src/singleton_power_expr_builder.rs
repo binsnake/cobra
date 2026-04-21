@@ -63,16 +63,12 @@ pub fn factorial_to_monomial(terms: &[UnivariateTerm], bitwidth: u32) -> Vec<u64
 fn reduce_add_tree(mut terms: Vec<Box<Expr>>) -> Box<Expr> {
     while terms.len() > 1 {
         let mut next: Vec<Box<Expr>> = Vec::with_capacity(terms.len().div_ceil(2));
-        let mut i = 0;
-        while i < terms.len() {
-            if i + 1 < terms.len() {
-                let a = terms[i].clone_tree();
-                let b = terms[i + 1].clone_tree();
-                next.push(Expr::add(a, b));
-            } else {
-                next.push(terms[i].clone_tree());
+        let mut it = terms.into_iter();
+        while let Some(a) = it.next() {
+            match it.next() {
+                Some(b) => next.push(Expr::add(a, b)),
+                None => next.push(a),
             }
-            i += 2;
         }
         terms = next;
     }

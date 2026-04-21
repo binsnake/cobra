@@ -9,7 +9,6 @@ use cobra_core::classification::{
 use crate::attempt_cache::PassAttemptCache;
 use crate::context::OrchestratorPolicy;
 use crate::enums::{PassId, Provenance, RemainderOrigin, StateKind};
-use crate::fingerprint::compute_fingerprint;
 use crate::state::StateData;
 use crate::work_item::WorkItem;
 
@@ -197,7 +196,7 @@ pub fn select_next_pass(
     cache: &PassAttemptCache,
 ) -> Option<PassId> {
     let kind = item.payload.kind();
-    let fp = compute_fingerprint(item, 64);
+    let fp = item.fingerprint(64);
 
     // 1. Candidate → VerifyCandidate (budgeted)
     if kind == StateKind::CandidateExpr {

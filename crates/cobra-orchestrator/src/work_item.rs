@@ -72,6 +72,10 @@ pub struct WorkItem {
     pub evaluator_override: Option<Evaluator>,
     pub evaluator_override_arity: u32,
     pub history: Vec<PassId>,
+    /// Memoized fingerprint. Filled on first demand, invalidated whenever
+    /// fingerprint-contributing state changes. Not serialized; not part
+    /// of equality — WorkItem `Clone` copies the cache as-is.
+    fingerprint_cache: std::cell::OnceCell<StateFingerprint>,
 }
 
 impl WorkItem {
@@ -91,6 +95,7 @@ impl WorkItem {
             evaluator_override: None,
             evaluator_override_arity: 0,
             history: Vec::new(),
+            fingerprint_cache: std::cell::OnceCell::new(),
         }
     }
 
@@ -105,6 +110,33 @@ impl WorkItem {
     pub fn has_attempted(&self, pass: PassId) -> bool {
         (self.attempted_mask & (1u64 << pass.as_u8())) != 0
     }
+
+    /// Return a fingerprint for this item. If the cached fingerprint
+    /// was computed at the same `bitwidth`, returns it without
+    /// recomputing. If the cache is empty, fills it. If the cached
+    /// fingerprint has a different bitwidth, recomputes without
+    /// overwriting the cache (so callers at the original bitwidth still
+    /// hit it).
+    #[must_use]
+    pub fn fingerprint(&self, bitwidth: u32) -> std::borrow::Cow<'_, StateFingerprint> {
+        if let Some(fp) = self.fingerprint_cache.get() {
+            if fp.bitwidth == bitwidth {
+                return std::borrow::Cow::Borrowed(fp);
+            }
+            return std::borrow::Cow::Owned(crate::fingerprint::compute_fingerprint(self, bitwidth));
+        }
+        let fp = crate::fingerprint::compute_fingerprint(self, bitwidth);
+        // Ignore result of set — another caller may have raced us.
+        let _ = self.fingerprint_cache.set(fp);
+        std::borrow::Cow::Borrowed(self.fingerprint_cache.get().expect("just set"))
+    }
+
+    /// Clear the memoized fingerprint. Call whenever a field that feeds
+    /// `compute_fingerprint` mutates (payload, features.provenance,
+    /// group_id, signature_recursion_depth, evaluator_override).
+    pub fn invalidate_fingerprint_cache(&mut self) {
+        self.fingerprint_cache = std::cell::OnceCell::new();
+    }
 }
 
 // ----- Fingerprints -----
@@ -117,7 +149,7 @@ use cobra_ir::semilinear::{GlobalVarIdx, OperatorFamily};
 pub struct StateFingerprint {
     pub kind: crate::enums::StateKind,
     pub payload_hash: u64,
-    pub vars: Vec<String>,
+    pub vars_hash: u64,
     pub bitwidth: u32,
     pub provenance: Provenance,
 }

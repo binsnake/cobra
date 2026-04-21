@@ -112,13 +112,17 @@ fn enumerate_basis(num_vars: u32, max_degree: u8, per_var_cap: u8) -> Vec<Vec<u8
 /// vector, or `None` if rank-deficient or inconsistent.
 #[allow(clippy::too_many_lines, clippy::needless_range_loop)]
 pub(crate) fn solve_2adic(
-    mat: &mut [Vec<u64>],
+    mat: &mut [u64],
     rhs: &mut [u64],
     num_cols: usize,
     mask: u64,
     bitwidth: u32,
 ) -> Option<Vec<u64>> {
-    let num_rows = mat.len();
+    debug_assert!(num_cols > 0);
+    debug_assert_eq!(mat.len() % num_cols, 0);
+    let num_rows = mat.len() / num_cols;
+    debug_assert_eq!(rhs.len(), num_rows);
+
     let mut is_pivot = vec![false; num_rows];
     let mut pivot_row = vec![0usize; num_cols];
     let mut has_pivot = vec![false; num_cols];
@@ -127,10 +131,11 @@ pub(crate) fn solve_2adic(
         let mut best_row = num_rows;
         let mut best_v2 = bitwidth + 1;
         for j in 0..num_rows {
-            if is_pivot[j] || mat[j][col] == 0 {
+            let v = mat[j * num_cols + col];
+            if is_pivot[j] || v == 0 {
                 continue;
             }
-            let v2 = mat[j][col].trailing_zeros();
+            let v2 = v.trailing_zeros();
             if v2 < best_v2 {
                 best_v2 = v2;
                 best_row = j;
@@ -149,16 +154,23 @@ pub(crate) fn solve_2adic(
         }
         let prec = bitwidth - best_v2;
         let prec_mask = bitmask(prec);
-        let piv_inv = mod_inverse_odd(mat[best_row][col] >> best_v2, prec);
+        let piv_inv = mod_inverse_odd(mat[best_row * num_cols + col] >> best_v2, prec);
+        let piv_base = best_row * num_cols;
 
         for i in 0..num_rows {
-            if is_pivot[i] || mat[i][col] == 0 {
+            if i == best_row {
                 continue;
             }
-            let mult = ((mat[i][col] >> best_v2).wrapping_mul(piv_inv)) & prec_mask;
+            let row_base = i * num_cols;
+            let pivot_col_val = mat[row_base + col];
+            if is_pivot[i] || pivot_col_val == 0 {
+                continue;
+            }
+            let mult = ((pivot_col_val >> best_v2).wrapping_mul(piv_inv)) & prec_mask;
+            // Split borrows: piv_base != row_base since i != best_row.
             for c in 0..num_cols {
-                let term = mult.wrapping_mul(mat[best_row][c]);
-                mat[i][c] = mat[i][c].wrapping_sub(term) & mask;
+                let term = mult.wrapping_mul(mat[piv_base + c]);
+                mat[row_base + c] = mat[row_base + c].wrapping_sub(term) & mask;
             }
             rhs[i] = rhs[i].wrapping_sub(mult.wrapping_mul(rhs[best_row])) & mask;
         }
@@ -178,8 +190,104 @@ pub(crate) fn solve_2adic(
     let mut h_raw = vec![0u64; num_cols];
     for col_idx in (0..num_cols).rev() {
         let row = pivot_row[col_idx];
+        let row_base = row * num_cols;
         let mut adj_rhs = rhs[row];
         for c in (col_idx + 1)..num_cols {
+            adj_rhs = adj_rhs.wrapping_sub(h_raw[c].wrapping_mul(mat[row_base + c])) & mask;
+        }
+        let pivot_val = mat[row_base + col_idx];
+        if pivot_val == 0 {
+            return None;
+        }
+        let t = pivot_val.trailing_zeros();
+        if t >= bitwidth {
+            h_raw[col_idx] = 0;
+            continue;
+        }
+        if t > 0 && (adj_rhs & ((1u64 << t) - 1)) != 0 {
+            return None;
+        }
+        let prec = bitwidth - t;
+        let prec_mask = bitmask(prec);
+        let piv_inv = mod_inverse_odd(pivot_val >> t, prec);
+        h_raw[col_idx] = ((adj_rhs >> t).wrapping_mul(piv_inv)) & prec_mask;
+    }
+
+    Some(h_raw)
+}
+
+/// Stack-allocated square-matrix specialization of [`solve_2adic`]. Mirrors
+/// the same algorithm but operates on `[[u64; N]; N]` and `[u64; N]`, avoiding
+/// heap allocation in hot pattern-matching loops where `N` is small and fixed
+/// (e.g. the 4×4 two-var basis-triple system).
+#[allow(clippy::needless_range_loop)]
+pub(crate) fn solve_2adic_fixed<const N: usize>(
+    mat: &mut [[u64; N]; N],
+    rhs: &mut [u64; N],
+    mask: u64,
+    bitwidth: u32,
+) -> Option<[u64; N]> {
+    let mut is_pivot = [false; N];
+    let mut pivot_row = [0usize; N];
+    let mut has_pivot = [false; N];
+
+    for col in 0..N {
+        let mut best_row = N;
+        let mut best_v2 = bitwidth + 1;
+        for j in 0..N {
+            if is_pivot[j] || mat[j][col] == 0 {
+                continue;
+            }
+            let v2 = mat[j][col].trailing_zeros();
+            if v2 < best_v2 {
+                best_v2 = v2;
+                best_row = j;
+            }
+        }
+        if best_row == N {
+            continue;
+        }
+
+        is_pivot[best_row] = true;
+        has_pivot[col] = true;
+        pivot_row[col] = best_row;
+
+        if best_v2 >= bitwidth {
+            continue;
+        }
+        let prec = bitwidth - best_v2;
+        let prec_mask = bitmask(prec);
+        let piv_inv = mod_inverse_odd(mat[best_row][col] >> best_v2, prec);
+
+        for i in 0..N {
+            if is_pivot[i] || mat[i][col] == 0 {
+                continue;
+            }
+            let mult = ((mat[i][col] >> best_v2).wrapping_mul(piv_inv)) & prec_mask;
+            for c in 0..N {
+                let term = mult.wrapping_mul(mat[best_row][c]);
+                mat[i][c] = mat[i][c].wrapping_sub(term) & mask;
+            }
+            rhs[i] = rhs[i].wrapping_sub(mult.wrapping_mul(rhs[best_row])) & mask;
+        }
+    }
+
+    for col in 0..N {
+        if !has_pivot[col] {
+            return None;
+        }
+    }
+    for i in 0..N {
+        if !is_pivot[i] && rhs[i] != 0 {
+            return None;
+        }
+    }
+
+    let mut h_raw = [0u64; N];
+    for col_idx in (0..N).rev() {
+        let row = pivot_row[col_idx];
+        let mut adj_rhs = rhs[row];
+        for c in (col_idx + 1)..N {
             adj_rhs = adj_rhs.wrapping_sub(h_raw[c].wrapping_mul(mat[row][c])) & mask;
         }
         if mat[row][col_idx] == 0 {
@@ -225,10 +333,23 @@ fn try_solve(
         num_rows = num_rows.checked_mul(grid_base)?;
     }
 
-    let mut mat: Vec<Vec<u64>> = vec![vec![0u64; num_cols]; num_rows];
+    let mut mat: Vec<u64> = vec![0u64; num_rows * num_cols];
     let mut rhs: Vec<u64> = vec![0u64; num_rows];
     let mut full_point: Vec<u64> = vec![0u64; total_num_vars as usize];
     let mut local_point: Vec<u64> = vec![0u64; k as usize];
+
+    // Precompute falling_factorial(coord, degree, mask) indexed by [axis][coord][degree].
+    // axis: 0..k, coord: 0..grid_base, degree: 0..=per_var_cap.
+    let deg_dim = usize::from(per_var_cap) + 1;
+    let mut ff_table: Vec<u64> = vec![0u64; (k as usize) * grid_base * deg_dim];
+    for axis in 0..k as usize {
+        for coord in 0..grid_base {
+            for deg in 0..deg_dim {
+                ff_table[(axis * grid_base + coord) * deg_dim + deg] =
+                    falling_factorial(coord as u64, deg as u8, mask);
+            }
+        }
+    }
 
     for row in 0..num_rows {
         let mut tmp = row;
@@ -243,10 +364,12 @@ fn try_solve(
         for col in 0..num_cols {
             let mut phi: u64 = 1;
             for i in 0..k as usize {
-                phi = phi.wrapping_mul(falling_factorial(local_point[i], basis_exps[col][i], mask))
+                let coord = local_point[i] as usize;
+                let deg = basis_exps[col][i] as usize;
+                phi = phi.wrapping_mul(ff_table[(i * grid_base + coord) * deg_dim + deg])
                     & mask;
             }
-            mat[row][col] = w_val.wrapping_mul(phi) & mask;
+            mat[row * num_cols + col] = w_val.wrapping_mul(phi) & mask;
         }
         for &idx in support_vars {
             full_point[idx as usize] = 0;

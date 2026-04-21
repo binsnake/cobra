@@ -18,7 +18,7 @@ use cobra_core::expr_rewrite::apply_coefficient;
 use cobra_core::expr_utils::{collect_vars, remap_var_indices};
 
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
-use crate::weighted_poly_fit::solve_2adic;
+use crate::weighted_poly_fit::solve_2adic_fixed;
 
 /// True when every entry of `sig` is the same value.
 #[must_use]
@@ -659,6 +659,26 @@ fn build_two_var_basis_patterns(bitwidth: u32) -> Vec<TwoVarBasisPattern> {
     out
 }
 
+/// Thread-safe cache of [`build_two_var_basis_patterns`] keyed by bitwidth.
+/// The basis only depends on bitwidth (1..=64), so we compute once per width
+/// and hand out a shared `&'static` slice. Callers inside hot loops avoid
+/// rebuilding the 14-entry expression/signature table on every invocation.
+fn cached_two_var_basis_patterns(bitwidth: u32) -> &'static [TwoVarBasisPattern] {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+
+    static CACHE: OnceLock<Mutex<HashMap<u32, &'static [TwoVarBasisPattern]>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().expect("two-var basis cache poisoned");
+    if let Some(&slice) = guard.get(&bitwidth) {
+        return slice;
+    }
+    let built = build_two_var_basis_patterns(bitwidth);
+    let leaked: &'static [TwoVarBasisPattern] = Box::leak(built.into_boxed_slice());
+    guard.insert(bitwidth, leaked);
+    leaked
+}
+
 /// Coefficient candidate set: `{0}` ∪ `sig` ∪ `{sig[i] - sig[j]}`.
 fn build_coefficient_candidates(sig: &[u64], bitwidth: u32) -> Vec<u64> {
     let mut out = Vec::with_capacity(1 + sig.len() + sig.len() * sig.len());
@@ -709,7 +729,7 @@ pub fn try_simplify_two_var_pattern_sum(
     mut verify: impl FnMut(&Expr) -> bool,
 ) -> Option<Box<Expr>> {
     let coeffs = build_coefficient_candidates(sig, bitwidth);
-    let basis = build_two_var_basis_patterns(bitwidth);
+    let basis = cached_two_var_basis_patterns(bitwidth);
 
     let mut best: Option<Box<Expr>> = None;
     let mut best_cost = baseline_cost;
@@ -791,8 +811,11 @@ pub fn try_simplify_two_var_basis_triple(
     if sig.len() != 4 {
         return None;
     }
-    let basis = build_two_var_basis_patterns(bitwidth);
+    let basis = cached_two_var_basis_patterns(bitwidth);
     let mask = bitmask(bitwidth);
+
+    // Stack-allocated RHS; copy `sig` once per call, reinitialize per triple.
+    let sig_arr: [u64; 4] = [sig[0], sig[1], sig[2], sig[3]];
 
     let mut best: Option<Box<Expr>> = None;
     let mut best_cost = baseline_cost;
@@ -804,12 +827,19 @@ pub fn try_simplify_two_var_basis_triple(
                 let bj = &basis[j];
                 let bk = &basis[k];
 
-                let mut mat: Vec<Vec<u64>> = (0..4)
-                    .map(|r| vec![1u64, bi.sig[r], bj.sig[r], bk.sig[r]])
-                    .collect();
-                let mut rhs: Vec<u64> = sig.to_vec();
+                // Stack-allocated 4×4 system: columns are [1, B_i, B_j, B_k]
+                // over the 4 boolean-signature rows. Reconstructed each
+                // iteration because `solve_2adic_fixed` mutates in place.
+                let mut mat: [[u64; 4]; 4] = [
+                    [1, bi.sig[0], bj.sig[0], bk.sig[0]],
+                    [1, bi.sig[1], bj.sig[1], bk.sig[1]],
+                    [1, bi.sig[2], bj.sig[2], bk.sig[2]],
+                    [1, bi.sig[3], bj.sig[3], bk.sig[3]],
+                ];
+                let mut rhs: [u64; 4] = sig_arr;
 
-                let Some(sol) = solve_2adic(&mut mat, &mut rhs, 4, mask, bitwidth) else {
+                let Some(sol) = solve_2adic_fixed::<4>(&mut mat, &mut rhs, mask, bitwidth)
+                else {
                     continue;
                 };
                 let (c, a, b, d) = (sol[0], sol[1], sol[2], sol[3]);

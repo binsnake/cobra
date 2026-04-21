@@ -13,7 +13,7 @@ use crate::work_item::StateFingerprint;
 
 #[derive(Debug)]
 pub struct PassAttemptCache {
-    map: HashMap<StateFingerprint, Vec<PassId>, RandomState>,
+    map: HashMap<StateFingerprint, u64, RandomState>,
 }
 
 impl Default for PassAttemptCache {
@@ -33,15 +33,13 @@ impl PassAttemptCache {
     /// Mark `pass` as attempted against `fp`. Idempotent — duplicate
     /// records don't produce duplicate entries.
     pub fn record(&mut self, fp: StateFingerprint, pass: PassId) {
-        let entry = self.map.entry(fp).or_default();
-        if !entry.contains(&pass) {
-            entry.push(pass);
-        }
+        let entry = self.map.entry(fp).or_insert(0u64);
+        *entry |= 1u64 << pass.as_u8();
     }
 
     #[must_use]
     pub fn has_attempted(&self, fp: &StateFingerprint, pass: PassId) -> bool {
-        self.map.get(fp).is_some_and(|v| v.contains(&pass))
+        self.map.get(fp).is_some_and(|m| (m >> pass.as_u8()) & 1 != 0)
     }
 
     #[must_use]
@@ -64,7 +62,7 @@ mod tests {
         StateFingerprint {
             kind,
             payload_hash: h,
-            vars: Vec::new(),
+            vars_hash: 0,
             bitwidth: 64,
             provenance: Provenance::Original,
         }

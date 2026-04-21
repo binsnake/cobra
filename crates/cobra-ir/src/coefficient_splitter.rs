@@ -63,43 +63,57 @@ fn correction_factor(popcount: u32, bitwidth: u32) -> u64 {
     }
 }
 
-/// Sum of contributions from all non-empty submasks of `active_mask`
-/// which a new mask's MUL contribution is extracted.
-fn eval_known_contribution(
+/// Contribution of a single finalized mask `s` to the AND-only prediction
+/// at any supermask point `P_m` (independent of `m`).
+fn mask_contribution(
     and_coeffs: &[u64],
     mul_coeffs: &[u64],
-    active_mask: u64,
+    s: usize,
     bitwidth: u32,
     singleton_at_2: &[u64],
 ) -> u64 {
     let mask = bitmask(bitwidth);
-    let mut g = and_coeffs[0] & mask;
-
-    let mut s = active_mask;
-    while s != 0 {
-        let popcount = s.count_ones();
-        if popcount == 1 && !singleton_at_2.is_empty() {
-            let bit = s.trailing_zeros();
-            g = g.wrapping_add(singleton_at_2[bit as usize]) & mask;
-        } else {
-            let and_val: u64 = 2;
-            let mul_val = correction_factor(popcount, bitwidth);
-            let contribution = and_val
-                .wrapping_mul(and_coeffs[s as usize])
-                .wrapping_add(mul_val.wrapping_mul(mul_coeffs[s as usize]));
-            g = g.wrapping_add(contribution) & mask;
-        }
-        if s == 0 {
-            break;
-        }
-        s = s.wrapping_sub(1) & active_mask;
-        if s == active_mask {
-            // next iteration would repeat the full mask; we've enumerated
-            // every non-empty submask.
-            break;
-        }
+    let popcount = (s as u64).count_ones();
+    if popcount == 1 && !singleton_at_2.is_empty() {
+        let bit = (s as u64).trailing_zeros();
+        singleton_at_2[bit as usize] & mask
+    } else {
+        let and_val: u64 = 2;
+        let mul_val = correction_factor(popcount, bitwidth);
+        and_val
+            .wrapping_mul(and_coeffs[s])
+            .wrapping_add(mul_val.wrapping_mul(mul_coeffs[s]))
+            & mask
     }
-    g
+}
+
+/// Add `delta` to `accumulated[t]` for every strict supermask `t` of `s`
+/// within `len = 1 << num_vars`. Contribution is reduced mod `2^bitwidth`
+/// after the add.
+fn propagate_to_supermasks(
+    accumulated: &mut [u64],
+    s: usize,
+    delta: u64,
+    num_vars: u32,
+    mask: u64,
+) {
+    let len = 1usize << num_vars;
+    // Enumerate supermasks of s: iterate over subsets of the complement
+    // of s (within num_vars bits), skipping the empty subset (which would
+    // yield t == s).
+    let full: usize = if num_vars >= (usize::BITS) { !0usize } else { len - 1 };
+    let comp = full & !s;
+    let mut sub = comp;
+    loop {
+        if sub != 0 {
+            let t = s | sub;
+            accumulated[t] = accumulated[t].wrapping_add(delta) & mask;
+        }
+        if sub == 0 {
+            break;
+        }
+        sub = (sub - 1) & comp;
+    }
 }
 
 /// Deterministic coefficient splitting. `cob` is the AND-monomial
@@ -136,6 +150,30 @@ pub fn split_coefficients(
     }
 
     let mut point = vec![0u64; num_vars as usize];
+    let mut accumulated = vec![0u64; len];
+
+    // Seed: `and_coeffs[0]` (cob[0]) contributes the constant term to every g.
+    // We fold it into `accumulated[m]` for all m >= 1 so the predicted g is
+    // simply `accumulated[m]` during the loop.
+    let c0 = and_coeffs[0] & mask;
+    if c0 != 0 {
+        for m in 1..len {
+            accumulated[m] = c0;
+        }
+    }
+
+    // When singleton_at_2 is provided, layer k==1 is skipped but singleton
+    // masks still contribute `singleton_at_2[bit]` to every supermask g.
+    if !singleton_at_2.is_empty() {
+        for i in 0..num_vars as usize {
+            let s = 1usize << i;
+            let delta = singleton_at_2[i] & mask;
+            if delta != 0 {
+                propagate_to_supermasks(&mut accumulated, s, delta, num_vars, mask);
+            }
+        }
+    }
+
     for k in 1..=num_vars {
         if k == 1 && !singleton_at_2.is_empty() {
             continue;
@@ -145,6 +183,9 @@ pub fn split_coefficients(
                 continue;
             }
             if cob[m] == 0 {
+                // cob[m] == 0 means and_coeffs[m] starts at 0 and mul_coeffs[m]
+                // stays 0, so this mask's contribution to supermasks is 0 — no
+                // propagation needed.
                 continue;
             }
             let deg = if k < 2 { 2 } else { k };
@@ -154,24 +195,23 @@ pub fn split_coefficients(
             }
 
             let f = eval.eval(&point) & mask;
-            let g = eval_known_contribution(
-                &and_coeffs,
-                &mul_coeffs,
-                m as u64,
-                bitwidth,
-                singleton_at_2,
-            );
+            // Original prediction included mask m itself with initial
+            // and_coeffs[m]=cob[m], mul_coeffs[m]=0, giving contribution
+            // 2*cob[m]. Match that by adding it here.
+            let self_initial = (2u64).wrapping_mul(cob[m]) & mask;
+            let g = accumulated[m].wrapping_add(self_initial) & mask;
             let diff = f.wrapping_sub(g) & mask;
-            if diff == 0 {
-                continue;
+            if diff != 0 && diff & 1 == 0 {
+                let mul_coeff = (diff >> 1).wrapping_mul(odd_inverses[deg as usize]) & half_mod;
+                mul_coeffs[m] = mul_coeff;
+                and_coeffs[m] = cob[m].wrapping_sub(mul_coeff) & mask;
             }
-            if diff & 1 != 0 {
-                continue;
+            // Propagate this mask's finalized contribution to all strict
+            // supermasks' accumulated prediction.
+            let delta = mask_contribution(&and_coeffs, &mul_coeffs, m, bitwidth, singleton_at_2);
+            if delta != 0 {
+                propagate_to_supermasks(&mut accumulated, m, delta, num_vars, mask);
             }
-
-            let mul_coeff = (diff >> 1).wrapping_mul(odd_inverses[deg as usize]) & half_mod;
-            mul_coeffs[m] = mul_coeff;
-            and_coeffs[m] = cob[m].wrapping_sub(mul_coeff) & mask;
         }
     }
 
