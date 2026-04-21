@@ -1,7 +1,5 @@
 //! Root-level contiguous low-bit mask detection for dynamic masking.
 //!
-//! Ported from `include/cobra/core/DynamicMask.h` and
-//! `lib/core/DynamicMask.cpp`. Detects expressions of the form
 //! `(2^m - 1) & g` at the AST root. When found, `g` can be solved under
 //! `bitwidth = m` instead of the full width, provided `g` contains no
 //! right-shift nodes (shifts break the modular homomorphism).
@@ -9,7 +7,6 @@
 use cobra_core::expr::{Expr, Kind};
 
 /// Describes the detected mask: `mask = (1 << effective_width) - 1` applied
-/// to the `inner` subtree. The inner reference borrows from the input AST.
 #[derive(Copy, Clone, Debug)]
 pub struct MaskInfo<'a> {
     pub effective_width: u32,
@@ -18,7 +15,6 @@ pub struct MaskInfo<'a> {
 
 /// Returns `Some(m)` when `val == 2^m - 1` for `m in 1..=63`. `val == 0`
 /// and `val == u64::MAX` (the full-width mask) both return `None`,
-/// matching C++ `IsPowerOfTwoMinusOne`.
 #[must_use]
 pub fn is_power_of_two_minus_one(val: u64) -> Option<u32> {
     if val == 0 {

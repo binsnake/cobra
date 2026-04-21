@@ -1,9 +1,5 @@
-//! The core expression IR. Ported from `include/cobra/core/Expr.h` and
-//! `lib/core/Expr.cpp`.
 //!
-//! The C++ `Expr` stores `kind`, `constant_val`, `var_index`, and `children`
 //! as separate fields, with `constant_val` doing double duty for `kShr`
-//! (shift amount) and `kConstant` (the value). The Rust port moves that data
 //! into the `Kind` variant where it belongs, so the struct has exactly two
 //! fields: the tagged kind and the child list.
 
@@ -27,7 +23,6 @@ pub enum Kind {
     Not,
     Neg,
     /// Logical shift right. The shift amount is pinned here; `>= 64` yields 0
-    /// at evaluation time (matching C++ `ModShr`).
     Shr(u32),
 }
 
@@ -65,7 +60,6 @@ impl Kind {
 
 /// Expression tree node. Owns its children via `Box` in a `SmallVec` so that
 /// the common binary-op case stays inline (no heap allocation for the vector
-/// itself; each child is still heap-allocated via `Box`, matching the C++
 /// `std::unique_ptr<Expr>` semantics).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Expr {
@@ -135,7 +129,6 @@ impl Expr {
     }
 
     /// Logical right shift. `amount >= 64` is accepted and will evaluate to 0
-    /// (matching C++ `ModShr`). Stored as `u32` on `Kind::Shr`.
     #[inline]
     #[must_use]
     pub fn shr(operand: Box<Self>, amount: u64) -> Box<Self> {
@@ -156,9 +149,7 @@ impl Expr {
         Box::new(Self { kind, children })
     }
 
-    /// Equivalent to the C++ free function `CloneExpr(const Expr&)` — a
     /// deep copy. `Clone` already does this via `derive(Clone)`; this is
-    /// exposed for code paths that want the name to match the C++ source.
     #[inline]
     #[must_use]
     pub fn clone_tree(&self) -> Box<Self> {
@@ -169,7 +160,6 @@ impl Expr {
 /// Render the expression as a human-readable string, using `var_names[var_index]`
 /// for variables and modular-arithmetic semantics for negative constants.
 ///
-/// Ported from `lib/core/Expr.cpp::Render` with identical precedence and
 /// negative-constant rendering rules.
 #[must_use]
 pub fn render(expr: &Expr, var_names: &[String], bitwidth: u32) -> String {
@@ -357,7 +347,6 @@ mod tests {
         assert_eq!(render(&Expr::shr(v(0), 3), &vars, 64), "a >> 3");
         // add has prec 3, shr has prec 4. Lower = binds tighter, so add
         // binds tighter than shr and doesn't need parens as shr's child.
-        // Matches C++ `Render` output.
         let expr = Expr::shr(Expr::add(v(0), Expr::variable(0)), 2);
         assert_eq!(render(&expr, &vars, 64), "a + a >> 2");
 

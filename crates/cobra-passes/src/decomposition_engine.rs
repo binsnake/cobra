@@ -3,7 +3,6 @@
 //! `extract_poly_core`, `extract_template_core`) implements
 //! [`Extractor`] to plug into the pass layer.
 //!
-//! Idiomatic Rust replacement for the C++ template-parameterised
 //! `RunExtractor<ExtractorKind>` — a `&dyn Extractor` is dispatched
 //! from the pass, so per-kind customisations (like `AcceptCore`
 //! gating) can live on the trait impl instead of `if constexpr`
@@ -25,7 +24,6 @@ use cobra_orchestrator::{
 use crate::classifier::classify_structural;
 use crate::decomposition_helpers::accept_core;
 
-/// The shared input a core extractor needs. Mirrors the C++
 /// `DecompositionContext` layout, with the evaluator passed in
 /// separately so it can be `None`.
 pub struct DecompositionContext<'a> {
@@ -49,7 +47,6 @@ pub struct CoreCandidate {
 /// Trait for a concrete core-extractor implementation. Each
 /// implementor knows its own `ExtractorKind` and runs independently.
 pub trait Extractor {
-    /// Which extractor this is — for `CoreCandidatePayload` tagging.
     fn kind(&self) -> ExtractorKind;
 
     /// Run the extractor on the supplied context.

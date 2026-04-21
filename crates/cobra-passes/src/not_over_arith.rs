@@ -4,7 +4,6 @@
 //! `~` applies to a purely-arithmetic subtree, rewriting it into the
 //! arithmetic form lets downstream signature-based passes ingest the
 //! expression without a special-case bitwise-over-arith path. Ported
-//! from `lib/core/Simplifier.cpp` (`IsPurelyArithmetic`,
 //! `HasNotOverArith`, `LowerNotOverArith`).
 
 use cobra_core::arith::bitmask;
@@ -22,7 +21,6 @@ pub fn is_purely_arithmetic(e: &Expr) -> bool {
 }
 
 /// True if any `Not` node in `e` has a purely-arithmetic child.
-/// Matches C++ `HasNotOverArith`.
 #[must_use]
 pub fn has_not_over_arith(e: &Expr) -> bool {
     if matches!(e.kind, Kind::Not) && !e.children.is_empty() && is_purely_arithmetic(&e.children[0])
@@ -33,7 +31,6 @@ pub fn has_not_over_arith(e: &Expr) -> bool {
 }
 
 /// Bottom-up rewrite: replace each `Not(arith)` node with
-/// `Add(Neg(arith), Constant(mask))`. Matches C++ `LowerNotOverArith`.
 #[must_use]
 pub fn lower_not_over_arith(mut e: Box<Expr>, bitwidth: u32) -> Box<Expr> {
     // Rewrite children first (post-order).

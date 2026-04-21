@@ -1,8 +1,5 @@
 //! Flat stack-machine bytecode for fast repeated evaluation.
 //!
-//! Ported from `include/cobra/core/CompiledExpr.h` and `lib/core/CompiledExpr.cpp`.
-//! The C++ `EvalInstr` re-uses `Expr::Kind` as its opcode tag and a single
-//! `uint64_t operand` field. The Rust port separates the flat opcode from the
 //! tree-bearing `Kind` so that a compiled instruction doesn't carry redundant
 //! payload inside its variant.
 
@@ -38,7 +35,6 @@ pub struct EvalInstr {
 pub struct CompiledExpr {
     pub bitwidth: u32,
     pub mask: u64,
-    /// One past the highest variable index referenced.
     pub arity: u32,
     /// Minimum stack depth required for evaluation. Always `>= 1`.
     pub stack_size: usize,
@@ -47,7 +43,6 @@ pub struct CompiledExpr {
 
 /// Compile an `Expr` tree into flat bytecode.
 ///
-/// Iterative post-order traversal; the frames stack mirrors the C++ version
 /// exactly so the emitted instruction sequence is identical.
 #[must_use]
 pub fn compile(expr: &Expr, bitwidth: u32) -> CompiledExpr {
@@ -153,8 +148,6 @@ pub fn compile(expr: &Expr, bitwidth: u32) -> CompiledExpr {
 /// Evaluate a compiled program against `var_values`, using `stack` as a
 /// scratch buffer (will be grown if too small). Returns the top-of-stack.
 ///
-/// Ported from `EvalCompiledExpr`. Panics (via index out-of-bounds) on a
-/// malformed program — same as the C++ version's unchecked access.
 pub fn eval(compiled: &CompiledExpr, var_values: &[u64], stack: &mut Vec<u64>) -> u64 {
     if stack.len() < compiled.stack_size {
         stack.resize(compiled.stack_size, 0);

@@ -1,8 +1,6 @@
 //! DAG-aware pass scheduler: `select_next_pass` picks the next
 //! applicable pass for a given work item, honouring the per-item
 //! attempted-mask, the global pass-attempt cache, and prerequisite
-//! bitmasks carried in the `FoldedAst` pass table. Ported from the
-//! `SelectNextPass` section of `lib/core/Orchestrator.cpp`.
 
 use cobra_core::classification::{
     is_folded_ast_exploration_candidate, SemanticClass, StructuralFlag,
@@ -32,7 +30,6 @@ struct FoldedAstEntry {
     is_structural_transform: bool,
 }
 
-// Priority order matches C++ `kFoldedAstPasses` exactly. The
 // `is_structural_transform` arms are gated by `rewrite_gen`.
 const FOLDED_AST_PASSES: &[FoldedAstEntry] = &[
     FoldedAstEntry {
@@ -191,10 +188,8 @@ const SIGNATURE_COEFF_PASSES: &[PassId] = &[
 // ---------- scheduler ----------
 
 /// Pick the next applicable pass for `item`, or `None` if the item is
-/// exhausted. Matches C++ `SelectNextPass`. Bitwidth is fixed at 64 for
-/// fingerprint computation to match the C++ call site.
 #[must_use]
-#[allow(clippy::too_many_lines)] // direct port; splitting would diverge from C++
+#[allow(clippy::too_many_lines)]
 pub fn select_next_pass(
     item: &WorkItem,
     policy: &OrchestratorPolicy,

@@ -1,4 +1,3 @@
-//! Port of C++ `BuildMappedEvaluator`: produces an evaluator whose
 //! arity matches the `SignatureSubproblemContext`'s reduced variable
 //! count, remapping when necessary.
 //!
@@ -10,7 +9,6 @@
 //!   (identity map), no wrapping is performed.
 //!
 //! The returned evaluator uses a scatter-closure when the reduced
-//! arity differs from the source; this matches the C++ `Remap`
 //! behaviour and avoids the compiled-body-with-empty-input-map
 //! pitfall (`eval_compiled`'s shortcut path feeds the caller's slice
 //! straight into the compiled program when `input_map` is empty).

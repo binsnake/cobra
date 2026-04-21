@@ -1,11 +1,8 @@
 //! Seeding helpers that invoke classifier + lowering passes *before*
-//! the main dispatch loop starts. Matches the intent of C++
-//! `SeedWithAst` in `lib/core/Orchestrator.cpp`.
 //!
 //! The scheduler expects every `FoldedAst` work item to already carry
 //! a classification and a settled provenance; dispatching `ClassifyAst`
 //! or `LowerNotOverArith` from the worklist is *not* one of its routes.
-//! This module provides the one-shot call that C++ performs during
 //! seeding.
 
 use cobra_core::expr::Expr;
@@ -23,7 +20,6 @@ use crate::lower_not_over_arith::run_lower_not_over_arith;
 use crate::pattern_matcher::simplify_pattern_subtrees;
 
 /// Seed `worklist` with one or two `FoldedAst` items prepared from
-/// `input_expr`. Mirrors C++ `SeedWithAst`:
 ///
 /// 1. `RunLowerNotOverArith` runs on the `Original` seed.
 ///    - If lowering fires, the lowered result becomes the classify
@@ -46,7 +42,6 @@ pub fn seed_with_ast(
 ) -> Result<()> {
     // Pre-simplify small subexpressions via pattern-table lookup.
     // Peels off MBA obfuscation layers (e.g., (X+Y+1)+(~X|~Y) → X|Y)
-    // before classification. Mirrors C++ `SeedWithAst` step 0.
     let rewritten = simplify_pattern_subtrees(Box::new(input_expr.clone()), ctx.bitwidth);
     // Apply atom-level bitwise identities (e.g. `(A|B)-(A&B) -> A^B`)
     // bottom-up. These hold over arbitrary integer atoms and need to
@@ -102,7 +97,6 @@ pub fn seed_with_ast(
     // Helper: when `simplify_pattern_subtrees` rewrote the input, stamp
     // the seed item so the main loop's exhaustion-path fallback can
     // recognise it as a cost-improving rewrite. `rewrite_gen = 1`
-    // mirrors what structural passes do; history marker lets the gate
     // distinguish seed-time rewrites from other transforms.
     let stamp_seed_rewrite = |item: &mut WorkItem| {
         if pattern_rewrite_fired && item.rewrite_gen == 0 {

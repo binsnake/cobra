@@ -1,10 +1,8 @@
 //! Worklist over [`WorkItem`]s with multi-key priority ordering.
 //!
-//! The C++ version (`lib/core/Orchestrator.cpp::Worklist`) backs the
 //! queue with a `std::vector` and does an O(n) pick on `Pop`. Priority
 //! (implemented in `IsBetterPriority`) ranks by band / sub-band /
 //! depth / provenance / history size, with lower values winning. The
-//! Rust port mirrors those comparators exactly.
 
 use crate::enums::StateKind;
 use crate::work_item::WorkItem;
@@ -28,7 +26,6 @@ fn sub_band_of(item: &WorkItem) -> u8 {
     }
 }
 
-/// Ordering matches C++ `IsBetterPriority`: band, sub-band, depth,
 /// provenance, history length — all lower-wins. Returns `true` iff
 /// `a` should pop before `b`.
 #[must_use]
@@ -73,11 +70,9 @@ impl Worklist {
     }
 
     /// Remove and return the highest-priority item, as ranked by
-    /// [`is_better_priority`]. Returns `None` if empty. Matches C++
     /// `Worklist::Pop` semantics — linear O(n) scan.
     ///
     /// Uses `Vec::remove` (not `swap_remove`) to preserve the relative
-    /// order of the remaining items, matching C++ `vector::erase`.
     pub fn pop(&mut self) -> Option<WorkItem> {
         if self.items.is_empty() {
             return None;

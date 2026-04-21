@@ -1,7 +1,5 @@
 //! Orchestrator-wide context: policy, telemetry, run metadata, and the
 //! two mutable registries (competition groups + join states) that
-//! passes consult during dispatch. Ported from the tail of
-//! `lib/core/Orchestrator.h`.
 
 use cobra_core::classification::Classification;
 use cobra_core::evaluator::Evaluator;
@@ -13,7 +11,6 @@ use crate::continuation::{GroupId, JoinId};
 use crate::enums::PassId;
 use crate::join::JoinMap;
 
-/// Budgets and knobs for one `Simplify` run. Matches C++
 /// `OrchestratorPolicy`.
 #[derive(Copy, Clone, Debug)]
 pub struct OrchestratorPolicy {
@@ -32,7 +29,6 @@ impl Default for OrchestratorPolicy {
     }
 }
 
-/// Counters updated as the main loop runs. Matches C++
 /// `OrchestratorTelemetry`.
 #[derive(Clone, Debug, Default)]
 pub struct OrchestratorTelemetry {
@@ -43,7 +39,6 @@ pub struct OrchestratorTelemetry {
     pub passes_attempted: Vec<PassId>,
 }
 
-/// Run-wide metadata surfaced to every pass. Matches C++ `RunMetadata`.
 #[derive(Clone, Debug, Default)]
 pub struct RunMetadata {
     pub input_classification: Classification,
@@ -51,7 +46,6 @@ pub struct RunMetadata {
 }
 
 /// Mutable context threaded through every pass call. The borrow strategy
-/// mirrors the plan: the competition/join maps are reached through
 /// method helpers (added in the scheduler session) so passes can mutate
 /// them without aliasing the rest of the context.
 #[derive(Debug)]
@@ -77,8 +71,6 @@ pub struct OrchestratorContext {
 impl OrchestratorContext {
     /// Fresh context for a new `Simplify` run. Uses deterministic
     /// `ahash::RandomState::with_seeds` so the pass-attempt-cache keys
-    /// stay stable across runs — required for the fingerprint parity
-    /// work described in the plan's "Parity Risks" section.
     #[must_use]
     pub fn new(opts: Options, original_vars: Vec<String>, bitwidth: u32) -> Self {
         Self {

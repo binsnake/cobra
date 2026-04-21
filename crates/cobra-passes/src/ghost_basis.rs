@@ -59,7 +59,6 @@ fn build_mul3_sub_and3(vars: &[u32]) -> Box<Expr> {
     )
 }
 
-/// The canonical basis. Ordering determines enumeration priority in
 /// the ghost residual solver.
 #[must_use]
 pub fn get_ghost_basis() -> &'static [GhostPrimitive] {

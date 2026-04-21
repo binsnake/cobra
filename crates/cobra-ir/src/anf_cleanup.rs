@@ -132,7 +132,6 @@ fn count_or_chain_depth(expr: &Expr) -> u32 {
     1 + count_or_chain_depth(&expr.children[0])
 }
 
-/// Node-count cost with the OR-chain-depth discount. Matches C++
 /// `ExprCost` in `AnfCleanup.cpp`.
 #[must_use]
 pub fn anf_expr_cost(expr: &Expr) -> u32 {

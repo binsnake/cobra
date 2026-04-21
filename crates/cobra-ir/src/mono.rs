@@ -1,15 +1,12 @@
 //! `MonomialKey` — a fixed-size exponent vector keyed into polynomial maps.
 //!
-//! Ported from `include/cobra/core/MonomialKey.h`. The key is 20 bytes;
 //! positions beyond `num_vars` are implicitly zero. Hashing uses FNV-1a
-//! over all 20 bytes, byte-for-byte identical to the C++ implementation
 //! so that any serialized fingerprint remains stable.
 
 use std::hash::{Hash, Hasher};
 
 use crate::math_utils::twos_in_factorial;
 
-/// Maximum number of variables a polynomial IR can represent. Matches
 /// `cobra::kMaxPolyVars`.
 pub const MAX_POLY_VARS: usize = 20;
 
@@ -93,13 +90,10 @@ impl MonomialKey {
     }
 }
 
-/// FNV-1a over all 20 bytes. Constants match the C++ implementation (offset
 /// basis `0xcbf29ce484222325`, prime `0x100000001b3`). Implemented as the
 /// `Hash` impl so that the key interoperates with `HashMap<MonomialKey, _>`
 /// under any `BuildHasher` — the FNV step happens at `Hash::hash` time and
-/// then the outer hasher (e.g. `ahash`) finalizes. This differs from C++
 /// where `std::hash` is the direct final hash, but the map keys stay
-/// structurally identical so parity of *iteration semantics* is preserved
 /// through the outer hasher's own stability rather than through FNV.
 impl Hash for MonomialKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -115,7 +109,6 @@ impl Hash for MonomialKey {
     }
 }
 
-/// C++ lexicographic `<` compares the 20-byte array directly.
 impl Ord for MonomialKey {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.exponents.cmp(&other.exponents)

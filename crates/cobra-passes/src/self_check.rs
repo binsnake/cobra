@@ -5,7 +5,6 @@
 //! Cheaper than a full-width evaluator probe and essential during the
 //! semilinear rewrite chain — if a rewrite produces a representation
 //! that renormalises to a different coefficient map, it cannot be
-//! equivalent to the input.
 
 use cobra_core::arith::bitmask;
 use cobra_core::expr::Expr;

@@ -1,6 +1,5 @@
 //! `CoBRA` MBA expression parser.
 //!
-//! Hand-ported shunting-yard, preserving the C++ operator table exactly
 //! (lower precedence number = tighter binding; `**` and unary `~`/`-` at
 //! prec 1; `|` at prec 7). Variables get indices that match the
 //! lexicographically-sorted unique names.

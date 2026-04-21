@@ -64,7 +64,6 @@ fn correction_factor(popcount: u32, bitwidth: u32) -> u64 {
 }
 
 /// Sum of contributions from all non-empty submasks of `active_mask`
-/// at probe point `P_{active_mask}`. Used as the reference against
 /// which a new mask's MUL contribution is extracted.
 fn eval_known_contribution(
     and_coeffs: &[u64],

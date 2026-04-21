@@ -1,6 +1,4 @@
 //! Boolean-signature evaluator: computes `expr`'s output at every point
-//! of `{0, 1}^num_vars`. Ported from
-//! `include/cobra/core/SignatureEval.h` / `lib/core/SignatureEval.cpp`.
 //!
 //! The recursive form does one bottom-up tree walk producing a length-`2^n`
 //! vector per node — far cheaper than `2^n` separate tree evaluations.
@@ -18,7 +16,6 @@ pub fn evaluate_boolean_signature(expr: &Expr, num_vars: u32, bitwidth: u32) -> 
     eval_sig_recursive(expr, len, bitwidth)
 }
 
-/// Evaluate a callable at every Boolean point. Mirrors the C++
 /// `Evaluator` overload and reuses a single `Workspace` when the
 /// evaluator has a compiled body.
 #[must_use]

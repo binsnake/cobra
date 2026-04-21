@@ -1,5 +1,4 @@
 //! `RunBuildSignatureState` pass — the bridge from `FoldedAst` to
-//! `SignatureState`. Ported from the C++ pass with the two optional
 //! fast-path helpers (`TryConstantSignatureCandidate`,
 //! `TryBooleanAnfFastPath`) deferred until their dependencies
 //! (pattern matcher, ANF transform, product-shadow repair + spot-check
@@ -18,7 +17,6 @@ use cobra_orchestrator::{
 
 use crate::aux_var::{eliminate_aux_vars, eliminate_aux_vars_fw};
 
-/// Pass body. Matches the core flow of C++ `RunBuildSignatureState`
 /// (without the two optional fast paths).
 pub fn run_build_signature_state(
     item: &WorkItem,
@@ -137,7 +135,6 @@ fn active_eval(item: &WorkItem, ctx: &OrchestratorContext) -> Option<Evaluator> 
     ctx.evaluator.clone()
 }
 
-/// Returns a reference to the active input signature when one is
 /// available and non-empty. Prefers the item-local solve context, then
 /// falls back to `ctx.input_sig`.
 fn active_input_sig<'a>(item: &'a WorkItem, ctx: &'a OrchestratorContext) -> Option<&'a Vec<u64>> {

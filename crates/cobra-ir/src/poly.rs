@@ -1,8 +1,6 @@
 //! `PolyIR` — multivariate polynomial keyed by `MonomialKey`.
 //!
-//! Ported from `include/cobra/core/PolyIR.h`. Both `PolyIR` and
 //! `NormalizedPoly` hold a map from `MonomialKey` to `Coeff` (`u64`); the
-//! C++ version uses `std::unordered_map`, the Rust version uses `HashMap`
 //! under `ahash::RandomState` for fast deterministic hashing.
 
 use std::collections::HashMap;
@@ -61,7 +59,6 @@ impl NormalizedPoly {
         }
     }
 
-    /// Matches C++ `NormalizedPoly::IsValid`: every non-zero coefficient
     /// must fit in `bitwidth - v2_factorial_weight(key)` bits.
     #[must_use]
     pub fn is_valid(&self) -> bool {

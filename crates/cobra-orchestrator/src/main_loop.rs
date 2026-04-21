@@ -1,6 +1,4 @@
-//! The main dispatch loop. Ported from the `while (!worklist.Empty()
 //! && expansions < policy.max_expansions)` body of `Simplify` in
-//! `lib/core/Orchestrator.cpp`.
 //!
 //! Seeding (building the initial worklist from a signature or AST) is
 //! intentionally *not* in this file — it depends on the classifier,
@@ -64,7 +62,6 @@ struct BestRewrite {
 /// returns a `LoopResult` summarising the run.
 ///
 /// `policy.max_expansions` is mutable because the lifting passes bump
-/// it by 50% when they produce a skeleton — matches C++ behaviour.
 #[allow(clippy::too_many_lines)] // one-to-one port of the C++ main loop
 pub fn run_main_loop(
     ctx: &mut OrchestratorContext,
@@ -258,8 +255,6 @@ pub fn run_main_loop(
 // Helpers
 // ---------------------------------------------------------------
 
-/// Build an `UnsupportedCandidate` snapshot from a work item. Matches
-/// C++ `make_unsupported_candidate`.
 fn make_unsupported_candidate(work: &WorkItem) -> UnsupportedCandidate {
     UnsupportedCandidate {
         metadata: work.metadata.clone(),
@@ -374,7 +369,6 @@ fn try_promote_best_rewrite(
     if !check.passed {
         return None;
     }
-    // Defensive sanity-check vs the untouched input, mirroring what
     // downstream callers do — cheap because both expressions are small
     // at this point.
     let _ = original_expr;
@@ -529,7 +523,6 @@ fn is_semilinear_pass(id: PassId) -> bool {
 }
 
 /// Build the `LoopResult` returned when the worklist exhausts without
-/// producing a verified candidate. Matches the tail of C++ `Simplify`
 /// from the exhaustion comment to the final `ToSimplifyOutcome` call.
 fn build_exhaustion_result(
     best_unsupported: Option<UnsupportedCandidate>,
@@ -558,7 +551,6 @@ fn build_exhaustion_result(
     let mut final_meta = best_unsupported.map(|b| b.metadata).unwrap_or_default();
 
     // Derive structural-transform terminal reason code from
-    // lineage-local metadata (mirrors C++).
     let used_folded_ast_exploration =
         cobra_core::classification::is_folded_ast_exploration_candidate(
             ctx.run_metadata.input_classification.flags,

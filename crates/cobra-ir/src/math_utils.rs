@@ -1,6 +1,5 @@
 //! Number-theory helpers for polynomial normalization.
 //!
-//! Ported from `include/cobra/core/MathUtils.h`. All routines operate on
 //! `uint64_t` modulo `2^bitwidth`.
 
 use cobra_core::arith::bitmask;

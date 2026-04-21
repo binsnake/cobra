@@ -1,27 +1,20 @@
 //! Gate kernels operating on 16-lane `u64` probe arrays.
 //!
-//! Ported from `GateApply`, `GateMatches`, `Probe0Matches`, and
-//! `GateResidual` in `lib/core/TemplateDecomposer.cpp`. The C++ version uses
-//! Google Highway; the Rust port offers a scalar baseline plus an optional
 //! `simd` feature backed by the `wide` crate.
 //!
 //! Every kernel takes inputs pre-masked or applies the supplied mask as
 //! appropriate. The scalar and SIMD paths produce byte-for-byte identical
-//! output on every input — the parity test in this crate enforces that.
 
 #![forbid(unsafe_code)]
 
-/// Number of probe points used by the template decomposer. The C++
 /// constant `kNProbes`. Fixed at 16 so the array size can be materialised
 /// as a `u64x8 × 2` split.
 pub const N_PROBES: usize = 16;
 
 /// 16-lane probe vector. Simple transparent wrapper so that future
-/// alignment tweaks (equivalent to C++ `HWY_ALIGN_MAX`) can be made in one
 /// place.
 pub type ProbeVals = [u64; N_PROBES];
 
-/// The five gate kinds the template decomposer tries to fit.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Gate {
     And,
@@ -33,7 +26,6 @@ pub enum Gate {
 
 // ---------- Scalar baseline ----------
 //
-// Always compiled so tests can assert SIMD/scalar parity; marked `#[allow]`
 // to silence dead-code warnings when the `simd` feature supplies the
 // public API.
 
@@ -61,7 +53,6 @@ fn gate_matches_scalar(
     mask: u64,
 ) -> bool {
     // Accumulate `result_i XOR target_i` into `acc` via OR. `acc == 0` iff
-    // every lane matches. Mirrors the C++ reduction (`AllFalse(Ne(acc, 0))`).
     let applied = gate_apply_scalar(a, b, g, mask);
     let mut acc: u64 = 0;
     for i in 0..N_PROBES {
@@ -169,7 +160,6 @@ pub fn gate_apply(a: &ProbeVals, b: &ProbeVals, g: Gate, mask: u64) -> ProbeVals
     }
 }
 
-/// Lane-0 prefilter. Mirrors C++ `Probe0Matches`.
 #[inline]
 #[must_use]
 pub fn probe0_matches(a0: u64, b0: u64, t0: u64, g: Gate, mask: u64) -> bool {
@@ -196,8 +186,6 @@ pub fn gate_matches(a: &ProbeVals, b: &ProbeVals, target: &ProbeVals, g: Gate, m
 }
 
 /// Residual for invertible gates (`Xor`, `Add`); returns zeros otherwise.
-/// Scalar-only — the C++ version uses SIMD for the two invertible arms,
-/// but this path is not hot enough to justify it in the port.
 #[must_use]
 pub fn gate_residual(target: &ProbeVals, a: &ProbeVals, g: Gate, mask: u64) -> ProbeVals {
     gate_residual_scalar(target, a, g, mask)

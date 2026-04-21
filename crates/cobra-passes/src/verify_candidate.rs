@@ -16,7 +16,6 @@ use cobra_orchestrator::{
 
 use crate::spot_check::verify_in_original_space;
 
-/// Pass body. Matches C++ `RunVerifyCandidate`.
 #[allow(clippy::unnecessary_wraps)]
 pub fn run_verify_candidate(item: &WorkItem, ctx: &mut OrchestratorContext) -> Result<PassResult> {
     let StateData::Candidate(cand) = &item.payload else {

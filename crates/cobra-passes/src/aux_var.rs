@@ -1,7 +1,6 @@
 //! Auxiliary-variable elimination. A variable is "spurious" if toggling
 //! it never changes any entry of the signature vector. Removing
 //! spurious variables reduces the problem size passed to downstream
-//! techniques. Ported from `lib/core/AuxVarEliminator.cpp`.
 //!
 //! Two entry points:
 //! - [`eliminate_aux_vars`] — signature-only (Boolean-level). Cheap
@@ -11,7 +10,6 @@
 //! - [`eliminate_aux_vars_fw`] — Boolean elimination followed by a
 //!   full-width probe via the caller's evaluator. Variables that
 //!   toggle the output at any random sample are promoted back to
-//!   `real_vars`. Mirrors the C++ evaluator-aware overload.
 
 use cobra_core::arith::bitmask;
 use cobra_core::evaluator::Evaluator;
@@ -146,7 +144,6 @@ pub fn eliminate_aux_vars(sig: &[u64], vars: &[String]) -> EliminationResult {
 /// elimination first, then re-checks each variable marked spurious
 /// by sampling the evaluator at random full-width points. A variable
 /// whose toggle changes the output at any probe is promoted back to
-/// `real_vars`. Mirrors the C++ evaluator-aware overload.
 #[must_use]
 pub fn eliminate_aux_vars_fw(
     sig: &[u64],

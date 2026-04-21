@@ -1,11 +1,9 @@
 //! Type-erased callable for evaluating an expression.
 //!
-//! Ported from `include/cobra/core/Evaluator.h`. The C++ class holds either a
 //! `shared_ptr<const CompiledExpr>` (fast path) or a `std::function` (fallback
 //! for arbitrary callables and for the variable-remapping case that the
 //! compiled path can't cover directly).
 //!
-//! In Rust the equivalent is an `enum EvalBody` with `Arc<CompiledExpr>` and
 //! `Arc<dyn Fn(&[u64]) -> u64 + Send + Sync>` arms. Clones are cheap.
 
 use std::sync::Arc;
@@ -13,7 +11,6 @@ use std::sync::Arc;
 use crate::compiled::{compile, eval, CompiledExpr};
 use crate::expr::Expr;
 
-/// Tag used by the C++ evaluator to annotate Tracy zones. Ported for parity;
 /// actual tracing integration is added in `cobra-analysis` / the `tracing`
 /// feature of downstream crates.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -50,7 +47,6 @@ pub struct Evaluator {
     body: Option<EvalBody>,
     /// When set, the caller's vector is treated as the reduced-arity input;
     /// entry `i` writes to `input_map[i]` in a wider buffer before invoking
-    /// the body. Mirrors the C++ `input_map_` field.
     input_map: Vec<u32>,
     input_arity: u32,
     trace_kind: TraceKind,
@@ -203,7 +199,6 @@ impl Evaluator {
 
     /// Produce a new evaluator that expects `idx_map.len()` inputs, each one
     /// feeding into the `idx_map[i]`'th slot of the underlying body. When the
-    /// underlying body is compiled, maps compose (matching the C++
     /// `Remap` behaviour); when it's a closure, the new evaluator wraps the
     /// old one in a remap shim.
     #[must_use]

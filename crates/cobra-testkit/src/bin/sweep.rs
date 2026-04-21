@@ -1,8 +1,6 @@
 //! `cobra-sweep` — stream one or more dataset `.txt` files through the
 //! simplifier and report per-file + aggregate tallies. Each case is
 //! probed against both the input (safety / equivalence) and the
-//! expected form (dataset parity). Unsafe changes (simplified but not
-//! equivalent to input) cause a non-zero exit.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -37,7 +35,6 @@ struct Args {
     per_case: bool,
 
     /// Fail (exit 1) if any case produced a simplification that was
-    /// not equivalent to the input on the probe set.
     #[arg(long, default_value_t = true)]
     fail_on_unsafe: bool,
 

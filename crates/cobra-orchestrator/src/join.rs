@@ -1,4 +1,3 @@
-//! Join-state records for multi-operand rewrite passes. Ported from
 //! `lib/core/JoinState.{h,cpp}`.
 
 use cobra_core::evaluator::Evaluator;
@@ -11,16 +10,13 @@ use crate::continuation::GroupId;
 use crate::enums::PassId;
 
 /// Tracks a two-operand rewrite (`lhs op rhs`) where each side spawns an
-/// independent child solve. The join resolves once both sides report.
 #[derive(Clone, Debug)]
 pub struct OperandJoinState {
     pub lhs_winner: Option<CandidateRecord>,
     pub rhs_winner: Option<CandidateRecord>,
     pub lhs_resolved: bool,
     pub rhs_resolved: bool,
-    /// The full AST containing the target `Mul`.
     pub full_ast: Box<Expr>,
-    /// The target `Mul` node (cloned so the parent retains ownership
     /// while both sides are being solved).
     pub original_mul: Box<Expr>,
     /// Hash of the target `Mul` for splicing back into `full_ast`.
@@ -64,22 +60,18 @@ pub struct ProductJoinState {
     pub target_hash: u64,
 }
 
-/// Tagged union mirroring C++ `using JoinState = std::variant<OperandJoinState, ProductJoinState>;`.
 #[derive(Clone, Debug)]
 pub enum JoinState {
     Operand(Box<OperandJoinState>),
     Product(Box<ProductJoinState>),
 }
 
-/// Join-state registry keyed by [`JoinId`]. Matches C++
 /// `absl::flat_hash_map<JoinId, JoinState>`.
 pub type JoinMap = std::collections::HashMap<JoinId, JoinState, ahash::RandomState>;
 
 // ---------------------------------------------------------------
-// Lifecycle helpers (ported from `lib/core/JoinState.cpp`)
 // ---------------------------------------------------------------
 
-/// Allocate a fresh join entry and return its id. Matches C++
 /// `CreateJoin`.
 pub fn create_join(joins: &mut JoinMap, next_id: &mut JoinId, state: JoinState) -> JoinId {
     let id = *next_id;
@@ -93,7 +85,6 @@ pub fn create_join(joins: &mut JoinMap, next_id: &mut JoinId, state: JoinState) 
 /// consumed on match; otherwise it is left untouched.
 ///
 /// Returns the rebuilt tree plus a `replaced` flag indicating whether
-/// the replacement was spliced in. Matches C++ `ReplaceByHash`.
 #[allow(clippy::unnecessary_box_returns)]
 pub fn replace_by_hash(
     root: Box<Expr>,

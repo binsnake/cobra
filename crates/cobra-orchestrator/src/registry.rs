@@ -1,6 +1,5 @@
 //! Pass registry: function-pointer table of every pass.
 //!
-//! Matches C++ `lib/core/OrchestratorPasses.h`. Pass implementations
 //! arrive in the `cobra-passes` crate; this module owns the trait-
 //! object-free dispatch types and exposes an initially-empty registry
 //! that passes will register into as they're ported.
@@ -11,11 +10,8 @@ use crate::context::OrchestratorContext;
 use crate::enums::{PassId, PassTag, StateKind};
 use crate::work_item::{PassResult, WorkItem};
 
-/// `fn` pointer type — cheap dispatch, no vtable. Matches
-/// C++ `ApplicabilityFn`.
 pub type ApplicabilityFn = fn(&WorkItem, &OrchestratorContext) -> bool;
 
-/// `fn` pointer type for pass bodies. Matches C++ `PassFn`.
 pub type PassFn = fn(&WorkItem, &mut OrchestratorContext) -> Result<PassResult>;
 
 /// Static metadata for one registered pass.
@@ -41,7 +37,6 @@ impl std::fmt::Debug for PassDescriptor {
 /// Global registry. Filled in once `cobra-passes` exists; until then
 /// the slice is empty and the orchestrator's scheduler cannot select
 /// anything. Keeping the registry here (rather than on `cobra-passes`)
-/// avoids the circular dependency the C++ code works around by having
 /// the scheduler `#include "OrchestratorPasses.h"`.
 #[must_use]
 pub const fn pass_registry() -> &'static [PassDescriptor] {

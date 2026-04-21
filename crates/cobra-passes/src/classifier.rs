@@ -1,14 +1,9 @@
 //! Structural classifier. Walks an `Expr` bottom-up, tallying
 //! variable-dependence, polynomial shape, and a rich
-//! [`StructuralFlag`] bitset. Ported from
-//! `lib/core/Classifier.cpp::ClassifyNode` + `ClassifyStructural`.
 
 use cobra_core::classification::{Classification, SemanticClass, StructuralFlag};
 use cobra_core::expr::{Expr, Kind};
 
-/// Per-node accumulator threaded through the recursion. Matches the
-/// C++ anonymous `NodeInfo` struct — the layout stays boolean-per-field
-/// to keep the port line-for-line readable alongside the original.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, Default)]
 struct NodeInfo {

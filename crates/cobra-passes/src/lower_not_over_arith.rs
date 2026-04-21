@@ -1,5 +1,4 @@
 //! `RunLowerNotOverArith` pass. Rewrites every `~(arith)` subtree into
-//! `Add(Neg(arith), Constant(mask))`. Mirrors C++ `RunLowerNotOverArith`:
 //!
 //! - Only fires on `FoldedAst` items with `Provenance::Original`.
 //! - When no `~(arith)` exists the pass is a retained no-op
@@ -22,7 +21,6 @@ use cobra_orchestrator::{
 
 use crate::not_over_arith::{has_not_over_arith, lower_not_over_arith};
 
-/// Pass body. Matches C++ `RunLowerNotOverArith`.
 #[allow(clippy::unnecessary_wraps)]
 pub fn run_lower_not_over_arith(
     item: &WorkItem,

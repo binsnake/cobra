@@ -1,7 +1,6 @@
 //! Postfix → `Expr` tree conversion plus the top-level
 //! [`parse_to_ast`] entry point.
 //!
-//! Ported from `BuildAstFromPostfix` and `ParseToAst` in
 //! `tools/cobra-cli/ExprParser.cpp`.
 
 use cobra_core::arith::bitmask;
@@ -11,14 +10,12 @@ use cobra_core::result::{err, CobraError, Result};
 use crate::postfix::{collect_sorted_vars, to_postfix, validate_shifts_and_exponents};
 use crate::token::{Token, TokenType};
 
-/// Matches C++ `AstResult`.
 #[derive(Clone, Debug)]
 pub struct AstResult {
     pub expr: Box<Expr>,
     pub vars: Vec<String>,
 }
 
-/// Maximum variable count enforced by the parser (matches C++ 20-var cap).
 pub const MAX_VARIABLES: usize = 20;
 
 /// Parse an MBA expression string into an `Expr` tree. Variables are

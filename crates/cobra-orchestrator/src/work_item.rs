@@ -1,6 +1,5 @@
 //! The unit of work flowing through the orchestrator: a
 //! [`WorkItem`] carries a [`StateData`] payload plus scheduler-visible
-//! metadata. Ported from `lib/core/Orchestrator.h`.
 
 use cobra_core::evaluator::Evaluator;
 use cobra_core::pass_contract::{
@@ -112,8 +111,6 @@ impl WorkItem {
 
 use cobra_ir::semilinear::{GlobalVarIdx, OperatorFamily};
 
-/// Fingerprint used to dedupe work items across the worklist. Matches
-/// C++ `StateFingerprint`. The scheduler session computes `payload_hash`
 /// directly from the `StateData` contents — here we only expose the
 /// struct shape.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -125,7 +122,6 @@ pub struct StateFingerprint {
     pub provenance: Provenance,
 }
 
-/// One term in a semilinear fingerprint key. Matches C++
 /// `SemilinearFingerprintKey::TermKey`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SemilinearTermKey {
@@ -157,7 +153,6 @@ pub struct PassResult {
 
 impl PassResult {
     /// Factory for the common "not applicable, leave the item alone"
-    /// case. Matches the idiomatic C++ short-return pattern.
     #[must_use]
     pub fn not_applicable(reason: ReasonDetail) -> Self {
         Self {

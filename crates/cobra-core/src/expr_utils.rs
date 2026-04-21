@@ -1,5 +1,3 @@
-//! Small, general-purpose utilities on `Expr` trees. Ported from the
-//! subset of `include/cobra/core/ExprUtils.h` and `lib/core/ExprUtils.cpp`
 //! that other crates need without the heavier AST-rewrite helpers
 //! (those belong in `cobra-ir` / `cobra-passes`).
 
@@ -17,7 +15,6 @@ pub fn is_constant_subtree(expr: &Expr) -> bool {
 }
 
 /// Evaluate a constant-only `Expr` subtree at the given `bitwidth`.
-/// Panics if a `Variable` leaf is encountered (matches C++
 /// `EvalConstantExpr`'s `std::unreachable()`).
 #[must_use]
 pub fn eval_constant(expr: &Expr, bitwidth: u32) -> u64 {
@@ -54,7 +51,6 @@ pub fn eval_constant(expr: &Expr, bitwidth: u32) -> u64 {
     }
 }
 
-/// Returns true if `expr` references any `Variable` leaf.
 #[must_use]
 pub fn has_var_dep(expr: &Expr) -> bool {
     if matches!(expr.kind, Kind::Variable(_)) {
@@ -63,7 +59,6 @@ pub fn has_var_dep(expr: &Expr) -> bool {
     expr.children.iter().any(|c| has_var_dep(c))
 }
 
-/// Append every variable index referenced in `expr` to `out` in preorder.
 /// Duplicates are preserved (the caller sorts/dedupes).
 pub fn collect_vars(expr: &Expr, out: &mut Vec<u32>) {
     if let Kind::Variable(idx) = &expr.kind {
@@ -76,7 +71,6 @@ pub fn collect_vars(expr: &Expr, out: &mut Vec<u32>) {
 }
 
 /// Rewrite every `Variable(idx)` node in-place as `Variable(index_map[idx])`.
-/// Panics if a variable index is out of range of `index_map` (matches C++
 /// `at()` behaviour).
 pub fn remap_var_indices(expr: &mut Expr, index_map: &[u32]) {
     if let Kind::Variable(idx) = &mut expr.kind {

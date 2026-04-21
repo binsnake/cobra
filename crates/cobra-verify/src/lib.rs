@@ -1,7 +1,5 @@
 //! Verifier trait and optional Z3 backend.
 //!
-//! Ported from `include/cobra/verify/Z3Verifier.h` and
-//! `lib/verify/Z3Verifier.cpp`. The `cobra-orchestrator` crate holds a
 //! `Box<dyn Verifier>` so that Z3 stays optional — without the `z3`
 //! feature, downstream crates compile against [`NullVerifier`] which
 //! always reports [`VerifyOutcome::Unverified`].
@@ -18,17 +16,12 @@ pub use crate::null::NullVerifier;
 #[cfg(feature = "z3")]
 pub use crate::z3_backend::Z3Verifier;
 
-/// Result of a single verification attempt. Mirrors the three-valued
-/// output of the C++ `Z3VerifyResult` plus an explicit `Unverified` for
-/// the case where the backend is disabled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VerifyOutcome {
-    /// The solver proved the two expressions equivalent.
     Equivalent,
     /// A counterexample was found; payload is the solver's model string
     /// (best-effort human-readable — format is backend-dependent).
     Disproved { counterexample: String },
-    /// The solver returned `unknown`, typically due to timeout.
     TimedOut,
     /// No backend available (e.g. null verifier). Not a failure — callers
     /// that require a hard proof should treat this as "cannot confirm".
@@ -50,7 +43,6 @@ impl VerifyOutcome {
     }
 }
 
-/// Options for a single verification call. Matches the C++ default
 /// `timeout_ms = 500` from `Z3Verifier.h`.
 #[derive(Copy, Clone, Debug)]
 pub struct VerifyOpts {
@@ -82,7 +74,6 @@ pub trait Verifier: Send + Sync {
     /// Compare an expression reconstructed from `CoB` coefficients against a
     /// simplified `Expr`. `cob_coeffs` has length `2^num_vars`; index `i`
     /// is the coefficient of the AND-product of variables whose bit is set
-    /// in `i` (index 0 is the constant term). Mirrors the C++ `Z3Verify`
     /// entry point.
     fn prove_reconstruction(
         &self,

@@ -1,5 +1,4 @@
 //! Deferred-recombine payloads carried by competition groups while a
-//! child solve is in flight. Ported from `lib/core/ContinuationTypes.h`.
 //!
 //! Each variant describes how a future child-solve result should be
 //! composed back into its parent, carrying only the minimal data
@@ -12,10 +11,8 @@ use cobra_core::expr_cost::ExprCost;
 use crate::enums::RemainderOrigin;
 use crate::stubs::{ExtractOp, GateKind};
 
-/// Handle into the competition-group registry. Matches C++ `GroupId`.
 pub type GroupId = u32;
 
-/// Handle into the join-state registry. Matches C++ `JoinId`.
 pub type JoinId = u32;
 
 // ----- Bitwise decompose continuation -----
@@ -156,7 +153,6 @@ pub struct LiftedSubstituteCont {
 
 // ----- Umbrella enum -----
 
-/// All continuation payload variants. Matches C++
 /// `ContinuationData = std::variant<monostate, ...>` — the `None` arm
 /// (here just `Default::default()` → `None`) replaces `std::monostate`.
 #[derive(Clone, Debug, Default)]
@@ -171,8 +167,6 @@ pub enum ContinuationData {
     LiftedSubstitute(Box<LiftedSubstituteCont>),
 }
 
-/// Matches C++ `ProjectBaselineForChild`. Conservative initial
-/// implementation (mirroring C++): always returns `None` — no baseline
 /// inheritance is performed across continuation boundaries yet.
 #[inline]
 #[must_use]

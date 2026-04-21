@@ -1,15 +1,12 @@
 //! Top-level outcome of [`Simplify`]: the simplified expression, its
 //! signature vector, and a diagnostic bundle.
 //!
-//! Ported from `include/cobra/core/SimplifyOutcome.h` and
-//! `include/cobra/core/Simplifier.h`.
 
 use crate::classification::{Classification, SemanticClass, StructuralFlag};
 use crate::evaluator::Evaluator;
 use crate::expr::Expr;
 use crate::pass_contract::{ReasonCode, ReasonFrame};
 
-/// Input options for the public `Simplify` API. Defaults match the C++
 /// struct (`bitwidth = 64`, `max_vars = 16`, `spot_check = true`,
 /// `enable_bitwise_decomposition = true`).
 #[derive(Clone, Debug)]
@@ -78,7 +75,6 @@ pub struct SimplifyTelemetry {
 }
 
 /// Top-level outcome. One of three arms (simplified / unchanged /
-/// error) matching C++ `SimplifyOutcome::Kind`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum SimplifyOutcomeKind {
     #[default]

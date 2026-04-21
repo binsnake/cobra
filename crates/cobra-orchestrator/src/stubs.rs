@@ -6,7 +6,6 @@
 
 // ----- AuxVarEliminator -----
 
-/// Ported from `include/cobra/core/AuxVarEliminator.h`. The full
 /// elimination function lives in the signature-pass family; the
 /// orchestrator only carries the result struct in work-item payloads.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -18,9 +17,6 @@ pub struct EliminationResult {
 
 // ----- DecompositionEngine -----
 
-/// Which extractor produced a `CoreCandidate` / `Remainder` pair.
-/// Matches C++ `ExtractorKind`. `#[repr(u8)]` so `DecompositionMeta`
-/// can store its bit pattern without losing parity.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum ExtractorKind {
@@ -31,7 +27,6 @@ pub enum ExtractorKind {
     BooleanNullDirect,
 }
 
-/// Which solver finishes a decomposition residual. Matches C++
 /// `ResidualSolverKind`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -46,7 +41,6 @@ pub enum ResidualSolverKind {
 // ----- BitwiseDecomposer -----
 
 /// Gate kinds the bitwise decomposer considers when trying to fit the
-/// signature into a `g(...) + k*(...)` shape. Matches C++ `GateKind`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum GateKind {
     And,
@@ -59,7 +53,6 @@ pub enum GateKind {
 // ----- HybridDecomposer -----
 
 /// Invertible operator the hybrid decomposer strips from the outside.
-/// Matches C++ `ExtractOp`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ExtractOp {
     Xor,

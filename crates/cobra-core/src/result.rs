@@ -1,4 +1,3 @@
-//! Top-level result type, ported from `include/cobra/core/Result.h`.
 
 use std::fmt;
 
@@ -40,7 +39,6 @@ impl ErrorInfo {
     }
 }
 
-/// Matches the C++ `Result<T> = std::expected<T, ErrorInfo>` alias.
 pub type Result<T> = std::result::Result<T, ErrorInfo>;
 
 /// Short-circuit helper for producing errors: `Err(err(kind, "msg"))`.

@@ -1,8 +1,6 @@
 //! Semilinear IR — bitwise atoms lifted from an expression and their
 //! weighted combinations.
 //!
-//! Ported from `include/cobra/core/SemilinearIR.h` and
-//! `lib/core/SemilinearIR.cpp`. An atom is a pure-bitwise subexpression
 //! evaluated on all `2^k` Boolean assignments to its support; the resulting
 //! truth table is the atom's identity. The outer `SemilinearIR` holds a
 //! table of these atoms plus a list of weighted terms referring to them by
@@ -22,19 +20,13 @@ pub type GlobalVarIdx = u32;
 /// Opaque per-atom semantic id used by downstream partitioning passes.
 pub type AtomSemanticId = u64;
 
-/// The identifying fingerprint of an atom: its support variables (ascending)
-/// and its full truth table over those variables.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AtomKey {
     /// Sorted, unique.
     pub support: Vec<GlobalVarIdx>,
-    /// Length = `2^support.len()`. All entries masked to `bitmask(bitwidth)`.
     pub truth_table: Vec<u64>,
 }
 
-/// C++ `std::hash<AtomKey>` is Boost-style `hash_combine` over size,
-/// support entries, and truth-table entries. The Rust port replays the
-/// same sequence so any stored fingerprint matches.
 impl Hash for AtomKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let mut h: u64 = self.support.len() as u64;
@@ -48,8 +40,6 @@ impl Hash for AtomKey {
     }
 }
 
-/// Boost-style `hash_combine` used by the C++ codebase for structural
-/// hashing. Constants match the C++ `cobra::detail::hash_combine`.
 #[inline]
 #[must_use]
 pub(crate) fn hash_combine(seed: u64, value: u64) -> u64 {
@@ -59,8 +49,6 @@ pub(crate) fn hash_combine(seed: u64, value: u64) -> u64 {
         .wrapping_add(seed >> 2)
 }
 
-/// Where an atom came from in the original expression. Drives a later
-/// partitioning heuristic in the semilinear passes.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum OperatorFamily {
     And,
@@ -88,7 +76,6 @@ pub struct WeightedAtom {
     pub atom_id: AtomId,
 }
 
-/// The full semilinear IR for a single simplification work item.
 #[derive(Clone, Debug, Default)]
 pub struct SemilinearIR {
     pub constant: u64,
@@ -115,11 +102,7 @@ pub struct Decomposed<'a> {
 }
 
 /// Evaluate a pure-bitwise `Expr` at all `2^k` Boolean assignments to the
-/// given support. Returns a truth table of length `2^k` with every entry
-/// masked to `bitmask(bitwidth)`. Matches C++ `ComputeAtomTruthTable`.
 ///
-/// If the support has more than 5 variables, returns an empty vec (same
-/// bailout as C++, which caps the truth table at `2^5 = 32` entries).
 #[must_use]
 pub fn compute_atom_truth_table(atom: &Expr, support: &[GlobalVarIdx], bitwidth: u32) -> Vec<u64> {
     let n = support.len();
@@ -171,8 +154,6 @@ fn eval_expr_bool(e: &Expr, support: &[GlobalVarIdx], assignment: u64, mask: u64
     }
 }
 
-/// Structural hash of an `Expr` tree. Mirrors C++ `StructuralHash` with the
-/// exact mixing constants — required for parity with stored
 /// `AtomInfo::structural_hash` fingerprints.
 #[must_use]
 pub fn structural_hash(expr: &Expr) -> u64 {

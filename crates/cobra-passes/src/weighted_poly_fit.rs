@@ -21,7 +21,6 @@ use cobra_ir::math_utils::{mod_inverse_odd, twos_in_factorial};
 use cobra_ir::poly::NormalizedPoly;
 use cobra_ir::{MonomialKey, MAX_POLY_VARS};
 
-/// Weight function evaluated at support-local coordinates plus the
 /// active bitwidth.
 pub type WeightFn<'a> = Box<dyn Fn(&[u64], u32) -> u64 + 'a>;
 
@@ -94,7 +93,6 @@ fn enumerate_basis_recurse(
     }
 }
 
-/// Total-degree-then-lex order over exponent vectors. Matches the C++
 /// stable-sort key.
 fn enumerate_basis(num_vars: u32, max_degree: u8, per_var_cap: u8) -> Vec<Vec<u8>> {
     let mut basis: Vec<Vec<u8>> = Vec::new();
@@ -295,7 +293,6 @@ fn try_solve(
     Some(WeightedFitResult { poly, degree_used })
 }
 
-/// Public entry point. Mirrors C++ `RecoverWeightedPoly`.
 pub fn recover_weighted_poly(
     target: &Evaluator,
     weight: &WeightFn<'_>,

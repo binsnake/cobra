@@ -1,6 +1,5 @@
 //! Per-variable univariate polynomials in the factorial basis.
 //!
-//! Ported from `include/cobra/core/SingletonPowerPoly.h`. Data-only — the
 //! actual recovery pass lives in `cobra-passes`.
 
 /// One nonzero factorial-basis term: `coeff * x_(degree)` where

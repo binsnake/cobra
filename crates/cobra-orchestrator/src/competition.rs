@@ -1,4 +1,3 @@
-//! Competition group data + lifecycle. Ported from
 //! `lib/core/CompetitionGroup.{h,cpp}`.
 
 use cobra_core::expr::Expr;
@@ -14,8 +13,6 @@ use crate::work_item::WorkItem;
 // `competition::GroupId` / `competition::JoinId`.
 pub use crate::continuation::JoinId;
 
-/// One candidate expression submitted to a competition group. Matches
-/// the C++ `CandidateRecord` field-for-field.
 #[derive(Clone, Debug)]
 pub struct CandidateRecord {
     pub expr: Box<Expr>,
@@ -41,8 +38,6 @@ pub struct CompetitionGroup {
 }
 
 impl CompetitionGroup {
-    /// Fresh group with one open handle and the given baseline. Matches
-    /// the shape created by C++ `CreateGroup`.
     #[must_use]
     pub fn new(baseline_cost: Option<ExprCost>) -> Self {
         Self {
@@ -58,7 +53,6 @@ impl CompetitionGroup {
 /// Pure helper separated from lifecycle logic: does this group hold a
 /// verified candidate whose cost is within the budget? Used by the
 /// scheduler to short-circuit decomposition passes when an algebraic
-/// path already has a compact answer. Matches the shape of C++
 /// `HasVerifiedCandidate` but does not take a map — callers pass the
 /// group directly so the fn is trivially testable.
 #[must_use]
@@ -68,18 +62,15 @@ pub fn group_has_verified_candidate(group: &CompetitionGroup, max_weighted_size:
     })
 }
 
-/// Type alias for the competition-group registry. Matches C++
 /// `absl::flat_hash_map<GroupId, CompetitionGroup>`. Uses
 /// `ahash::RandomState` under the hood — pin its seed at the call site
 /// (orchestrator context) if determinism is required.
 pub type GroupMap = std::collections::HashMap<GroupId, CompetitionGroup, ahash::RandomState>;
 
 // ---------------------------------------------------------------
-// Lifecycle helpers (ported from `lib/core/CompetitionGroup.cpp`)
 // ---------------------------------------------------------------
 
 /// Allocate a fresh group with `open_handles = 1` and the supplied
-/// baseline cost. Returns the assigned id. Matches C++ `CreateGroup`.
 pub fn create_group(
     groups: &mut GroupMap,
     next_id: &mut GroupId,
@@ -97,7 +88,6 @@ pub fn create_group(
 /// - the candidate strictly beats the baseline (when present), and
 /// - the candidate strictly beats any incumbent `best`.
 ///
-/// Returns `true` when the group's `best` was updated. Matches C++
 /// `SubmitCandidate`.
 pub fn submit_candidate(groups: &mut GroupMap, group_id: GroupId, record: CandidateRecord) -> bool {
     let Some(group) = groups.get_mut(&group_id) else {
@@ -122,7 +112,6 @@ pub fn submit_candidate(groups: &mut GroupMap, group_id: GroupId, record: Candid
 }
 
 /// Increment the group's handle count. Returns `false` if the group has
-/// already been resolved and erased. Matches C++ `AcquireHandle`.
 pub fn acquire_handle(groups: &mut GroupMap, group_id: GroupId) -> bool {
     match groups.get_mut(&group_id) {
         Some(g) => {
@@ -137,7 +126,6 @@ pub fn acquire_handle(groups: &mut GroupMap, group_id: GroupId) -> bool {
 /// returns a `WorkItem` carrying a `CompetitionResolved` payload so the
 /// scheduler can run the `ResolveCompetition` pass. Late releases
 /// (against an already-erased group) are silently accepted as no-ops.
-/// Matches C++ `ReleaseHandle`.
 pub fn release_handle(groups: &mut GroupMap, group_id: GroupId) -> Option<WorkItem> {
     let group = groups.get_mut(&group_id)?;
     debug_assert!(group.open_handles > 0);
@@ -150,7 +138,6 @@ pub fn release_handle(groups: &mut GroupMap, group_id: GroupId) -> Option<WorkIt
     )))
 }
 
-/// Map-taking form of [`group_has_verified_candidate`]. Matches C++
 /// `HasVerifiedCandidate`. Missing groups return `false`.
 #[must_use]
 pub fn has_verified_candidate(

@@ -1,7 +1,5 @@
 //! Z3-backed [`Verifier`] implementation.
 //!
-//! Ported from `lib/verify/Z3Verifier.cpp`. A fresh `Context` and `Solver`
-//! are created per call — no long-lived solver state, matching the C++
 //! version's `Z3_mk_context` / `Z3_del_context` around each verification.
 //!
 //! Enabled via the `z3` Cargo feature. Without that feature, this module
@@ -67,7 +65,6 @@ fn make_var_asts<'c>(ctx: &'c Context, var_names: &[String], bitwidth: u32) -> V
         .collect()
 }
 
-/// Translate an `Expr` tree into Z3 bitvector AST. Mirrors C++
 /// `BuildZ3Expr`.
 fn build_bv<'c>(ctx: &'c Context, expr: &Expr, var_asts: &[BV<'c>], bitwidth: u32) -> BV<'c> {
     match &expr.kind {

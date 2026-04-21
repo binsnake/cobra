@@ -1,4 +1,3 @@
-//! Foundation crate for the `CoBRA` Rust port.
 //!
 //! Provides the expression IR (`expr`), modular arithmetic helpers
 //! (`arith`), compiled stack-machine bytecode (`compiled`), and a
@@ -6,7 +5,6 @@
 //! `cobra-orchestrator`, etc.) build on top of these types.
 
 #![forbid(unsafe_code)]
-// `Expr` factories intentionally return `Box<Expr>` to mirror C++
 // `std::unique_ptr<Expr>` ownership semantics: callers pass trees around
 // as pointers so that deep trees don't have to be moved by value.
 #![allow(clippy::unnecessary_box_returns)]

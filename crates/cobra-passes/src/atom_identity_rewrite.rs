@@ -108,7 +108,6 @@ pub fn run_atom_identity_rewrite(
 struct RewriteSite {
     /// Hash of the node whose subtree is replaced.
     target_hash: u64,
-    /// The candidate replacement subtree.
     candidate: Box<Expr>,
 }
 

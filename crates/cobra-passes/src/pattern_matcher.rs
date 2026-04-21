@@ -1,7 +1,5 @@
 //! Fast-path signature recognition. Maps known signature vectors back
-//! to their canonical [`Expr`] form. Ported from the constant /
 //! 1-variable / 2-variable Boolean arms of
-//! `lib/core/PatternMatcher.cpp`.
 //!
 //! Higher-arity tables — 3-var Boolean (256 entries), 4-var NPN
 //! equivalence classes (an externally generated table), 5/6-var
@@ -35,7 +33,6 @@ pub fn is_boolean_sig(sig: &[u64]) -> bool {
 }
 
 /// Pack a Boolean signature into the integer key used by the lookup
-/// tables. Bit `i` is set when `sig[i] != 0`. Mirrors C++
 /// `PackBoolSig` (`u32` form — sufficient up to 5 variables).
 #[must_use]
 pub fn pack_bool_sig(sig: &[u64]) -> u32 {
@@ -72,7 +69,6 @@ pub fn match_1var(sig: &[u64], bitwidth: u32) -> Option<Box<Expr>> {
 /// All 16 Boolean functions of two variables, keyed by packed sig.
 /// Constants `0x0` and `0xF` are filtered out by [`all_equal`] before
 /// reaching this table. Indexing convention: `key bit i` is `f(x, y)`
-/// where `x = bit 0 of i`, `y = bit 1 of i`. Mirrors C++
 /// `Match2varBoolean`.
 #[must_use]
 pub fn match_2var_boolean(key: u8) -> Option<Box<Expr>> {
@@ -113,7 +109,6 @@ pub fn pack_bool_sig_64(sig: &[u64]) -> u64 {
 
 /// Complete table of the 254 non-constant Boolean functions of three
 /// variables. Each arm returns the minimal-cost AST found by BFS over
-/// `{AND, OR, XOR, NOT}` from the variables. Mirrors C++
 /// `Match3varBoolean`.
 #[must_use]
 #[allow(clippy::too_many_lines)]
@@ -488,7 +483,6 @@ pub fn match_4var_npn(key: u16) -> Option<Box<Expr>> {
 
 /// Shannon decomposition on variable 4 of a 5-variable Boolean
 /// function. Splits `f(x,y,z,w,v)` into cofactors `f0 = f(...,0)` and
-/// `f1 = f(...,1)`, each looked up by [`match_4var_npn`]. Mirrors C++
 /// `Match5varBoolean`.
 #[must_use]
 pub fn match_5var_boolean(key: u32) -> Option<Box<Expr>> {
@@ -577,8 +571,6 @@ pub fn match_6var_boolean(key: u64) -> Option<Box<Expr>> {
 /// Recognise a "scaled boolean" signature — one whose entries are
 /// either `c` or `c + k` for some constants `(c, k)`. Strips the
 /// affine wrapper, recurses [`match_pattern`] on the resulting
-/// Boolean signature, then re-wraps with `c + k * inner`. Mirrors
-/// C++ `MatchScaledBoolean`.
 ///
 /// Returns `None` when the signature isn't of the affine-Boolean
 /// shape, when the inner Boolean form has no pattern entry, or when
@@ -647,7 +639,6 @@ pub fn match_pattern(sig: &[u64], num_vars: u32, bitwidth: u32) -> Option<Box<Ex
     None
 }
 
-/// One entry of the two-variable Boolean basis. Mirrors C++
 /// `TwoVarBasisPattern`.
 struct TwoVarBasisPattern {
     expr: Box<Expr>,
@@ -669,7 +660,6 @@ fn build_two_var_basis_patterns(bitwidth: u32) -> Vec<TwoVarBasisPattern> {
 }
 
 /// Coefficient candidate set: `{0}` ∪ `sig` ∪ `{sig[i] - sig[j]}`.
-/// Mirrors C++ `BuildCoefficientCandidates` (unique-preserving append).
 fn build_coefficient_candidates(sig: &[u64], bitwidth: u32) -> Vec<u64> {
     let mut out = Vec::with_capacity(1 + sig.len() + sig.len() * sig.len());
     let push_unique = |out: &mut Vec<u64>, v: u64| {
@@ -690,7 +680,6 @@ fn build_coefficient_candidates(sig: &[u64], bitwidth: u32) -> Vec<u64> {
 }
 
 /// Combine a constant with up to two basis summands into an affine
-/// expression. Mirrors C++ `BuildAffineBasisExpr`; the Rust port takes
 /// both basis terms by value since our callers always produce them.
 #[allow(clippy::unnecessary_box_returns)]
 fn build_affine_basis_expr(constant: u64, first: Box<Expr>, second: Box<Expr>) -> Box<Expr> {
@@ -705,8 +694,6 @@ fn build_affine_basis_expr(constant: u64, first: Box<Expr>, second: Box<Expr>) -
 /// Search the space of `c + α*B_i + β*B_j` expressions over the 14
 /// non-constant 2-var Boolean basis patterns `B_k`, with coefficients
 /// drawn from the candidate set built from `sig`. The first candidate
-/// that both signature-matches and passes the caller's `verify` callback
-/// and is cheaper than `baseline_cost` wins. Mirrors C++
 /// `TrySimplifyTwoVarPatternSum`.
 ///
 /// `sig` must be the 4-entry Boolean signature of the original
@@ -865,13 +852,10 @@ pub fn try_simplify_two_var_basis_triple(
 }
 
 /// Single-subtree pattern simplifier. Collects `expr`'s variable
-/// support, densifies indices, runs [`match_pattern`] and (for
 /// two-variable subtrees) the [`try_simplify_two_var_pattern_sum`]
-/// combinator, then re-maps back to original indices. Mirrors C++
 /// `TrySimplifyPatternSubtree`.
 ///
 /// Returns `None` when the baseline expression is already a leaf
-/// (`weighted_size <= 1`), when the support exceeds 6 vars, or when
 /// no candidate beats the baseline cost and verifies full-width.
 #[must_use]
 pub fn try_simplify_pattern_subtree(expr: &Expr, bitwidth: u32) -> Option<Box<Expr>> {
@@ -946,7 +930,6 @@ pub fn try_simplify_pattern_subtree(expr: &Expr, bitwidth: u32) -> Option<Box<Ex
 
 /// Closed-form trivial-identity rewrites applied before the
 /// boolean-signature pattern matcher. These are arithmetic shortcuts
-/// that hold at any bitwidth regardless of variable support.
 ///
 /// - `Add(X, 0)` and `Add(0, X)` → `X`
 /// - `Mul(X, 1)` and `Mul(1, X)` → `X`
@@ -994,7 +977,6 @@ fn is_constant_masked(expr: &Expr, target: u64, mask: u64) -> bool {
 }
 
 /// Bottom-up recursive application of [`try_simplify_pattern_subtree`].
-/// Matches C++ `SimplifyPatternSubtrees`: rewrite children first, then
 /// retry at each newly-formed parent until a fixed point.
 #[must_use]
 pub fn simplify_pattern_subtrees(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {

@@ -10,7 +10,6 @@
 //!   `~(arith)` → `Add(Neg, mask)` rewrite
 //!
 //! Many more are stubbed out / pending. The registry's current length
-//! is intentionally smaller than the 36 declared in C++; the
 //! orchestrator treats missing entries as "skip" without error, so
 //! enabling more passes is purely additive.
 
@@ -82,7 +81,6 @@ pub mod verify_candidate;
 
 use cobra_orchestrator::{PassDescriptor, PassId, PassTag, StateKind};
 
-/// The complete pass table. Ordered by [`PassId`] so that anyone
 /// iterating the slice encounters passes in canonical priority.
 pub const PASS_REGISTRY: &[PassDescriptor] = &[
     PassDescriptor {

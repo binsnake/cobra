@@ -1,6 +1,5 @@
 //! Pass-level outcome and reason types.
 //!
-//! Ported from `include/cobra/core/PassContract.h`. These are the
 //! shared vocabulary the orchestrator and every pass use to report
 //! success, failure, and the reason behind each outcome.
 
@@ -17,7 +16,6 @@ pub enum OutcomeKind {
     VerifyFailed,
 }
 
-/// Finer-grained reason category. Matches C++ `ReasonCategory`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ReasonCategory {
     #[default]
@@ -35,12 +33,10 @@ pub enum ReasonCategory {
     /// `ProductIdentityCollapse`) produced an expression strictly
     /// cheaper than the original input and verified under a full-width
     /// spot check, so the orchestrator promoted it instead of returning
-    /// `UnchangedUnsupported`. Purely audit metadata — downstream sees a
     /// successful simplify.
     BestRewritePromoted,
 }
 
-/// Domain a `ReasonCode` originates from. Matches C++ `ReasonDomain`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ReasonDomain {
     #[default]
@@ -77,7 +73,6 @@ pub struct DiagField {
 }
 
 /// One level of reason detail. A `ReasonDetail` has a top frame and a
-/// chain of cause frames mirroring stacked context.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ReasonFrame {
     pub code: ReasonCode,
@@ -96,7 +91,6 @@ pub struct ReasonDetail {
 // SolverResult<T>
 // ---------------------------------------------------------------
 
-/// Non-fatal solver outcome with optional payload. Matches the C++
 /// `SolverResult<T>` template: five success/failure arms, at most one of
 /// `payload` / `reason` populated per arm.
 #[derive(Clone, Debug)]
@@ -148,7 +142,6 @@ impl<T> SolverResult<T> {
 // ---------------------------------------------------------------
 
 /// Metadata attached by the decomposition family when it produces a
-/// result. Fields match the C++ layout verbatim.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct DecompositionMeta {
     pub extractor_kind: u8,
@@ -170,15 +163,12 @@ pub enum VerificationState {
 }
 
 /// Work the pass couldn't consume — the remaining residual plus its
-/// classification. Matches C++ `PendingWork`.
 #[derive(Clone, Debug)]
 pub struct PendingWork {
     pub residual: Box<Expr>,
     pub residual_classification: Classification,
 }
 
-/// Concrete outcome for a simplification pass. Five arms mirroring the
-/// C++ factories.
 #[derive(Clone, Debug)]
 #[must_use]
 pub enum PassOutcome {
@@ -277,7 +267,6 @@ impl PassOutcome {
     }
 
     /// Attach a signature vector to any arm that carries one. No-op for
-    /// `Inapplicable`/`Blocked`. Mirrors C++ `SetSigVector`.
     pub fn set_sig_vector(&mut self, sv: Vec<u64>) {
         match self {
             Self::Success { sig_vector, .. }

@@ -5,7 +5,6 @@ use cobra_core::expr::Expr;
 
 use crate::{Verifier, VerifyOpts, VerifyOutcome};
 
-/// A trivial verifier. Never reports equivalence — callers that need a
 /// hard proof must run a real backend.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct NullVerifier;

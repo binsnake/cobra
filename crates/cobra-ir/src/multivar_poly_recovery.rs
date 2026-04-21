@@ -1,6 +1,5 @@
 //! Multivariate polynomial recovery via falling-factorial interpolation
 //! on the `{0, ..., max_degree}^k` grid. Given an evaluator `f` and a
-//! chosen support of `k` variables, recovers a [`NormalizedPoly`] whose
 //! factorial-basis representation agrees with `f` on the grid — iff
 //! `f` really is an ordinary polynomial in its support with per-variable
 //! degree ≤ `max_degree`.
@@ -14,7 +13,6 @@
 //! of the relevant factorial product, taken modulo `2^(bitwidth - q)`.
 //!
 //! Non-support variables are fixed at 0 during evaluation, matching
-//! the C++ behaviour — support is not required to be a prefix.
 
 use cobra_core::arith::bitmask;
 use cobra_core::evaluator::Evaluator;
@@ -58,7 +56,6 @@ fn reason(category: ReasonCategory, sub: u16, msg: &str) -> ReasonDetail {
 }
 
 /// Recover a [`NormalizedPoly`] whose factorial-basis coefficients
-/// match `eval` on the `{0..max_degree}^k` grid over `support_vars`.
 /// Returns `Inapplicable` for argument-validation failures, `Blocked`
 /// if the 2-adic divisibility gate proves the function is not a
 /// polynomial at the requested degree.

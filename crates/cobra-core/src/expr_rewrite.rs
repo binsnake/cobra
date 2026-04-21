@@ -1,8 +1,5 @@
-//! Tree-level rewrite helpers on `Expr`. Ported from the rest of
-//! `include/cobra/core/ExprUtils.h` / `lib/core/ExprUtils.cpp` that isn't
 //! already in [`crate::expr_utils`].
 
-// Every `Expr`-producing factory returns `Box<Expr>` to mirror C++
 // `std::unique_ptr<Expr>`. The flatten/rebuild helpers below keep trees in
 // their boxed form to avoid deep copies when reshuffling nodes.
 #![allow(clippy::vec_box)]
@@ -15,7 +12,6 @@ use crate::expr::{Expr, Kind};
 use crate::expr_utils::{eval_constant, has_var_dep, is_constant_subtree};
 
 /// Build a left-leaning `And` product from the variables whose bit is set
-/// in `mask`. Returns `None` if `mask == 0` (matches C++ — caller is
 /// expected to handle this case).
 #[must_use]
 pub fn build_and_product(mut mask: u64) -> Option<Box<Expr>> {
@@ -46,7 +42,6 @@ pub fn apply_coefficient(expr: Box<Expr>, coeff: u64, bitwidth: u32) -> Box<Expr
 }
 
 /// Map each name in `subset_vars` to its position in `all_vars`. Panics if
-/// a name isn't in the full list (C++ version uses `.at()` which throws).
 #[must_use]
 pub fn build_var_support(all_vars: &[String], subset_vars: &[String]) -> Vec<u32> {
     let mut idx: HashMap<&str, u32> = HashMap::with_capacity(all_vars.len());
@@ -90,8 +85,6 @@ pub fn has_nonleaf_bitwise(expr: &Expr) -> bool {
 
 /// Replace `AND(var-dep, var-dep)` with `MUL` wherever both sides are pure
 /// `Variable`/`And`/`Mul` compositions. This corrects the product-shadow
-/// divergence: `AND == MUL` on `{0, 1}` but not at full width. Matches
-/// C++ `RepairProductShadow`.
 #[must_use]
 pub fn repair_product_shadow(mut expr: Box<Expr>) -> Box<Expr> {
     let mut new_children = expr
@@ -126,7 +119,6 @@ fn is_pure_product(e: &Expr) -> bool {
 /// Cosmetic cleanup on a simplified expression: constant folding followed
 /// by `-x + (2^n - 1)` → `~x` refolding followed by common-factor extraction.
 /// Semantics-preserving, so no verification step is required.
-/// Matches C++ `CleanupFinalExpr`.
 #[must_use]
 pub fn cleanup_final_expr(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
     expr = fold_constant_arithmetic(expr, bitwidth);

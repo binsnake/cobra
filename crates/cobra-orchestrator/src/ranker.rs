@@ -1,7 +1,5 @@
 //! Deterministic ordering for picking the best "unsupported" candidate
 //! to surface in the final `SimplifyOutcome` when no pass produces a
-//! verified answer. Ported from `UnsupportedRankBetter` in
-//! `lib/core/Orchestrator.cpp`.
 
 use cobra_core::pass_contract::ReasonCategory;
 

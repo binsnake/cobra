@@ -1,6 +1,5 @@
 //! Word-packed bitset for algebraic-normal-form coefficient vectors.
 //!
-//! Ported from `include/cobra/core/PackedAnf.h`. Bits are packed
 //! little-endian into 64-bit words: bit `i` lives at
 //! `words[i / 64] >> (i % 64) & 1`.
 
@@ -21,7 +20,6 @@ impl PackedAnf {
         }
     }
 
-    /// Build from an iterator of 0/non-0 flags, mimicking C++'s
     /// initializer-list constructor.
     #[must_use]
     pub fn from_bits<I, T>(bits: I) -> Self

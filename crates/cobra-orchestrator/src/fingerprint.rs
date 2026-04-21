@@ -1,13 +1,5 @@
-//! State fingerprinting. Ported from the `ComputeFingerprint` and
-//! `BuildSemilinearFingerprintKey` sections of `lib/core/Orchestrator.cpp`.
-//!
-//! The C++ version uses the standard library's `std::hash` plus a
-//! Boost-style `hash_combine` for structural hashing. The Rust port
-//! keeps the exact same mix constants so a fingerprint computed here
-//! would round-trip with the C++ side if seeded with the matching
-//! hasher — but since the outer hash maps use `ahash` rather than
-//! `std::hash`, byte-for-byte parity with stored C++ fingerprints is
-//! deferred to the parity session.
+//! Boost-style `hash_combine` for structural hashing, keeping the exact
+//! same mix constants for structural consistency across hash computations.
 
 use cobra_ir::semilinear::SemilinearIR;
 
@@ -15,9 +7,7 @@ use crate::context::expr_identity_hash;
 use crate::state::StateData;
 use crate::work_item::{SemilinearFingerprintKey, SemilinearTermKey, StateFingerprint, WorkItem};
 
-/// Boost-style `hash_combine`. Matches
-/// `cobra::detail::hash_combine` in `include/cobra/core/Expr.h` so that
-/// structurally identical inputs produce identical combined hashes.
+/// Boost-style hash combination: structurally identical inputs produce identical combined hashes.
 #[inline]
 #[must_use]
 pub fn hash_combine(seed: u64, value: u64) -> u64 {
@@ -27,10 +17,8 @@ pub fn hash_combine(seed: u64, value: u64) -> u64 {
         .wrapping_add(seed >> 2)
 }
 
-/// Build a deduplication fingerprint for `item`. Matches C++
 /// `ComputeFingerprint`.
 #[must_use]
-#[allow(clippy::too_many_lines)] // direct port of per-payload hashing
 pub fn compute_fingerprint(item: &WorkItem, bitwidth: u32) -> StateFingerprint {
     let kind = item.payload.kind();
     let provenance = item.features.provenance;
@@ -161,10 +149,7 @@ pub fn compute_fingerprint(item: &WorkItem, bitwidth: u32) -> StateFingerprint {
 }
 
 /// Build the content-keyed fingerprint of a [`SemilinearIR`]. Terms are
-/// sorted lexicographically by `(coeff, support, truth_table,
 /// structural_hash, provenance)` so that two IRs with the same set of
-/// weighted atoms (regardless of order) produce the same key. Matches
-/// C++ `BuildSemilinearFingerprintKey`.
 #[must_use]
 pub fn build_semilinear_fingerprint_key(ir: &SemilinearIR) -> SemilinearFingerprintKey {
     let mut terms: Vec<SemilinearTermKey> = Vec::with_capacity(ir.terms.len());

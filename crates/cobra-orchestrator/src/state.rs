@@ -1,7 +1,4 @@
-//! [`StateData`] and its payload variants. Ported from the "payload
-//! types" section of `lib/core/Orchestrator.h`.
 //!
-//! Every payload is a Rust port of the corresponding C++ struct with
 //! identical field order. `StateData::kind()` returns the
 //! [`StateKind`] discriminator used by the scheduler.
 
@@ -150,7 +147,6 @@ pub struct CompetitionResolvedPayload {
 
 // ----- Umbrella -----
 
-/// Tagged union over every payload type. Matches C++ `StateData` variant
 /// order — the index of each arm equals the `StateKind` discriminator's
 /// numeric value, so fingerprinting and scheduling can switch on
 /// `kind()` without touching the payload.

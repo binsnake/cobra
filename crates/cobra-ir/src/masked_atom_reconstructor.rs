@@ -31,7 +31,6 @@ fn compute_active_mask(atom_id: AtomId, partitions: &[PartitionClass]) -> u64 {
     mask
 }
 
-/// Produce an `Expr` tree equivalent to `constant + Σ coeff_i * atom_i`
 /// with coefficient-1 pairs fused into `OR` nodes when their active
 /// masks are disjoint.
 #[must_use]

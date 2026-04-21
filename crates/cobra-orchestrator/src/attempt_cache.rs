@@ -1,5 +1,4 @@
 //! Cache of `(StateFingerprint, PassId)` pairs that have already been
-//! tried. Matches C++ `PassAttemptCache`.
 //!
 //! The actual fingerprint is built by the scheduler; this module only
 //! owns the map and its accessors.

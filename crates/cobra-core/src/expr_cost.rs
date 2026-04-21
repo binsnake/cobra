@@ -1,7 +1,5 @@
 //! Cost model for ranking candidate simplified expressions.
 //!
-//! Ported from `include/cobra/core/ExprCost.h` and
-//! `lib/core/ExprCost.cpp`. Three metrics, lexicographically compared:
 //! weighted size (favour small trees), non-linear mul count (favour
 //! fewer `var * var`), and maximum depth (favour shallow).
 
@@ -22,7 +20,6 @@ pub struct CostInfo {
     pub has_var_dep: bool,
 }
 
-/// Post-order recursive cost computation. Matches `ComputeCost` exactly:
 /// non-linear multiplies (both operands variable-dependent) contribute
 /// weight 3 and increment the non-linear-mul counter.
 #[must_use]
@@ -88,7 +85,6 @@ pub fn compute_cost(expr: &Expr) -> CostInfo {
 }
 
 /// Lexicographic compare: `(weighted_size, nonlinear_mul_count, max_depth)`.
-/// Matches C++ `IsBetter` exactly.
 #[inline]
 #[must_use]
 pub fn is_better(candidate: &ExprCost, baseline: &ExprCost) -> bool {

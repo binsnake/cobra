@@ -1,6 +1,5 @@
 //! Token stream for the MBA expression grammar.
 //!
-//! Ported from the anonymous-namespace helpers in
 //! `tools/cobra-cli/ExprParser.cpp`. Tokens carry both precedence and
 //! right-associativity so that the shunting-yard stage does not have to
 //! look anything up — the lexer is the single source of truth for the
@@ -25,7 +24,6 @@ pub enum TokenType {
 /// - `(` or `)` for paren tokens.
 ///
 /// `precedence` / `right_assoc` / `is_unary` are only meaningful on `Op`
-/// tokens. Matching the C++ `Token` struct exactly so the shunting-yard
 /// translation is line-for-line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Token {
@@ -88,7 +86,6 @@ impl Token {
     }
 }
 
-/// Tokenize the input string. Consumes bytes, not chars — matches the C++
 /// implementation which uses `std::isspace`/`std::isdigit` on single bytes.
 /// Identifier characters follow ASCII `[A-Za-z_][A-Za-z0-9_]*`.
 #[allow(clippy::too_many_lines)]

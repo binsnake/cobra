@@ -1,11 +1,8 @@
 //! Solve a Boolean-null residual as `c * ghost(x_{i_1}, ..., x_{i_a})`
 //! for some constant `c` and ghost primitive, discovered by probing
-//! at a fixed mixed-parity probe bank and inferring the 2-adic
 //! coefficient.
 //!
 //! The probe bank is deterministic — `SplitMix64`-style seeded
-//! sequence — so a successful match at byte-for-byte parity with the
-//! C++ implementation is guaranteed for identical residual evaluators.
 
 use cobra_core::arith::bitmask;
 use cobra_core::evaluator::Evaluator;
@@ -34,8 +31,6 @@ struct ProbePoint {
     values: [u64; 6],
 }
 
-/// Fixed mixed-parity probe seeds — byte-for-byte match with the C++
-/// `GhostResidualSolver` to keep coefficient-inference parity.
 const PROBE_SEEDS: [u64; 48] = [
     3, 4, 7, 10, 13, 18, 23, 28, 37, 42, 51, 60, 71, 80, 97, 106, 5, 6, 11, 14, 19, 22, 29, 34, 41,
     50, 59, 66, 73, 82, 91, 100, 9, 12, 17, 20, 25, 30, 35, 40, 47, 56, 63, 70, 79, 86, 95, 102,
@@ -68,7 +63,6 @@ fn next_combo(combo: &mut [u32], support_size: u32) -> bool {
 }
 
 /// Classify whether the residual is zero on every Boolean assignment
-/// but nonzero on at least one mixed-parity probe.
 #[must_use]
 pub fn is_boolean_null_residual(
     residual_eval: &Evaluator,

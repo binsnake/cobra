@@ -1,11 +1,9 @@
 //! Core enumerations used throughout the orchestrator. Each is a direct
-//! port of the corresponding C++ enum with identical variant ordering so
 //! that numeric casts (used in places like `DecompositionMeta`) stay
 //! bit-compatible.
 
 // ----- State machine -----
 
-/// Discriminator for [`crate::state::StateData`]. Matches C++ `StateKind`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum StateKind {
@@ -22,7 +20,6 @@ pub enum StateKind {
     CompetitionResolved,
 }
 
-/// Where the current AST sat in the lowering pipeline. Matches C++
 /// `Provenance`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Provenance {
@@ -32,7 +29,6 @@ pub enum Provenance {
     Rewritten,
 }
 
-/// A pass's verdict on whether it could make progress. Matches C++
 /// `PassDecision`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PassDecision {
@@ -44,7 +40,6 @@ pub enum PassDecision {
 }
 
 /// What the orchestrator should do with the work item after the pass
-/// ran. Matches C++ `ItemDisposition`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ItemDisposition {
     RetainCurrent,
@@ -53,8 +48,6 @@ pub enum ItemDisposition {
     ConsumeCurrent,
 }
 
-/// Where a remainder came from. Drives
-/// [`crate::stubs::ExtractorKind`] projection. Matches C++
 /// `RemainderOrigin` (sized `u8`).
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -70,8 +63,6 @@ pub enum RemainderOrigin {
 
 // ----- Pass identity -----
 
-/// Every pass registered in the orchestrator. Matches C++ `PassId` both
-/// in order and count (36 variants). Held as `u8`; the orchestrator
 /// stores per-item `attempted_mask` as a `u64` bitset, so any addition
 /// here must keep `Count_ <= 64`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -147,7 +138,6 @@ impl PassId {
         self as u8
     }
 
-    /// Is this pass in the decomposition family? Matches C++
     /// `IsDecompositionFamilyPass`: `ExtractProductCore .. ResidualTemplate`
     /// (inclusive).
     #[inline]
@@ -158,7 +148,6 @@ impl PassId {
     }
 }
 
-/// Broad category for each pass. Matches C++ `PassTag`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PassTag {
     Analysis,
@@ -171,7 +160,6 @@ pub enum PassTag {
 
 use crate::stubs::ExtractorKind;
 
-/// Mirror of C++ `ProjectExtractorKind`.
 #[inline]
 #[must_use]
 pub fn project_extractor_kind(origin: RemainderOrigin) -> ExtractorKind {

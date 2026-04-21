@@ -2,10 +2,8 @@
 //!
 //! - [`parse_dataset`] splits a `.txt` file into `(input, expected)`
 //!   pairs. Comments (`#`) and blank lines are skipped. The separator
-//!   is the last top-level comma on the line, matching the C++
 //!   `find_separator` behaviour (respecting parens and brackets).
 //! - [`run_case`] drives one expression through the Rust pipeline and
-//!   returns a [`CaseReport`] carrying both a dataset-parity check
 //!   (simplified ≡ expected) and a safety check (simplified ≡ input).
 //! - [`Report`] aggregates a batch of [`CaseReport`]s for a sweep.
 //!
@@ -32,7 +30,6 @@ pub struct Case {
 
 /// Parse a dataset file body into `(input, expected)` pairs.
 ///
-/// Format matches the C++ `find_separator`:
 /// - lines starting with `#` are comments,
 /// - blank lines are ignored,
 /// - if a top-level tab (`\t`) is present, it separates input from
@@ -116,14 +113,12 @@ fn top_level_commas(line: &str) -> Vec<usize> {
 pub enum CaseKind {
     /// Pipeline produced a simplified expression.
     Simplified,
-    /// Pipeline left the input unchanged / unsupported.
     Unchanged,
     /// Failure before the pipeline reached a decision (parse / seed / pipeline error).
     Errored,
 }
 
 /// Result of running one dataset case. Carries both a safety check
-/// (simplified ≡ input) and a parity check (simplified ≡ expected).
 #[derive(Clone, Debug)]
 pub struct CaseReport {
     pub kind: CaseKind,
@@ -140,7 +135,6 @@ pub struct CaseReport {
 }
 
 /// Drive one `Case` through the pipeline and compare against both the
-/// input (equivalence/safety) and the expected form (dataset parity)
 /// using a 256-sample full-width probe.
 #[must_use]
 pub fn run_case(case: &Case, bitwidth: u32) -> CaseReport {
@@ -187,7 +181,6 @@ pub fn run_case(case: &Case, bitwidth: u32) -> CaseReport {
         SimplifyOutcomeKind::Simplified => {
             // Remap the simplified expression from the orchestrator's
             // reduced `real_vars` space back into the original
-            // variable space before probing — mirrors the C++
             // dataset-test post-processing.
             let simplified_raw = outcome.expr.as_ref().expect("Simplified carries expr");
             let mut simplified = simplified_raw.clone();

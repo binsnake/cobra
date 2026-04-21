@@ -16,7 +16,6 @@ use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 /// Emit a candidate by combining `residual.prefix_expr` with the
 /// caller's `solved_expr`. Returns `None` when the full-width check
-/// fails — caller should then report `Blocked`.
 pub fn try_recombine_and_emit(
     residual: &RemainderStatePayload,
     mut solved_expr: Box<Expr>,
@@ -101,7 +100,6 @@ pub fn try_recombine_and_emit(
     })
 }
 
-/// Touch `Classification` so the import stays used when empty stubs
 /// are compiled.
 #[doc(hidden)]
 #[must_use]

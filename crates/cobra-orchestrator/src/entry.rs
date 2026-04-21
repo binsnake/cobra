@@ -21,8 +21,6 @@ use crate::worklist::Worklist;
 /// result to a public [`SimplifyOutcome`].
 ///
 /// `original_expr`, when supplied, is cloned into the outcome's `expr`
-/// field on the "unsupported" path so the caller sees the input
-/// expression echoed back. When `None`, the unsupported path leaves
 /// `expr` as `None`.
 pub fn simplify_from_worklist(
     ctx: &mut OrchestratorContext,
@@ -35,7 +33,6 @@ pub fn simplify_from_worklist(
     Ok(to_simplify_outcome(result, original_expr, ctx.bitwidth))
 }
 
-/// Convert a [`LoopResult`] to a public [`SimplifyOutcome`]. Matches C++
 /// `ToSimplifyOutcome`: success runs `cleanup_final_expr` on the expr,
 /// failure either echoes the input or leaves `expr = None`.
 pub fn to_simplify_outcome(

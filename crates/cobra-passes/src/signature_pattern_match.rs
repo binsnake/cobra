@@ -1,5 +1,4 @@
 //! `RunSignaturePatternMatch` pass — turns a signature-keyed pattern
-//! hit into a `Candidate`. Ported from C++ `RunSignaturePatternMatch`
 //! with the competition-group submission path simplified to a direct
 //! worklist push (groups will be wired through the signature passes
 //! in a later session).
@@ -17,7 +16,6 @@ use crate::mapped_evaluator::build_mapped_evaluator;
 use crate::pattern_matcher::match_pattern;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
-/// Pass body. Matches the spirit of C++ `RunSignaturePatternMatch`:
 /// look up the reduced sig in the pattern table; on a hit, build a
 /// `Candidate` work item carrying the simplified expression. The
 /// candidate's `needs_original_space_verification` flag is inherited
@@ -52,7 +50,6 @@ pub fn run_signature_pattern_match(
 
     // Optional pre-emptive full-width check: when an evaluator is
     // available we can short-circuit a verify-failed candidate before
-    // it consumes a verification budget slot. Mirrors the C++ pass's
     // `BuildMappedEvaluator` + `FullWidthCheckEval` step — the mapped
     // evaluator is already in the reduced `real_vars` space, so no
     // `verify_in_original_space` remap is needed.

@@ -1,13 +1,11 @@
 //! Shunting-yard conversion from the flat token stream to RPN, plus
 //! validation of shift/exponent operands.
 //!
-//! Ported from `tools/cobra-cli/ExprParser.cpp`.
 
 use cobra_core::result::{err, CobraError, Result};
 
 use crate::token::{Token, TokenType};
 
-/// Dijkstra-style shunting-yard. Matches the C++ precedence-climb rule:
 /// a new operator pops from the stack while the top is an operator and
 /// either (tok is right-assoc and top's prec < tok's prec) or (tok is
 /// left-assoc and top's prec <= tok's prec).
@@ -61,7 +59,6 @@ pub fn to_postfix(tokens: &[Token]) -> Result<Vec<Token>> {
 }
 
 /// Enforce that shift amounts and power exponents are integer literals and
-/// (for shifts) fit within `bitwidth`. Mirrors
 /// `ValidateShiftsAndExponents`.
 pub fn validate_shifts_and_exponents(postfix: &[Token], bitwidth: u32) -> Result<()> {
     for (i, tok) in postfix.iter().enumerate() {

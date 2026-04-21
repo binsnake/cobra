@@ -1,10 +1,8 @@
 //! Direct sweep over all 2^n Boolean assignments to produce a signature
-//! vector, plus the linear-MBA predicate. Ported from `ParseAndEvaluate`
 //! and `IsLinearMba` in `tools/cobra-cli/ExprParser.cpp`.
 //!
 //! The sweep path avoids allocating the `Expr` tree — useful when you only
 //! need the signature (e.g., dataset harness hot paths). Stays byte-for-
-//! byte compatible with the C++ version.
 
 use cobra_core::arith::bitmask;
 use cobra_core::result::{err, CobraError, Result};
@@ -13,7 +11,6 @@ use crate::ast::MAX_VARIABLES;
 use crate::postfix::{collect_sorted_vars, to_postfix, validate_shifts_and_exponents};
 use crate::token::{tokenize, TokenType};
 
-/// Matches C++ `ParseResult`.
 #[derive(Clone, Debug)]
 pub struct ParseResult {
     /// Signature vector of length `2^vars.len()`.
@@ -222,7 +219,6 @@ pub fn parse_and_evaluate(input: &str, bitwidth: u32) -> Result<ParseResult> {
 }
 
 /// `true` if the input has no `var * var` or `var ** anything` node —
-/// i.e. it's a linear MBA in the polynomial sense. Matches C++
 /// `IsLinearMba`: any parse failure or empty input also returns `true`
 /// (conservative-yes).
 #[must_use]

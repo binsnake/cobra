@@ -12,7 +12,6 @@
 //! Everything else falls through to a straight
 //! `Σ ApplyCoefficient(c_i, T(m_i))` sum.
 //!
-//! The algorithm is greedy and single-pass — identical to the reference
 //! implementation's shape but driven through iterators and slice
 //! indices rather than raw pointer-carrying `Term` structs. Compound
 //! results re-enter the term vector but are excluded from further

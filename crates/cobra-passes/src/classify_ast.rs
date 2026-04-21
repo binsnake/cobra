@@ -13,7 +13,6 @@ use cobra_orchestrator::{
 
 use crate::classifier::classify_structural;
 
-/// Pass body. Matches C++ `RunClassifyAst`.
 #[allow(clippy::unnecessary_wraps)] // `PassFn` signature requires `Result`
 pub fn run_classify_ast(item: &WorkItem, ctx: &mut OrchestratorContext) -> Result<PassResult> {
     let StateData::FoldedAst(ast) = &item.payload else {

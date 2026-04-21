@@ -1,8 +1,5 @@
 //! Spot-check verification: compare a simplified `Expr` against an
-//! `Evaluator` at a curated set of probe points. Ported from
-//! `lib/core/SignatureChecker.cpp`'s `FullWidthCheckEval`.
 //!
-//! This initial port covers adversarial single-value and per-variable
 //! probes plus a small random sample. The expression-derived-constant
 //! Phase 3/4 and the two-variable combinations (Phase 5) are deferred
 //! to a later pass together with the full `SignatureChecker` API.
@@ -13,7 +10,6 @@ use crate::evaluator::{Evaluator, Workspace};
 use crate::expr::Expr;
 use crate::expr_utils::remap_var_indices;
 
-/// Matches C++ `CheckResult`. `failing_input` is populated with the
 /// inputs that produced a disagreement (when `passed == false`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CheckResult {
@@ -21,7 +17,6 @@ pub struct CheckResult {
     pub failing_input: Vec<u64>,
 }
 
-/// `num_samples` mirrors the C++ default — used for the random phase.
 pub const DEFAULT_NUM_SAMPLES: u32 = 8;
 
 /// Compare `simplified` against `eval_original` at a curated probe set
@@ -173,7 +168,6 @@ fn probe_point(
 
 /// Small curated set of "interesting" values: 0, 1, -1, -2, -3, -4,
 /// 2^k-1 / 2^k / 2^k+1 for each bit position, plus 3/5/7 and the
-/// alternating bit patterns 0x5555... / 0xAAAA... Matches the C++
 /// `BuildAdversarialValues` closely (minus bitwidth-dependent dedup
 /// ordering — we dedupe on the fly).
 fn adversarial_values(bitwidth: u32) -> Vec<u64> {

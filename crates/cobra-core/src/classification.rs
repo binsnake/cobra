@@ -1,5 +1,4 @@
 //! Semantic-class and structural-shape tags produced by the AST
-//! classifier. Ported from `include/cobra/core/Classification.h`.
 
 /// High-level semantic bucket an expression falls into.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
@@ -11,10 +10,7 @@ pub enum SemanticClass {
     NonPolynomial,
 }
 
-/// Bitset of structural properties the classifier reports. Matches the
-/// C++ `StructuralFlag` enum values exactly; held as a `u32` so the
 /// bitwise ops are trivial and fingerprints can stay byte-compatible
-/// with the C++ side.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct StructuralFlag(pub u32);
 
@@ -88,7 +84,6 @@ pub struct Classification {
     pub flags: StructuralFlag,
 }
 
-/// Matches C++ `NeedsStructuralRecovery`.
 #[must_use]
 pub fn needs_structural_recovery(flags: StructuralFlag) -> bool {
     if flags.contains(StructuralFlag::HAS_UNKNOWN_SHAPE) {
@@ -105,7 +100,6 @@ pub fn needs_structural_recovery(flags: StructuralFlag) -> bool {
     false
 }
 
-/// Matches C++ `IsFoldedAstExplorationCandidate`, extended to include
 /// every var-var-product shape — mixed (bitwise × arithmetic),
 /// bitwise-over-arith, multilinear (`x*y`), multivar high-power
 /// (`x²*y`), and singleton power (`x²`). Any of those benefits from

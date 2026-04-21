@@ -1,6 +1,5 @@
 //! Modular u64 arithmetic at a configurable bitwidth (1..=64).
 //!
-//! Mirrors `include/cobra/core/BitWidth.h` in the C++ source. All operations
 //! are wrapping — any overflow is masked back into the `bitwidth`-wide modulus.
 
 /// Low-`bitwidth` all-ones mask. `bitwidth == 0` returns 0; `bitwidth >= 64`
