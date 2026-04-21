@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "Apache-2.0"
+repository = "https://github.com/local/cobra-rs"
+
+[workspace.dependencies]
+smallvec = { version = "1.13", features = ["union"] }
+ahash = "=0.8.11"
+hashbrown = "0.14"
+indexmap = "2"
+thiserror = "1"
+wide = "0.7"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+debug = 1
+
+[profile.bench]
+lto = "thin"
+codegen-units = 1

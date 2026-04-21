@@ -1,0 +1,25 @@
+[package]
+name = "cobra-passes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "CoBRA simplification passes: classifier, lowering, signature, semilinear, decomposition, lifting, verification"
+
+[dependencies]
+cobra-core = { path = "../cobra-core" }
+cobra-ir = { path = "../cobra-ir" }
+cobra-orchestrator = { path = "../cobra-orchestrator" }
+
+[dev-dependencies]
+cobra-parser = { path = "../cobra-parser" }
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"

@@ -1,0 +1,20 @@
+[package]
+name = "cobra-parser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "CoBRA MBA expression parser — hand-ported shunting-yard producing cobra-core Expr trees"
+
+[dependencies]
+cobra-core = { path = "../cobra-core" }
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"

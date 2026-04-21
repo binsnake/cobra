@@ -1,0 +1,27 @@
+[package]
+name = "cobra-verify"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "CoBRA verifier interface and optional Z3 backend"
+
+[features]
+# Z3 requires the z3 shared library at build time. Off by default so the
+# workspace builds cleanly without Z3 installed; turn on with --features z3.
+default = []
+z3 = ["dep:z3"]
+
+[dependencies]
+cobra-core = { path = "../cobra-core" }
+z3 = { version = "0.12", optional = true }
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
