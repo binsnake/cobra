@@ -5,12 +5,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::thread;
 use std::time::Instant;
 
 use clap::Parser;
 
 use cobra_core::is_valid_bitwidth;
 use cobra_testkit::{parse_dataset, run_case, CaseKind, CaseReport, Report};
+
+const SWEEP_STACK_SIZE: usize = 64 * 1024 * 1024;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -74,7 +77,7 @@ fn sweep_file(path: &Path, args: &Args) -> Report {
     let elapsed = started.elapsed();
 
     println!(
-        "{}: total={} simplified={} verified={} parity={} unsafe={} unchanged={} errored={} ({:.2}s)",
+        "{}: total={} simplified={} verified={} parity={} unsafe={} unchanged={} skipped={} errored={} ({:.2}s)",
         path.display(),
         report.total,
         report.simplified,
@@ -82,6 +85,7 @@ fn sweep_file(path: &Path, args: &Args) -> Report {
         report.parity,
         report.unsafe_changes,
         report.unchanged,
+        report.skipped,
         report.errored,
         elapsed.as_secs_f64(),
     );
@@ -102,6 +106,7 @@ fn print_case_line(path: &Path, line: u32, r: &CaseReport) {
             }
         }
         CaseKind::Unchanged => "unchanged",
+        CaseKind::Skipped => "skipped",
         CaseKind::Errored => "ERROR",
     };
     let detail = r.error.as_deref().unwrap_or("");
@@ -114,11 +119,12 @@ fn merge(into: &mut Report, other: &Report) {
     into.verified += other.verified;
     into.parity += other.parity;
     into.unchanged += other.unchanged;
+    into.skipped += other.skipped;
     into.errored += other.errored;
     into.unsafe_changes += other.unsafe_changes;
 }
 
-fn main() -> ExitCode {
+fn run() -> ExitCode {
     let args = Args::parse();
     if !is_valid_bitwidth(args.bitwidth) {
         eprintln!(
@@ -135,13 +141,14 @@ fn main() -> ExitCode {
     }
 
     println!(
-        "total: cases={} simplified={} verified={} parity={} unsafe={} unchanged={} errored={}",
+        "total: cases={} simplified={} verified={} parity={} unsafe={} unchanged={} skipped={} errored={}",
         aggregate.total,
         aggregate.simplified,
         aggregate.verified,
         aggregate.parity,
         aggregate.unsafe_changes,
         aggregate.unchanged,
+        aggregate.skipped,
         aggregate.errored,
     );
 
@@ -152,4 +159,14 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
+}
+
+fn main() -> ExitCode {
+    thread::Builder::new()
+        .name("cobra-sweep".into())
+        .stack_size(SWEEP_STACK_SIZE)
+        .spawn(run)
+        .expect("spawn cobra-sweep worker")
+        .join()
+        .expect("cobra-sweep worker panicked")
 }

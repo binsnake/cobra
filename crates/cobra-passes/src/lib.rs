@@ -23,6 +23,7 @@ pub mod atom_simplifier;
 pub mod aux_var;
 pub mod bit_partitioner;
 pub mod bitwise_decomposer;
+pub mod candidate_normalize;
 pub mod classifier;
 pub mod cob_expr_builder;
 pub mod decomposition_engine;

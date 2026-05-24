@@ -14,7 +14,7 @@ use cobra_core::{evaluate_boolean_signature, is_valid_bitwidth};
 use cobra_ir::{contains_shr, detect_root_low_bit_mask};
 
 use cobra_orchestrator::{
-    simplify_from_worklist, OrchestratorContext, OrchestratorPolicy, Provenance,
+    create_group, simplify_from_worklist, OrchestratorContext, OrchestratorPolicy, Provenance,
     SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem, Worklist,
 };
 
@@ -251,6 +251,8 @@ fn seed_no_ast(
     if !needs_original_space_verification {
         seed.metadata.verification = VerificationState::Unverified;
     }
+    let group_id = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
+    seed.group_id = Some(group_id);
     worklist.push(seed);
     Ok(())
 }
@@ -320,5 +322,20 @@ mod tests {
         assert!(!outcome.verified);
         assert!(matches!(outcome.expr.unwrap().kind, Kind::Constant(7)));
         assert_eq!(outcome.sig_vector, vec![7, 7]);
+    }
+
+    #[test]
+    fn seed_no_ast_creates_signature_group() {
+        let vars = vec!["x".to_string(), "y".to_string()];
+        let mut ctx = OrchestratorContext::new(Options::default(), vars.clone(), 64);
+        let mut worklist = Worklist::new();
+
+        seed_no_ast(&[0, 1, 1, 2], &vars, &mut ctx, &mut worklist).unwrap();
+
+        let item = worklist.pop().expect("signature seed");
+        assert!(matches!(item.payload, StateData::Signature(_)));
+        assert_eq!(item.group_id, Some(0));
+        assert_eq!(ctx.next_group_id, 1);
+        assert_eq!(ctx.competition_groups[&0].open_handles, 1);
     }
 }

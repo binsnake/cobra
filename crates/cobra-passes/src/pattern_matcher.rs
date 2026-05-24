@@ -9,7 +9,7 @@
 //! and every 2-variable Boolean function — which covers the bulk of
 //! the README's smaller MBA examples.
 
-use cobra_core::arith::{bitmask, mod_add, mod_mul, mod_sub};
+use cobra_core::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_sub};
 use cobra_core::evaluate_boolean_signature;
 use cobra_core::evaluator::Evaluator;
 use cobra_core::expr::{Expr, Kind};
@@ -17,6 +17,7 @@ use cobra_core::expr_cost::{compute_cost, is_better, ExprCost};
 use cobra_core::expr_rewrite::apply_coefficient;
 use cobra_core::expr_utils::{collect_vars, remap_var_indices};
 
+use crate::atom_simplifier::simplify_atom;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 use crate::weighted_poly_fit::solve_2adic_fixed;
 
@@ -1021,6 +1022,83 @@ pub fn simplify_pattern_subtrees(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr
     expr
 }
 
+fn match_applied_coefficient(expr: &Expr, coeff: u64, bitwidth: u32) -> Option<&Expr> {
+    if coeff == 1 {
+        return Some(expr);
+    }
+
+    if coeff == bitmask(bitwidth) && matches!(&expr.kind, Kind::Neg) && expr.children.len() == 1 {
+        return Some(&expr.children[0]);
+    }
+
+    if !matches!(&expr.kind, Kind::Mul) || expr.children.len() != 2 {
+        return None;
+    }
+
+    if matches!(&expr.children[0].kind, Kind::Constant(v) if *v == coeff) {
+        return Some(&expr.children[1]);
+    }
+    if matches!(&expr.children[1].kind, Kind::Constant(v) if *v == coeff) {
+        return Some(&expr.children[0]);
+    }
+    None
+}
+
+fn match_scaled_add_term(expr: &Expr, bitwidth: u32) -> Option<(&Expr, u64)> {
+    if !matches!(&expr.kind, Kind::Add) || expr.children.len() != 2 {
+        return None;
+    }
+
+    for const_idx in 0..2 {
+        if let Kind::Constant(coeff) = &expr.children[const_idx].kind {
+            let term_idx = 1 - const_idx;
+            let term = match_applied_coefficient(&expr.children[term_idx], *coeff, bitwidth)?;
+            return Some((term, *coeff));
+        }
+    }
+    None
+}
+
+/// Rewrite `k + k*(c^x)` to `(-k)*(~c ^ x)`, and more generally
+/// `k + k*x` to `(-k)*~x`.
+#[must_use]
+pub fn canonicalize_scaled_boolean_sum(expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
+    let Some((term, coeff)) = match_scaled_add_term(&expr, bitwidth) else {
+        return expr;
+    };
+    if coeff == 0 {
+        return expr;
+    }
+
+    if matches!(&term.kind, Kind::Xor) && term.children.len() == 2 {
+        let xor_const_idx = match (&term.children[0].kind, &term.children[1].kind) {
+            (Kind::Constant(_), _) => Some(0usize),
+            (_, Kind::Constant(_)) => Some(1usize),
+            _ => None,
+        };
+
+        if let Some(const_idx) = xor_const_idx {
+            let Kind::Constant(c) = &term.children[const_idx].kind else {
+                unreachable!("guarded by xor_const_idx");
+            };
+            let not_c = (!*c) & bitmask(bitwidth);
+            let var_child = term.children[1 - const_idx].clone_tree();
+            let new_xor = Expr::xor(Expr::constant(not_c), var_child);
+            return apply_coefficient(new_xor, mod_neg(coeff, bitwidth), bitwidth);
+        }
+    }
+
+    let complemented = simplify_atom(Expr::not(term.clone_tree()), bitwidth);
+    apply_coefficient(complemented, mod_neg(coeff, bitwidth), bitwidth)
+}
+
+/// Final normalization used by upstream before late candidate acceptance.
+#[must_use]
+pub fn normalize_late_candidate_expr(expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
+    let expr = canonicalize_scaled_boolean_sum(expr, bitwidth);
+    simplify_pattern_subtrees(expr, bitwidth)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1294,6 +1372,35 @@ mod tests {
         let input = Expr::variable(0);
         let out = simplify_pattern_subtrees(input.clone_tree(), 64);
         assert!(matches!(out.kind, Kind::Variable(0)));
+    }
+
+    #[test]
+    fn normalize_late_candidate_rewrites_scaled_complement() {
+        let input = Expr::add(
+            Expr::constant(1),
+            Expr::and(Expr::not(Expr::variable(0)), Expr::variable(1)),
+        );
+
+        let out = normalize_late_candidate_expr(input, 64);
+        let rendered = cobra_core::expr::render(&out, &["a".to_owned(), "y".to_owned()], 64);
+
+        assert_eq!(rendered, "-(a | ~y)");
+    }
+
+    #[test]
+    fn normalize_late_candidate_preserves_xor_with_constant_form() {
+        let input = Expr::add(
+            Expr::constant(3),
+            Expr::mul(
+                Expr::constant(3),
+                Expr::xor(Expr::constant(5), Expr::variable(0)),
+            ),
+        );
+
+        let out = normalize_late_candidate_expr(input, 64);
+        let rendered = cobra_core::expr::render(&out, &["x".to_owned()], 64);
+
+        assert_eq!(rendered, "-3 * (-6 ^ x)");
     }
 
     #[test]

@@ -20,7 +20,7 @@ use cobra_orchestrator::{
 };
 
 use crate::bit_partitioner::compute_partitions;
-use crate::pattern_matcher::simplify_pattern_subtrees;
+use crate::pattern_matcher::normalize_late_candidate_expr;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 fn reason(msg: &'static str, category: ReasonCategory) -> ReasonDetail {
@@ -68,7 +68,7 @@ pub fn run_semilinear_reconstruct(
     compact_atom_table(&mut ir);
     let partitions = compute_partitions(&ir);
     let mut simplified = reconstruct_masked_atoms(&ir, &partitions);
-    simplified = simplify_pattern_subtrees(simplified, ctx.bitwidth);
+    simplified = normalize_late_candidate_expr(simplified, ctx.bitwidth);
 
     let num_vars = vars.len() as u32;
     let mut verification = VerificationState::Unverified;

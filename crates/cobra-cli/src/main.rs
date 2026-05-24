@@ -6,19 +6,22 @@
 //! errors or `--verify` failures.
 
 use std::process::ExitCode;
+use std::thread;
 
 use clap::Parser;
 
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::render;
+use cobra_core::expr::{render, Expr};
 use cobra_core::expr_rewrite::build_var_support;
 use cobra_core::expr_utils::remap_var_indices;
 use cobra_core::is_valid_bitwidth;
-use cobra_core::pass_contract::VerificationState;
 use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
 use cobra_parser::parse_to_ast;
-use cobra_passes::{full_width_check_eval, simplify_expr};
+use cobra_passes::simplify_expr;
+#[cfg(feature = "z3")]
+use cobra_verify::{Verifier, VerifyOpts, VerifyOutcome, Z3Verifier};
+
+const CLI_STACK_SIZE: usize = 64 * 1024 * 1024;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -44,8 +47,9 @@ struct Args {
     #[arg(long, default_value_t = 16)]
     max_vars: u32,
 
-    /// Run an additional 1024-sample full-width check on the simplified
-    /// expression against the original. Mismatch → exit 1.
+    /// Run a Z3 equivalence proof on the simplified expression against the
+    /// original. If this binary was built without the `z3` feature, the flag
+    /// is accepted and ignored with a warning, matching upstream.
     #[arg(long, default_value_t = false)]
     verify: bool,
 
@@ -106,26 +110,11 @@ fn run(args: &Args) -> Result<i32, String> {
             }
 
             if args.verify {
-                let verifier_eval = Evaluator::from_expr(&original, args.bitwidth);
-                let chk = full_width_check_eval(
-                    &verifier_eval,
-                    parsed.vars.len() as u32,
-                    expr,
-                    args.bitwidth,
-                    1024,
-                );
-                if !chk.passed {
-                    eprintln!("--verify FAILED: simplified expression diverges from input");
-                    return Ok(1);
-                }
-                if args.verbose {
-                    eprintln!("--verify: passed (1024 samples)");
-                }
+                return Ok(run_z3_verify(&original, expr, &parsed.vars, args.bitwidth));
             }
             Ok(0)
         }
         SimplifyOutcomeKind::UnchangedUnsupported | SimplifyOutcomeKind::Error => {
-            let _ = VerificationState::Unverified;
             let rendered = render(&original, &parsed.vars, args.bitwidth);
             println!("{rendered}");
             if !outcome.diag.reason.is_empty() {
@@ -136,7 +125,44 @@ fn run(args: &Args) -> Result<i32, String> {
     }
 }
 
-fn main() -> ExitCode {
+#[cfg(feature = "z3")]
+fn run_z3_verify(original: &Expr, simplified: &Expr, vars: &[String], bitwidth: u32) -> i32 {
+    let verifier = Z3Verifier;
+    match verifier.prove_equiv(
+        original,
+        simplified,
+        vars,
+        VerifyOpts {
+            bitwidth,
+            ..VerifyOpts::default()
+        },
+    ) {
+        VerifyOutcome::Equivalent => {
+            eprintln!("[Z3] Verified: equivalent");
+            0
+        }
+        VerifyOutcome::Disproved { counterexample } => {
+            eprintln!("[Z3] Verification failed: {counterexample}");
+            1
+        }
+        VerifyOutcome::TimedOut => {
+            eprintln!("[Z3] Verification failed: Z3 returned unknown (possible timeout)");
+            1
+        }
+        VerifyOutcome::Unverified => {
+            eprintln!("[Z3] Verification failed: no verifier backend available");
+            1
+        }
+    }
+}
+
+#[cfg(not(feature = "z3"))]
+fn run_z3_verify(_original: &Expr, _simplified: &Expr, _vars: &[String], _bitwidth: u32) -> i32 {
+    eprintln!("Warning: Z3 not available, --verify ignored");
+    0
+}
+
+fn real_main() -> ExitCode {
     let args = Args::parse();
     match run(&args) {
         Ok(0) => ExitCode::SUCCESS,
@@ -146,6 +172,16 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn main() -> ExitCode {
+    thread::Builder::new()
+        .name("cobra-cli".into())
+        .stack_size(CLI_STACK_SIZE)
+        .spawn(real_main)
+        .expect("spawn cobra CLI worker")
+        .join()
+        .expect("cobra CLI worker panicked")
 }
 
 #[cfg(test)]
@@ -171,5 +207,21 @@ mod tests {
     fn run_rejects_bitwidths_outside_public_range() {
         assert!(run(&args(0)).unwrap_err().contains("1..=64"));
         assert!(run(&args(65)).unwrap_err().contains("1..=64"));
+    }
+
+    #[cfg(not(feature = "z3"))]
+    #[test]
+    fn run_verify_without_z3_matches_upstream_warning_path() {
+        let mut args = args(64);
+        args.verify = true;
+        assert_eq!(run(&args), Ok(0));
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn run_verify_with_z3_accepts_equivalent_simplification() {
+        let mut args = args(64);
+        args.verify = true;
+        assert_eq!(run(&args), Ok(0));
     }
 }

@@ -27,12 +27,13 @@ use cobra_ir::{
     split_coefficients, UnivariateNormalizedPoly,
 };
 use cobra_orchestrator::{
-    acquire_handle, submit_candidate, CandidateRecord, ItemDisposition, OrchestratorContext,
-    PassDecision, PassId, PassResult, RemainderOrigin, RemainderStatePayload,
-    RemainderTargetContext, StateData, WorkItem,
+    acquire_handle, CandidateRecord, ItemDisposition, OrchestratorContext, PassDecision, PassId,
+    PassResult, RemainderOrigin, RemainderStatePayload, RemainderTargetContext, StateData,
+    WorkItem,
 };
 
 use crate::aux_var::eliminate_aux_vars;
+use crate::candidate_normalize::submit_normalized_candidate;
 use crate::cob_expr_builder::build_cob_expr;
 use crate::decomposition_helpers::build_remainder_evaluator;
 use crate::mapped_evaluator::build_mapped_evaluator;
@@ -77,6 +78,15 @@ pub fn run_signature_singleton_poly_recovery(
     let sub = &payload.ctx;
     let coeffs = &payload.coeffs;
     let num_vars = sub.real_vars.len() as u32;
+
+    if ctx.bitwidth < 2 {
+        return Ok(PassResult {
+            decision: PassDecision::NoProgress,
+            disposition: ItemDisposition::RetainCurrent,
+            next: Vec::new(),
+            reason: ReasonDetail::default(),
+        });
+    }
 
     // Match C++ `BuildMappedEvaluator`: use `evaluator_override` when
     // this pass runs inside a residual / lifted-outer signature solve,
@@ -158,7 +168,7 @@ pub fn run_signature_singleton_poly_recovery(
             });
         }
         let cost = compute_cost(&candidate).cost;
-        submit_candidate(
+        submit_normalized_candidate(
             &mut ctx.competition_groups,
             group_id,
             CandidateRecord {
@@ -170,6 +180,7 @@ pub fn run_signature_singleton_poly_recovery(
                 needs_original_space_verification: sub.needs_original_space_verification,
                 sig_vector: sub.elimination.reduced_sig.clone(),
             },
+            ctx.bitwidth,
         );
         return Ok(PassResult {
             decision: PassDecision::Advance,
@@ -212,7 +223,7 @@ pub fn run_signature_singleton_poly_recovery(
             });
         }
         let cost = compute_cost(&candidate).cost;
-        submit_candidate(
+        submit_normalized_candidate(
             &mut ctx.competition_groups,
             group_id,
             CandidateRecord {
@@ -224,6 +235,7 @@ pub fn run_signature_singleton_poly_recovery(
                 needs_original_space_verification: sub.needs_original_space_verification,
                 sig_vector: sub.elimination.reduced_sig.clone(),
             },
+            ctx.bitwidth,
         );
         return Ok(PassResult {
             decision: PassDecision::Advance,
@@ -382,6 +394,25 @@ mod tests {
         let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into()], 64);
         let item = mk_coeff_item(vec![0, 1], vec!["x".into()], &mut ctx);
         let pr = run_signature_singleton_poly_recovery(&item, &mut ctx).unwrap();
+        assert_eq!(pr.decision, PassDecision::NoProgress);
+    }
+
+    #[test]
+    fn bitwidth_one_returns_no_progress() {
+        let orig = Expr::variable(0);
+        let mut ctx = OrchestratorContext::new(
+            Options {
+                bitwidth: 1,
+                ..Options::default()
+            },
+            vec!["x".into()],
+            1,
+        );
+        ctx.evaluator = Some(Evaluator::from_expr(&orig, 1));
+        let item = mk_coeff_item(vec![0, 1], vec!["x".into()], &mut ctx);
+
+        let pr = run_signature_singleton_poly_recovery(&item, &mut ctx).unwrap();
+
         assert_eq!(pr.decision, PassDecision::NoProgress);
     }
 

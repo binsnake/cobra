@@ -35,15 +35,16 @@ use cobra_core::pass_contract::{
 use cobra_core::result::Result;
 
 use cobra_orchestrator::{
-    project_extractor_kind, release_handle, replace_by_hash, submit_candidate, AstPayload,
-    BitwiseComposeCont, CandidatePayload, CandidateRecord, CompetitionGroup, ContinuationData,
-    FactorRole, HybridComposeCont, ItemDisposition, JoinState, LiftedBinding, LiftedSubstituteCont,
+    project_extractor_kind, release_handle, replace_by_hash, AstPayload, BitwiseComposeCont,
+    CandidatePayload, CandidateRecord, CompetitionGroup, ContinuationData, FactorRole,
+    HybridComposeCont, ItemDisposition, JoinState, LiftedBinding, LiftedSubstituteCont,
     OperandJoinState, OperandRewriteCont, OrchestratorContext, PassDecision, PassId, PassResult,
     ProductCollapseCont, ProductJoinState, Provenance, RemainderRecombineCont, ResidualSolverKind,
     StateData, WorkItem,
 };
 
 use crate::bitwise_decomposer::{compose, remap_vars};
+use crate::candidate_normalize::submit_normalized_candidate;
 use crate::classifier::classify_structural;
 use crate::hybrid_decomposer::compose_extraction;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
@@ -171,7 +172,12 @@ fn submit_and_release_parent(
     record: CandidateRecord,
     ctx: &mut OrchestratorContext,
 ) -> Vec<WorkItem> {
-    submit_candidate(&mut ctx.competition_groups, parent_group_id, record);
+    submit_normalized_candidate(
+        &mut ctx.competition_groups,
+        parent_group_id,
+        record,
+        ctx.bitwidth,
+    );
     let mut next = Vec::new();
     if let Some(resolved) = release_handle(&mut ctx.competition_groups, parent_group_id) {
         next.push(resolved);
@@ -460,8 +466,13 @@ fn resolve_operand_rewrite(
         try_cand(lhs_w.expr.clone_tree(), rhs_w.expr.clone_tree(), &mut best);
     }
 
+    let parent_group_id = join.parent_group_id;
     if let Some((expr, _)) = best {
         pr.next.push(emit_join_rewrite_operand(&join, item, expr));
+    } else if let Some(parent_gid) = parent_group_id {
+        if let Some(resolved) = release_handle(&mut ctx.competition_groups, parent_gid) {
+            pr.next.push(resolved);
+        }
     }
 
     ctx.join_states.remove(&cont.join_id);
@@ -614,7 +625,12 @@ fn resolve_residual_recombine(
             needs_original_space_verification: false,
             sig_vector: Vec::new(),
         };
-        submit_candidate(&mut ctx.competition_groups, parent_gid, record);
+        submit_normalized_candidate(
+            &mut ctx.competition_groups,
+            parent_gid,
+            record,
+            ctx.bitwidth,
+        );
         release_parent(&mut pr, ctx);
     } else {
         let mut cand_item = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {

@@ -230,17 +230,27 @@ fn refold_negation(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
     let rhs_is_neg = matches!(expr.children[1].kind, Kind::Neg);
     let lhs_is_const_all_ones = matches!(&expr.children[0].kind, Kind::Constant(v) if *v == mask);
 
-    if lhs_is_neg && rhs_is_const_all_ones {
+    if lhs_is_neg
+        && rhs_is_const_all_ones
+        && can_refold_negation_inner(&expr.children[0].children[0])
+    {
         let mut lhs = expr.children.remove(0); // Neg(x)
         let inner = lhs.children.remove(0);
         return Expr::not(inner);
     }
-    if rhs_is_neg && lhs_is_const_all_ones {
+    if rhs_is_neg
+        && lhs_is_const_all_ones
+        && can_refold_negation_inner(&expr.children[1].children[0])
+    {
         let mut rhs = expr.children.remove(1);
         let inner = rhs.children.remove(0);
         return Expr::not(inner);
     }
     expr
+}
+
+fn can_refold_negation_inner(inner: &Expr) -> bool {
+    !matches!(inner.kind, Kind::Add | Kind::Mul | Kind::Neg)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -503,6 +513,19 @@ mod tests {
         let cleaned = cleanup_final_expr(e, 8);
         for v in [0u64, 1, 7, 0x55, 0xFF] {
             assert_eq!(eval_at(&cleaned, &[v], 8), !v & 0xFF);
+        }
+    }
+
+    #[test]
+    fn cleanup_does_not_reintroduce_not_over_arithmetic() {
+        let e = Expr::add(
+            Expr::neg(Expr::mul(Expr::variable(0), Expr::variable(0))),
+            Expr::constant(0xFF),
+        );
+        let cleaned = cleanup_final_expr(e, 8);
+        assert!(!matches!(cleaned.kind, Kind::Not));
+        for v in [0u64, 1, 7, 0x55, 0xFF] {
+            assert_eq!(eval_at(&cleaned, &[v], 8), !(v.wrapping_mul(v)) & 0xFF);
         }
     }
 

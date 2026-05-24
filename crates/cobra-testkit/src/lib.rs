@@ -12,7 +12,7 @@
 
 use cobra_core::evaluator::Evaluator;
 use cobra_core::expr::Expr;
-use cobra_core::expr_rewrite::build_var_support;
+use cobra_core::expr_rewrite::try_build_var_support;
 use cobra_core::expr_utils::remap_var_indices;
 use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
@@ -115,7 +115,9 @@ pub enum CaseKind {
     /// Pipeline produced a simplified expression.
     Simplified,
     Unchanged,
-    /// Failure before the pipeline reached a decision (parse / seed / pipeline error).
+    /// Dataset row could not be parsed into the public AST subset.
+    Skipped,
+    /// Failure before the pipeline reached a decision (seed / pipeline error).
     Errored,
 }
 
@@ -125,13 +127,13 @@ pub struct CaseReport {
     pub kind: CaseKind,
     /// True when the pipeline simplified and `simplified ≡ input` on
     /// the full-width probe set. Always `false` for `Unchanged` /
-    /// `Errored`.
+    /// `Skipped` / `Errored`.
     pub equivalent_to_input: bool,
     /// True when the pipeline simplified and `simplified ≡ expected`
     /// on the full-width probe set. Always `false` for `Unchanged` /
-    /// `Errored`.
+    /// `Skipped` / `Errored`.
     pub matches_expected: bool,
-    /// On `Errored`, a short message.
+    /// On `Skipped` / `Errored`, a short message.
     pub error: Option<String>,
 }
 
@@ -140,10 +142,10 @@ pub struct CaseReport {
 #[must_use]
 pub fn run_case(case: &Case, bitwidth: u32) -> CaseReport {
     let Ok(parsed_input) = parse_to_ast(&case.input, bitwidth) else {
-        return errored("input parse failed");
+        return skipped("input parse failed");
     };
     let Ok(parsed_expected) = parse_to_ast(&case.expected, bitwidth) else {
-        return errored("expected parse failed");
+        return skipped("expected parse failed");
     };
 
     let input_expr = parsed_input.expr.clone_tree();
@@ -164,19 +166,22 @@ pub fn run_case(case: &Case, bitwidth: u32) -> CaseReport {
             error: None,
         },
         SimplifyOutcomeKind::Simplified => {
-            // Remap the simplified expression from the orchestrator's
-            // reduced `real_vars` space back into the original
-            // dataset-test post-processing.
             let simplified_raw = outcome.expr.as_ref().expect("Simplified carries expr");
-            let mut simplified = simplified_raw.clone();
-            if !outcome.real_vars.is_empty() && outcome.real_vars.len() < parsed_input.vars.len() {
-                let idx_map = build_var_support(&parsed_input.vars, &outcome.real_vars);
-                remap_var_indices(&mut simplified, &idx_map);
-            }
-            let n_vars = parsed_input.vars.len().max(parsed_expected.vars.len()) as u32;
+            let Some(simplified) =
+                remap_to_input_space(simplified_raw, &outcome.real_vars, &parsed_input.vars)
+            else {
+                return errored("simplified vars are not a subset of input vars");
+            };
+            let Some(expected) = remap_to_input_space(
+                &parsed_expected.expr,
+                &parsed_expected.vars,
+                &parsed_input.vars,
+            ) else {
+                return errored("expected vars are not a subset of input vars");
+            };
+            let n_vars = parsed_input.vars.len() as u32;
             let equivalent_to_input = probes_match(&input_expr, &simplified, n_vars, bitwidth);
-            let matches_expected =
-                probes_match(&parsed_expected.expr, &simplified, n_vars, bitwidth);
+            let matches_expected = probes_match(&expected, &simplified, n_vars, bitwidth);
             CaseReport {
                 kind: CaseKind::Simplified,
                 equivalent_to_input,
@@ -187,6 +192,15 @@ pub fn run_case(case: &Case, bitwidth: u32) -> CaseReport {
     }
 }
 
+fn remap_to_input_space(expr: &Expr, expr_vars: &[String], input_vars: &[String]) -> Option<Expr> {
+    let mut remapped = expr.clone();
+    if !expr_vars.is_empty() && expr_vars != input_vars {
+        let idx_map = try_build_var_support(input_vars, expr_vars)?;
+        remap_var_indices(&mut remapped, &idx_map);
+    }
+    Some(remapped)
+}
+
 fn probes_match(reference: &Expr, candidate: &Expr, n_vars: u32, bitwidth: u32) -> bool {
     let eval = Evaluator::from_expr(reference, bitwidth);
     full_width_check_eval(&eval, n_vars, candidate, bitwidth, 256).passed
@@ -195,6 +209,15 @@ fn probes_match(reference: &Expr, candidate: &Expr, n_vars: u32, bitwidth: u32) 
 fn errored(msg: &str) -> CaseReport {
     CaseReport {
         kind: CaseKind::Errored,
+        equivalent_to_input: false,
+        matches_expected: false,
+        error: Some(msg.to_string()),
+    }
+}
+
+fn skipped(msg: &str) -> CaseReport {
+    CaseReport {
+        kind: CaseKind::Skipped,
         equivalent_to_input: false,
         matches_expected: false,
         error: Some(msg.to_string()),
@@ -213,6 +236,8 @@ pub struct Report {
     pub parity: u32,
     /// Pipeline ran but left the input unchanged.
     pub unchanged: u32,
+    /// Dataset row was skipped because the parser rejected it.
+    pub skipped: u32,
     /// Setup / pipeline error.
     pub errored: u32,
     /// Pipeline simplified but diverged from the input — a correctness
@@ -236,6 +261,7 @@ impl Report {
                 }
             }
             CaseKind::Unchanged => self.unchanged += 1,
+            CaseKind::Skipped => self.skipped += 1,
             CaseKind::Errored => self.errored += 1,
         }
     }
@@ -289,6 +315,19 @@ mod tests {
     }
 
     #[test]
+    fn run_case_compares_expected_in_input_variable_space() {
+        let case = Case {
+            line_number: 1,
+            input: "a + 0*b + y".into(),
+            expected: "a + y".into(),
+        };
+        let report = run_case(&case, 64);
+        assert_eq!(report.kind, CaseKind::Simplified);
+        assert!(report.equivalent_to_input);
+        assert!(report.matches_expected);
+    }
+
+    #[test]
     fn report_tallies_outcomes() {
         let mut r = Report::default();
         r.record(&CaseReport {
@@ -316,17 +355,24 @@ mod tests {
             error: None,
         });
         r.record(&CaseReport {
+            kind: CaseKind::Skipped,
+            equivalent_to_input: false,
+            matches_expected: false,
+            error: Some("skip".into()),
+        });
+        r.record(&CaseReport {
             kind: CaseKind::Errored,
             equivalent_to_input: false,
             matches_expected: false,
             error: Some("x".into()),
         });
-        assert_eq!(r.total, 5);
+        assert_eq!(r.total, 6);
         assert_eq!(r.simplified, 3);
         assert_eq!(r.verified, 2);
         assert_eq!(r.parity, 1);
         assert_eq!(r.unsafe_changes, 1);
         assert_eq!(r.unchanged, 1);
+        assert_eq!(r.skipped, 1);
         assert_eq!(r.errored, 1);
     }
 }

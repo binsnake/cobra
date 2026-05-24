@@ -11,8 +11,8 @@ use cobra_core::pass_contract::ReasonDetail;
 use cobra_core::result::{err, CobraError, Result};
 
 use cobra_orchestrator::{
-    ItemDisposition, OrchestratorContext, PassDecision, PassResult, SignatureStatePayload,
-    SignatureSubproblemContext, StateData, WorkItem,
+    acquire_handle, create_group, ItemDisposition, OrchestratorContext, PassDecision, PassResult,
+    SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem,
 };
 
 use crate::aux_var::{eliminate_aux_vars, eliminate_aux_vars_fw};
@@ -87,6 +87,13 @@ pub fn run_build_signature_state(
 
     let mut sig_seed = item.clone();
     sig_seed.payload = StateData::Signature(Box::new(seed));
+    let group_id = if let Some(gid) = item.group_id {
+        acquire_handle(&mut ctx.competition_groups, gid);
+        gid
+    } else {
+        create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None)
+    };
+    sig_seed.group_id = Some(group_id);
     // `SignatureState` items are band-1 in the scheduler; no need to
     // tweak features here.
 
@@ -163,7 +170,7 @@ mod tests {
     use super::*;
     use cobra_core::expr::Expr;
     use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{AstPayload, Provenance};
+    use cobra_orchestrator::{create_group as orch_create_group, AstPayload, Provenance};
 
     fn mk_ast_item(expr: Box<Expr>, prov: Provenance) -> WorkItem {
         let mut item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
@@ -195,6 +202,9 @@ mod tests {
             }
             _ => panic!("expected Signature payload"),
         }
+        assert_eq!(pr.next[0].group_id, Some(0));
+        assert_eq!(ctx.next_group_id, 1);
+        assert_eq!(ctx.competition_groups[&0].open_handles, 1);
     }
 
     #[test]
@@ -231,5 +241,22 @@ mod tests {
         let item = mk_ast_item(expr, Provenance::Lowered);
         let e = run_build_signature_state(&item, &mut ctx).unwrap_err();
         assert_eq!(e.code, CobraError::TooManyVariables);
+    }
+
+    #[test]
+    fn build_signature_state_reuses_incoming_group() {
+        let expr = Expr::variable(0);
+        let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into()], 64);
+        let gid = orch_create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
+        let mut item = mk_ast_item(expr, Provenance::Lowered);
+        item.group_id = Some(gid);
+
+        let pr = run_build_signature_state(&item, &mut ctx).unwrap();
+
+        assert_eq!(pr.decision, PassDecision::Advance);
+        assert_eq!(pr.next.len(), 1);
+        assert_eq!(pr.next[0].group_id, Some(gid));
+        assert_eq!(ctx.next_group_id, 1);
+        assert_eq!(ctx.competition_groups[&gid].open_handles, 2);
     }
 }

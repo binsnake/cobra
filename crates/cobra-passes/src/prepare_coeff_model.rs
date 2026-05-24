@@ -6,10 +6,10 @@
 //!
 //! The pass acquires an extra handle on the parent's competition group
 //! — the child inherits the group so that every `CoB`-derived candidate
-//! races against the same baseline. When the parent has no group yet
-//! (the signature-state happy path has not been wrapped in a group),
-//! a fresh group is created lazily so downstream candidate submissions
-//! have somewhere to land.
+//! races against the same baseline. Public seeding and
+//! `BuildSignatureState` now create that group before signature
+//! techniques run; the fallback creation path only protects direct
+//! pass-level callers.
 
 use cobra_core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
@@ -68,12 +68,8 @@ pub fn run_prepare_coeff_model(
 
     let coeffs = interpolate_coefficients(sig, num_vars, ctx.bitwidth);
 
-    // Reuse the item's group when it already has one; otherwise lazy-
-    // create a fresh group so the downstream CoB / singleton-poly
-    // candidate submissions have somewhere to land. Lazy creation
-    // means the signature-state happy path (no coeff model needed)
-    // keeps its current "no group, short-circuit through main loop"
-    // shape until ResolveCompetition is ported.
+    // Reuse the item's group when it already has one; otherwise create
+    // a fresh group for direct pass-level callers.
     let group_id = if let Some(gid) = item.group_id {
         acquire_handle(&mut ctx.competition_groups, gid);
         gid

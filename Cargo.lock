@@ -188,6 +188,7 @@ dependencies = [
  "cobra-orchestrator",
  "cobra-parser",
  "cobra-passes",
+ "cobra-verify",
 ]
 
 [[package]]

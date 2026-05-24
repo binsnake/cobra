@@ -193,7 +193,11 @@ fn pipeline_simplifies_scaled_boolean_xor() {
     cobra_passes::seed_with_ast(&parsed.expr, &mut ctx, &mut worklist).unwrap();
 
     let policy = OrchestratorPolicy {
-        max_expansions: 64,
+        // With upstream-style competition groups, the scaled form keeps
+        // exploring decomposition branches before the parent group
+        // resolves. The default policy handles it; keep this bounded
+        // but above the observed grouped path length.
+        max_expansions: 192,
         ..OrchestratorPolicy::default()
     };
     let outcome = simplify_from_worklist(

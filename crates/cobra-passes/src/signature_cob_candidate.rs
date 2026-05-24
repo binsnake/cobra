@@ -18,11 +18,13 @@ use cobra_core::pass_contract::{
 use cobra_core::result::Result;
 
 use cobra_orchestrator::{
-    submit_candidate, CandidateRecord, ItemDisposition, OrchestratorContext, PassDecision, PassId,
-    PassResult, StateData, WorkItem,
+    CandidateRecord, ItemDisposition, OrchestratorContext, PassDecision, PassId, PassResult,
+    StateData, WorkItem,
 };
 
+use crate::candidate_normalize::submit_normalized_candidate;
 use crate::cob_expr_builder::build_cob_expr;
+use crate::mapped_evaluator::build_mapped_evaluator;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 fn verify_failed(message: &'static str) -> ReasonDetail {
@@ -79,8 +81,9 @@ pub fn run_signature_cob_candidate(
     // the interpolated coefficients, so any disagreement means the
     // signature itself was not a faithful projection of the original
     // function (e.g. wrong subproblem scoping).
-    if let Some(eval) = ctx.evaluator.as_ref() {
-        let check = full_width_check_eval(eval, num_vars, &expr, ctx.bitwidth, DEFAULT_NUM_SAMPLES);
+    if let Some(eval) = build_mapped_evaluator(ctx, sub, item) {
+        let check =
+            full_width_check_eval(&eval, num_vars, &expr, ctx.bitwidth, DEFAULT_NUM_SAMPLES);
         if check.passed {
             verification = VerificationState::Verified;
         } else {
@@ -98,7 +101,7 @@ pub fn run_signature_cob_candidate(
         .group_id
         .expect("SignatureCobCandidate requires a group_id");
 
-    submit_candidate(
+    submit_normalized_candidate(
         &mut ctx.competition_groups,
         group_id,
         CandidateRecord {
@@ -110,6 +113,7 @@ pub fn run_signature_cob_candidate(
             needs_original_space_verification: sub.needs_original_space_verification,
             sig_vector: sub.elimination.reduced_sig.clone(),
         },
+        ctx.bitwidth,
     );
 
     Ok(PassResult {
@@ -181,6 +185,41 @@ mod tests {
         let group = &ctx.competition_groups[&gid];
         let best = group.best.as_ref().expect("candidate submitted");
         assert_eq!(best.source_pass, PassId::SignatureCobCandidate);
+        assert_eq!(best.verification, VerificationState::Verified);
+    }
+
+    #[test]
+    fn prefers_item_evaluator_override_for_reduced_subproblem() {
+        let mut ctx = OrchestratorContext::new(
+            Options::default(),
+            vec!["x".into(), "y".into(), "z".into()],
+            64,
+        );
+        // The global evaluator disagrees with the subproblem; the item-level
+        // override is the authoritative evaluator for this child solve.
+        ctx.evaluator = Some(Evaluator::from_expr(
+            &Expr::add(Expr::variable(0), Expr::variable(1)),
+            64,
+        ));
+
+        let mut item = mk_coeff_item(vec![0, 1, 1, 0], vec!["x".into(), "y".into()], &mut ctx);
+        if let StateData::SignatureCoeff(payload) = &mut item.payload {
+            payload.ctx.original_indices = vec![0, 1];
+        }
+        item.evaluator_override = Some(Evaluator::from_expr(
+            &Expr::xor(Expr::variable(0), Expr::variable(1)),
+            64,
+        ));
+        item.evaluator_override_arity = 2;
+
+        let gid = item.group_id.unwrap();
+        let pr = run_signature_cob_candidate(&item, &mut ctx).unwrap();
+
+        assert_eq!(pr.decision, PassDecision::Advance);
+        let best = ctx.competition_groups[&gid]
+            .best
+            .as_ref()
+            .expect("candidate submitted");
         assert_eq!(best.verification, VerificationState::Verified);
     }
 

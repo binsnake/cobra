@@ -9,19 +9,58 @@
 //! short-circuit and submit directly to the parent without spawning a
 //! child.
 
+use cobra_core::classification::SemanticClass;
 use cobra_core::pass_contract::{ReasonDetail, VerificationState};
 use cobra_core::result::Result;
 
 use cobra_orchestrator::{
-    acquire_handle, create_group, submit_candidate, BitwiseComposeCont, CandidateRecord,
+    acquire_handle, create_group, has_verified_candidate, BitwiseComposeCont, CandidateRecord,
     ContinuationData, EliminationResult, ItemDisposition, OrchestratorContext, PassDecision,
     PassId, PassResult, SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem,
 };
 
 use crate::bitwise_decomposer::{compact_signature, compose, enumerate_bitwise_candidates};
+use crate::candidate_normalize::submit_normalized_candidate;
+use crate::mapped_evaluator::build_mapped_evaluator;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 const MAX_CANDIDATES: usize = 8;
+
+fn verified_candidate_decomposition_cost_bound(num_vars: u32) -> u32 {
+    2 * num_vars + 1
+}
+
+fn should_skip_decomposition(
+    item: &WorkItem,
+    ctx: &OrchestratorContext,
+    sub_ctx: &SignatureSubproblemContext,
+    require_root_depth: bool,
+    require_global_evaluator: bool,
+) -> bool {
+    let Some(group_id) = item.group_id else {
+        return false;
+    };
+    let Some(classification) = item.features.classification else {
+        return false;
+    };
+    if !matches!(
+        classification.semantic,
+        SemanticClass::Linear | SemanticClass::Semilinear
+    ) {
+        return false;
+    }
+    if require_root_depth && item.signature_recursion_depth != 0 {
+        return false;
+    }
+    if require_global_evaluator && ctx.evaluator.is_none() {
+        return false;
+    }
+    has_verified_candidate(
+        &ctx.competition_groups,
+        group_id,
+        verified_candidate_decomposition_cost_bound(sub_ctx.real_vars.len() as u32),
+    )
+}
 
 #[allow(clippy::unnecessary_wraps, clippy::too_many_lines)]
 pub fn run_signature_bitwise_decompose(
@@ -37,6 +76,16 @@ pub fn run_signature_bitwise_decompose(
         });
     };
 
+    let sub_ctx = &payload.ctx;
+    if should_skip_decomposition(item, ctx, sub_ctx, true, true) {
+        return Ok(PassResult {
+            decision: PassDecision::NoProgress,
+            disposition: ItemDisposition::RetainCurrent,
+            next: Vec::new(),
+            reason: ReasonDetail::default(),
+        });
+    }
+
     if item.signature_recursion_depth >= 2 {
         return Ok(PassResult {
             decision: PassDecision::NoProgress,
@@ -46,7 +95,6 @@ pub fn run_signature_bitwise_decompose(
         });
     }
 
-    let sub_ctx = &payload.ctx;
     let sig = &sub_ctx.elimination.reduced_sig;
     let num_vars = sub_ctx.real_vars.len() as u32;
     if sig.len() < 2 || num_vars > 6 {
@@ -60,7 +108,7 @@ pub fn run_signature_bitwise_decompose(
 
     // Decomposition fan-out only runs when we have an evaluator that can
     // verify the recombined candidate.
-    let parent_eval = ctx.evaluator.clone();
+    let parent_eval = build_mapped_evaluator(ctx, sub_ctx, item);
     if parent_eval.is_none() {
         return Ok(PassResult {
             decision: PassDecision::NoProgress,
@@ -127,7 +175,7 @@ pub fn run_signature_bitwise_decompose(
                 }
             }
             let cost = cobra_core::expr_cost::compute_cost(&composed).cost;
-            submit_candidate(
+            submit_normalized_candidate(
                 &mut ctx.competition_groups,
                 parent_group_id,
                 CandidateRecord {
@@ -139,6 +187,7 @@ pub fn run_signature_bitwise_decompose(
                     needs_original_space_verification: sub_ctx.needs_original_space_verification,
                     sig_vector: Vec::new(),
                 },
+                ctx.bitwidth,
             );
             continue;
         }
@@ -218,10 +267,15 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cobra_core::classification::{Classification, StructuralFlag};
     use cobra_core::evaluator::Evaluator;
     use cobra_core::expr::Expr;
+    use cobra_core::expr_cost::ExprCost;
     use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{create_group as orch_create_group, EliminationResult};
+    use cobra_orchestrator::{
+        create_group as orch_create_group, submit_candidate as orch_submit_candidate,
+        EliminationResult,
+    };
 
     fn mk_sig_item(sig: &[u64], vars: Vec<String>, ctx: &mut OrchestratorContext) -> WorkItem {
         let sig = sig.to_vec();
@@ -274,5 +328,41 @@ mod tests {
             .get(&parent_gid)
             .and_then(|g| g.best.clone());
         assert!(direct_winner.is_some() || !pr.next.is_empty());
+    }
+
+    #[test]
+    fn skips_when_group_already_has_cheap_verified_linear_candidate() {
+        let mut ctx =
+            OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+        let f = Expr::xor(Expr::variable(0), Expr::variable(1));
+        ctx.evaluator = Some(Evaluator::from_expr(&f, 64));
+        let mut item = mk_sig_item(&[0u64, 1, 1, 0], vec!["x".into(), "y".into()], &mut ctx);
+        item.features.classification = Some(Classification {
+            semantic: SemanticClass::Linear,
+            flags: StructuralFlag::HAS_BITWISE,
+        });
+        let group_id = item.group_id.unwrap();
+        orch_submit_candidate(
+            &mut ctx.competition_groups,
+            group_id,
+            CandidateRecord {
+                expr: Expr::xor(Expr::variable(0), Expr::variable(1)),
+                cost: ExprCost {
+                    weighted_size: 3,
+                    nonlinear_mul_count: 0,
+                    max_depth: 2,
+                },
+                verification: VerificationState::Verified,
+                real_vars: vec!["x".into(), "y".into()],
+                source_pass: PassId::SignaturePatternMatch,
+                needs_original_space_verification: false,
+                sig_vector: vec![0, 1, 1, 0],
+            },
+        );
+
+        let pr = run_signature_bitwise_decompose(&item, &mut ctx).unwrap();
+
+        assert_eq!(pr.decision, PassDecision::NoProgress);
+        assert!(pr.next.is_empty());
     }
 }

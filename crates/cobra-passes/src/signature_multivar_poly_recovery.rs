@@ -18,10 +18,11 @@ use cobra_core::result::Result;
 
 use cobra_ir::{recover_and_verify_poly, PolyRecoveryResult};
 use cobra_orchestrator::{
-    submit_candidate, CandidateRecord, ItemDisposition, OrchestratorContext, PassDecision, PassId,
-    PassResult, StateData, WorkItem,
+    CandidateRecord, ItemDisposition, OrchestratorContext, PassDecision, PassId, PassResult,
+    StateData, WorkItem,
 };
 
+use crate::candidate_normalize::submit_normalized_candidate;
 use crate::mapped_evaluator::build_mapped_evaluator;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
@@ -99,7 +100,7 @@ pub fn run_signature_multivar_poly_recovery(
         .group_id
         .expect("SignatureMultivarPolyRecovery requires a group_id");
 
-    submit_candidate(
+    submit_normalized_candidate(
         &mut ctx.competition_groups,
         group_id,
         CandidateRecord {
@@ -111,6 +112,7 @@ pub fn run_signature_multivar_poly_recovery(
             needs_original_space_verification: sub.needs_original_space_verification,
             sig_vector: sub.elimination.reduced_sig.clone(),
         },
+        ctx.bitwidth,
     );
 
     Ok(PassResult {

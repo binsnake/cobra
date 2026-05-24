@@ -10,12 +10,17 @@ description = "CoBRA command-line driver: parse → simplify → print"
 name = "cobra"
 path = "src/main.rs"
 
+[features]
+default = []
+z3 = ["dep:cobra-verify", "cobra-verify/z3"]
+
 [dependencies]
 cobra-core = { path = "../cobra-core" }
 cobra-ir = { path = "../cobra-ir" }
 cobra-orchestrator = { path = "../cobra-orchestrator" }
 cobra-parser = { path = "../cobra-parser" }
 cobra-passes = { path = "../cobra-passes" }
+cobra-verify = { path = "../cobra-verify", optional = true }
 clap = { version = "4", features = ["derive"] }
 
 [lints.clippy]

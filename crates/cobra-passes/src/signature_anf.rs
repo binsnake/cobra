@@ -18,10 +18,11 @@ use cobra_core::result::Result;
 
 use cobra_ir::{build_anf_expr, compute_anf};
 use cobra_orchestrator::{
-    submit_candidate, CandidatePayload, CandidateRecord, ItemDisposition, OrchestratorContext,
-    PassDecision, PassId, PassResult, StateData, WorkItem,
+    CandidatePayload, CandidateRecord, ItemDisposition, OrchestratorContext, PassDecision, PassId,
+    PassResult, StateData, WorkItem,
 };
 
+use crate::candidate_normalize::submit_normalized_candidate;
 use crate::mapped_evaluator::build_mapped_evaluator;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
@@ -112,7 +113,7 @@ pub fn run_signature_anf(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resu
     // evaluator.
     let cost = compute_cost(&anf_expr).cost;
     if let Some(gid) = item.group_id {
-        submit_candidate(
+        submit_normalized_candidate(
             &mut ctx.competition_groups,
             gid,
             CandidateRecord {
@@ -124,6 +125,7 @@ pub fn run_signature_anf(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resu
                 needs_original_space_verification: sub.needs_original_space_verification,
                 sig_vector: sub.elimination.reduced_sig.clone(),
             },
+            ctx.bitwidth,
         );
         return Ok(PassResult {
             decision: PassDecision::Advance,

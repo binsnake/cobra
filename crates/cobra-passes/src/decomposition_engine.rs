@@ -8,21 +8,23 @@
 //! gating) can live on the trait impl instead of `if constexpr`
 //! branching.
 
-use cobra_core::classification::Classification;
+use cobra_core::classification::{Classification, SemanticClass, StructuralFlag};
 use cobra_core::evaluate_boolean_signature;
 use cobra_core::evaluator::Evaluator;
 use cobra_core::expr::Expr;
+use cobra_core::expr_cost::compute_cost;
 use cobra_core::pass_contract::{ReasonDetail, SolverResult};
 use cobra_core::result::Result;
 use cobra_core::simplify_outcome::Options;
 
 use cobra_orchestrator::{
-    CoreCandidatePayload, ExtractorKind, ItemDisposition, OrchestratorContext, PassDecision,
-    PassResult, RemainderTargetContext, StateData, WorkItem,
+    CandidatePayload, CoreCandidatePayload, ExtractorKind, ItemDisposition, OrchestratorContext,
+    PassDecision, PassId, PassResult, RemainderTargetContext, StateData, WorkItem,
 };
 
 use crate::classifier::classify_structural;
 use crate::decomposition_helpers::accept_core;
+use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 /// `DecompositionContext` layout, with the evaluator passed in
 /// separately so it can be `None`.
@@ -71,6 +73,22 @@ fn blocked(reason: ReasonDetail) -> PassResult {
     }
 }
 
+fn source_pass(kind: ExtractorKind, degree: u8) -> PassId {
+    match kind {
+        ExtractorKind::ProductAst | ExtractorKind::BooleanNullDirect => PassId::ExtractProductCore,
+        ExtractorKind::Polynomial => {
+            if degree == 3 {
+                PassId::ExtractPolyCoreD3
+            } else if degree == 4 {
+                PassId::ExtractPolyCoreD4
+            } else {
+                PassId::ExtractPolyCoreD2
+            }
+        }
+        ExtractorKind::Template => PassId::ExtractTemplateCore,
+    }
+}
+
 /// Applicability guard shared by every `Extract*` pass — `FoldedAst` only.
 #[must_use]
 pub fn extractor_applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
@@ -113,6 +131,50 @@ pub fn run_extractor(
         SolverResult::Blocked(r) | SolverResult::VerifyFailed { reason: r, .. } => Ok(blocked(r)),
         SolverResult::Success(core) => {
             if let Some(eval) = active_eval.as_ref() {
+                let can_emit_direct = matches!(
+                    core.kind,
+                    ExtractorKind::ProductAst | ExtractorKind::Polynomial
+                ) || (core.kind == ExtractorKind::Template
+                    && cls.semantic == SemanticClass::NonPolynomial
+                    && cls.flags.contains(StructuralFlag::HAS_BITWISE_OVER_ARITH));
+                if can_emit_direct
+                    && full_width_check_eval(
+                        eval,
+                        num_vars,
+                        &core.expr,
+                        ctx.bitwidth,
+                        DEFAULT_NUM_SAMPLES,
+                    )
+                    .passed
+                {
+                    let cost = compute_cost(&core.expr).cost;
+                    let mut next = item.clone();
+                    next.payload = StateData::Candidate(Box::new(CandidatePayload {
+                        expr: core.expr,
+                        real_vars: active_vars,
+                        cost,
+                        producing_pass: source_pass(core.kind, core.degree_used),
+                        needs_original_space_verification: false,
+                    }));
+                    next.metadata.verification =
+                        cobra_core::pass_contract::VerificationState::Verified;
+                    next.metadata.sig_vector = sig;
+                    next.metadata.decomposition_meta =
+                        Some(cobra_core::pass_contract::DecompositionMeta {
+                            extractor_kind: core.kind as u8,
+                            solver_kind: 0,
+                            has_solver: false,
+                            core_degree: core.degree_used,
+                        });
+
+                    return Ok(PassResult {
+                        decision: PassDecision::SolvedCandidate,
+                        disposition: ItemDisposition::RetainCurrent,
+                        next: vec![next],
+                        reason: ReasonDetail::default(),
+                    });
+                }
+
                 if !accept_core(eval, &core.expr, num_vars, ctx.bitwidth) {
                     return Ok(blocked(ReasonDetail::default()));
                 }
@@ -137,7 +199,7 @@ pub fn run_extractor(
 
             Ok(PassResult {
                 decision: PassDecision::Advance,
-                disposition: ItemDisposition::ConsumeCurrent,
+                disposition: ItemDisposition::RetainCurrent,
                 next: vec![next],
                 reason: ReasonDetail::default(),
             })
