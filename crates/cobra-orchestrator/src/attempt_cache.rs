@@ -39,7 +39,9 @@ impl PassAttemptCache {
 
     #[must_use]
     pub fn has_attempted(&self, fp: &StateFingerprint, pass: PassId) -> bool {
-        self.map.get(fp).is_some_and(|m| (m >> pass.as_u8()) & 1 != 0)
+        self.map
+            .get(fp)
+            .is_some_and(|m| (m >> pass.as_u8()) & 1 != 0)
     }
 
     #[must_use]

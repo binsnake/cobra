@@ -366,8 +366,7 @@ fn try_solve(
             for i in 0..k as usize {
                 let coord = local_point[i] as usize;
                 let deg = basis_exps[col][i] as usize;
-                phi = phi.wrapping_mul(ff_table[(i * grid_base + coord) * deg_dim + deg])
-                    & mask;
+                phi = phi.wrapping_mul(ff_table[(i * grid_base + coord) * deg_dim + deg]) & mask;
             }
             mat[row * num_cols + col] = w_val.wrapping_mul(phi) & mask;
         }

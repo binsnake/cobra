@@ -12,6 +12,7 @@
 use cobra_core::expr::Expr;
 use cobra_core::expr_cost::compute_cost;
 use cobra_core::expr_rewrite::repair_product_shadow;
+use cobra_core::is_boolean_valued;
 use cobra_core::pass_contract::{ReasonDetail, VerificationState};
 use cobra_core::result::Result;
 
@@ -23,10 +24,6 @@ use cobra_orchestrator::{
 
 use crate::mapped_evaluator::build_mapped_evaluator;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
-
-fn is_boolean_sig(sig: &[u64]) -> bool {
-    sig.iter().all(|&v| v <= 1)
-}
 
 /// Pass body. Returns `NotApplicable` for non-signature payloads,
 /// `NoProgress` when the signature isn't Boolean or exceeds
@@ -45,7 +42,7 @@ pub fn run_signature_anf(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resu
     let sig = &sub.elimination.reduced_sig;
     let num_vars = sub.real_vars.len() as u32;
 
-    if !is_boolean_sig(sig) || num_vars > ctx.opts.max_vars {
+    if !is_boolean_valued(sig) || num_vars > ctx.opts.max_vars {
         return Ok(PassResult {
             decision: PassDecision::NoProgress,
             disposition: ItemDisposition::RetainCurrent,

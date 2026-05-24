@@ -14,6 +14,7 @@
 //! Results are sorted ascending by residual active-variable count.
 
 use cobra_core::expr::{Expr, Kind};
+use cobra_core::is_boolean_valued;
 
 use cobra_orchestrator::GateKind;
 
@@ -131,10 +132,6 @@ pub fn compose(gate: GateKind, original_k: u32, g_expr: Box<Expr>, add_coeff: u6
             Expr::add(var_term, g_expr)
         }
     }
-}
-
-fn is_boolean_valued(sig: &[u64]) -> bool {
-    sig.iter().all(|&v| v <= 1)
 }
 
 /// Enumerate cofactor-based decomposition candidates across all

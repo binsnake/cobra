@@ -19,6 +19,7 @@ pub mod masked_atom_reconstructor;
 pub mod math_utils;
 pub mod mono;
 pub mod multivar_poly_recovery;
+pub mod null_poly_generator;
 pub mod packed_anf;
 pub mod poly;
 pub mod poly_expr_builder;
@@ -48,6 +49,9 @@ pub use crate::math_utils::{
 pub use crate::mono::{MonomialKey, MAX_POLY_VARS};
 pub use crate::multivar_poly_recovery::{
     probe_grid_check, recover_and_verify_poly, recover_multivar_poly, PolyRecoveryResult,
+};
+pub use crate::null_poly_generator::{
+    add_null_polynomial, generate_equivalent_variants, NullPolyConfig,
 };
 pub use crate::packed_anf::PackedAnf;
 pub use crate::poly::{Coeff, CoeffMap, NormalizedPoly, PolyIR};

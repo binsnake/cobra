@@ -9,17 +9,16 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use cobra_core::evaluate_boolean_signature;
 use cobra_core::evaluator::Evaluator;
 use cobra_core::expr::render;
 use cobra_core::expr_rewrite::build_var_support;
 use cobra_core::expr_utils::remap_var_indices;
+use cobra_core::is_valid_bitwidth;
 use cobra_core::pass_contract::VerificationState;
 use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
-use cobra_orchestrator::{OrchestratorContext, OrchestratorPolicy, Worklist};
 use cobra_parser::parse_to_ast;
-use cobra_passes::{full_width_check_eval, seed_with_ast, PASS_REGISTRY};
+use cobra_passes::{full_width_check_eval, simplify_expr};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -36,7 +35,7 @@ struct Args {
     #[arg(long, allow_hyphen_values = true)]
     mba: String,
 
-    /// Bitwidth for arithmetic (8, 16, 32, 64).
+    /// Bitwidth for arithmetic (1 through 64).
     #[arg(long, default_value_t = 64)]
     bitwidth: u32,
 
@@ -56,9 +55,9 @@ struct Args {
 }
 
 fn run(args: &Args) -> Result<i32, String> {
-    if !matches!(args.bitwidth, 8 | 16 | 32 | 64) {
+    if !is_valid_bitwidth(args.bitwidth) {
         return Err(format!(
-            "unsupported --bitwidth {} (must be 8, 16, 32, or 64)",
+            "unsupported --bitwidth {} (must be in 1..=64)",
             args.bitwidth
         ));
     }
@@ -72,23 +71,8 @@ fn run(args: &Args) -> Result<i32, String> {
         max_vars: args.max_vars,
         ..Options::default()
     };
-    let mut ctx = OrchestratorContext::new(opts, parsed.vars.clone(), args.bitwidth);
-    ctx.evaluator = Some(Evaluator::from_expr(&original, args.bitwidth));
-    ctx.input_sig =
-        evaluate_boolean_signature(&original, parsed.vars.len() as u32, args.bitwidth);
-
-    let mut worklist = Worklist::new();
-    seed_with_ast(&original, &mut ctx, &mut worklist).map_err(|e| format!("seed error: {e:?}"))?;
-
-    let policy = OrchestratorPolicy::default();
-    let outcome = cobra_orchestrator::simplify_from_worklist(
-        &mut ctx,
-        worklist,
-        policy,
-        PASS_REGISTRY,
-        Some(&original),
-    )
-    .map_err(|e| format!("pipeline error: {e:?}"))?;
+    let outcome = simplify_expr(&original, &parsed.vars, opts)
+        .map_err(|e| format!("pipeline error: {e:?}"))?;
 
     if args.verbose {
         eprintln!("classification: {:?}", outcome.diag.classification.semantic);
@@ -161,5 +145,31 @@ fn main() -> ExitCode {
             eprintln!("error: {msg}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(bitwidth: u32) -> Args {
+        Args {
+            mba: "x".to_string(),
+            bitwidth,
+            max_vars: 16,
+            verify: false,
+            verbose: false,
+        }
+    }
+
+    #[test]
+    fn run_accepts_minimum_public_bitwidth() {
+        assert_eq!(run(&args(1)), Ok(0));
+    }
+
+    #[test]
+    fn run_rejects_bitwidths_outside_public_range() {
+        assert!(run(&args(0)).unwrap_err().contains("1..=64"));
+        assert!(run(&args(65)).unwrap_err().contains("1..=64"));
     }
 }

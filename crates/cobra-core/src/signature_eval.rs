@@ -29,7 +29,7 @@ pub fn evaluate_boolean_signature_from_evaluator(
     let mut sig = vec![0u64; len];
     let mut point = vec![0u64; num_vars as usize];
     let mut workspace = Workspace::default();
-    for i in 0..len {
+    for (i, slot) in sig.iter_mut().enumerate().take(len) {
         // Incrementally maintain `point` so it matches the standard binary
         // encoding of `i`: point[v] = (i >> v) & 1. Going from i-1 to i flips
         // bits 0..=i.trailing_zeros(); across all iterations this averages O(1)
@@ -46,7 +46,7 @@ pub fn evaluate_boolean_signature_from_evaluator(
         } else {
             eval.eval(&point)
         };
-        sig[i] = raw & mask;
+        *slot = raw & mask;
     }
     sig
 }

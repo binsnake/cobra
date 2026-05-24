@@ -1,4 +1,6 @@
-//! && expansions < policy.max_expansions)` body of `Simplify` in
+//! Orchestrator main loop: Rust port of the
+//! `while (!worklist.empty() && expansions < policy.max_expansions)` body of
+//! `Simplify`.
 //!
 //! Seeding (building the initial worklist from a signature or AST) is
 //! intentionally *not* in this file — it depends on the classifier,
@@ -53,7 +55,7 @@ struct BestRewrite {
     /// `solve_ctx` sub-problem produced it.
     expr: Box<Expr>,
     cost: ExprCost,
-    /// Real vars in original space (= ctx.original_vars when present).
+    /// Real vars in original space (`ctx.original_vars` when present).
     real_vars: Vec<String>,
 }
 
@@ -281,7 +283,7 @@ fn terminal_rank(c: ReasonCategory) -> u8 {
 /// history records a tracked source: `ProductIdentityCollapse` (direct
 /// structural collapse), `PatternSubtreeRewrite` (seed-time fold that
 /// couldn't be recovered downstream), or `AtomIdentityRewrite` (atom-
-/// level bitwise identity rewrite). OperandSimplify and XorLowering
+/// level bitwise identity rewrite). `OperandSimplify` and `XorLowering`
 /// are deliberately excluded — their rewrites feed other stages that
 /// are expected to produce their own Candidate.
 fn item_is_pic_rewrite_candidate(item: &WorkItem) -> bool {
@@ -297,7 +299,7 @@ fn item_is_pic_rewrite_candidate(item: &WorkItem) -> bool {
         })
 }
 
-/// Update the best-rewrite tracker with this FoldedAst item if it
+/// Update the best-rewrite tracker with this `FoldedAst` item if it
 /// beats the running best under `is_better`. Handles var-space
 /// remapping when the AST came from a `solve_ctx` sub-problem.
 fn maybe_update_best_rewrite(
@@ -374,14 +376,16 @@ fn try_promote_best_rewrite(
     // at this point.
     let _ = original_expr;
 
-    let mut final_meta = ItemMetadata::default();
-    final_meta.verification = VerificationState::Verified;
-    final_meta.transform_produced_candidate = true;
-    final_meta.reason_code = Some(ReasonCode {
-        category: ReasonCategory::BestRewritePromoted,
-        domain: ReasonDomain::StructuralTransform,
-        subcode: 0,
-    });
+    let final_meta = ItemMetadata {
+        verification: VerificationState::Verified,
+        transform_produced_candidate: true,
+        reason_code: Some(ReasonCode {
+            category: ReasonCategory::BestRewritePromoted,
+            domain: ReasonDomain::StructuralTransform,
+            subcode: 0,
+        }),
+        ..ItemMetadata::default()
+    };
 
     Some(LoopResult {
         outcome: PassOutcome::success(

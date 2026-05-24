@@ -102,14 +102,11 @@ pub fn replace_by_hash(
     (out, replaced)
 }
 
-fn precompute_hashes(
-    node: &Expr,
-    out: &mut std::collections::HashMap<*const Expr, u64>,
-) {
+fn precompute_hashes(node: &Expr, out: &mut std::collections::HashMap<*const Expr, u64>) {
     for child in &node.children {
         precompute_hashes(child, out);
     }
-    out.insert(node as *const Expr, expr_identity_hash(node));
+    out.insert(std::ptr::from_ref(node), expr_identity_hash(node));
 }
 
 #[allow(clippy::unnecessary_box_returns)]
@@ -124,7 +121,7 @@ fn replace_by_hash_rec(
         return root;
     }
     let this_hash = hashes
-        .get(&(root.as_ref() as *const Expr))
+        .get(&std::ptr::from_ref(root.as_ref()))
         .copied()
         .unwrap_or_else(|| expr_identity_hash(&root));
     if this_hash == target_hash {

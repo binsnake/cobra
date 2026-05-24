@@ -23,7 +23,9 @@ use cobra_core::arith::bitmask;
 use cobra_core::expr::{Expr, Kind};
 use cobra_core::expr_utils::{eval_constant, is_constant_subtree};
 
-use cobra_ir::semilinear::{AtomId, SemilinearIR, WeightedAtom};
+use cobra_ir::semilinear::{AtomId, GlobalVarIdx, SemilinearIR, WeightedAtom};
+
+type ComplementKey = (u64, Vec<GlobalVarIdx>, Vec<u64>);
 
 fn is_const(e: &Expr) -> bool {
     matches!(e.kind, Kind::Constant(_))
@@ -216,8 +218,8 @@ pub fn simplify_structure(ir: &mut SemilinearIR) {
 
     // Complement recognition: index eligible terms by (coeff, support, truth_table)
     // so each term can look up its bitwise-complement partner in O(1).
-    type Key = (u64, Vec<cobra_ir::semilinear::GlobalVarIdx>, Vec<u64>);
-    let mut index: std::collections::HashMap<Key, usize> = std::collections::HashMap::new();
+    let mut index: std::collections::HashMap<ComplementKey, usize> =
+        std::collections::HashMap::new();
     let mut removed = vec![false; ir.terms.len()];
 
     for i in 0..ir.terms.len() {
@@ -231,19 +233,16 @@ pub fn simplify_structure(ir: &mut SemilinearIR) {
             continue;
         }
         let complement_tt: Vec<u64> = key.truth_table.iter().map(|t| (!*t) & mask).collect();
-        let lookup: Key = (term.coeff, key.support.clone(), complement_tt);
+        let lookup: ComplementKey = (term.coeff, key.support.clone(), complement_tt);
         if let Some(&j) = index.get(&lookup) {
             if !removed[j] {
-                ir.constant = ir
-                    .constant
-                    .wrapping_add(term.coeff.wrapping_mul(mask))
-                    & mask;
+                ir.constant = ir.constant.wrapping_add(term.coeff.wrapping_mul(mask)) & mask;
                 removed[i] = true;
                 removed[j] = true;
                 continue;
             }
         }
-        let self_key: Key = (term.coeff, key.support.clone(), key.truth_table.clone());
+        let self_key: ComplementKey = (term.coeff, key.support.clone(), key.truth_table.clone());
         index.insert(self_key, i);
     }
     let kept: Vec<WeightedAtom> = ir

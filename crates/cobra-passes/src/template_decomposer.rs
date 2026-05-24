@@ -804,8 +804,12 @@ fn layer4(
                             }
                             for &ii in bucket {
                                 let matches_lifted = match g2 {
-                                    Gate::And => and_matches(&pool[bi].vals, &inner[ii].vals, &lifted),
-                                    Gate::Or => or_matches(&pool[bi].vals, &inner[ii].vals, &lifted),
+                                    Gate::And => {
+                                        and_matches(&pool[bi].vals, &inner[ii].vals, &lifted)
+                                    }
+                                    Gate::Or => {
+                                        or_matches(&pool[bi].vals, &inner[ii].vals, &lifted)
+                                    }
                                     _ => unreachable!(),
                                 };
                                 if !matches_lifted {

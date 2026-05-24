@@ -101,7 +101,11 @@ fn propagate_to_supermasks(
     // Enumerate supermasks of s: iterate over subsets of the complement
     // of s (within num_vars bits), skipping the empty subset (which would
     // yield t == s).
-    let full: usize = if num_vars >= (usize::BITS) { !0usize } else { len - 1 };
+    let full: usize = if num_vars >= (usize::BITS) {
+        !0usize
+    } else {
+        len - 1
+    };
     let comp = full & !s;
     let mut sub = comp;
     loop {
@@ -157,17 +161,17 @@ pub fn split_coefficients(
     // simply `accumulated[m]` during the loop.
     let c0 = and_coeffs[0] & mask;
     if c0 != 0 {
-        for m in 1..len {
-            accumulated[m] = c0;
+        for slot in accumulated.iter_mut().take(len).skip(1) {
+            *slot = c0;
         }
     }
 
     // When singleton_at_2 is provided, layer k==1 is skipped but singleton
     // masks still contribute `singleton_at_2[bit]` to every supermask g.
     if !singleton_at_2.is_empty() {
-        for i in 0..num_vars as usize {
+        for (i, value) in singleton_at_2.iter().enumerate().take(num_vars as usize) {
             let s = 1usize << i;
-            let delta = singleton_at_2[i] & mask;
+            let delta = *value & mask;
             if delta != 0 {
                 propagate_to_supermasks(&mut accumulated, s, delta, num_vars, mask);
             }

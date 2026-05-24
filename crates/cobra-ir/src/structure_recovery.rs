@@ -72,7 +72,9 @@ fn eval_bitwise_at(expr: &Expr, vars: &[u64], mask: u64) -> u64 {
 fn build_atom_hash_index(ir: &SemilinearIR) -> HashMap<u64, Vec<AtomId>> {
     let mut map: HashMap<u64, Vec<AtomId>> = HashMap::new();
     for info in &ir.atom_table {
-        map.entry(info.structural_hash).or_default().push(info.atom_id);
+        map.entry(info.structural_hash)
+            .or_default()
+            .push(info.atom_id);
     }
     map
 }
@@ -271,8 +273,7 @@ pub fn recover_structure(ir: &mut SemilinearIR) {
                 entries[src_idx].atom_id = xor_id;
                 entries[src_idx].mask = modmask;
                 entries[dst_idx].consumed = true;
-                ir.constant =
-                    ir.constant.wrapping_add(src_coeff.wrapping_mul(src_mask)) & modmask;
+                ir.constant = ir.constant.wrapping_add(src_coeff.wrapping_mul(src_mask)) & modmask;
                 any_changed = true;
                 continue;
             }

@@ -9,6 +9,7 @@ use std::time::Instant;
 
 use clap::Parser;
 
+use cobra_core::is_valid_bitwidth;
 use cobra_testkit::{parse_dataset, run_case, CaseKind, CaseReport, Report};
 
 #[derive(Parser, Debug)]
@@ -119,9 +120,9 @@ fn merge(into: &mut Report, other: &Report) {
 
 fn main() -> ExitCode {
     let args = Args::parse();
-    if !matches!(args.bitwidth, 8 | 16 | 32 | 64) {
+    if !is_valid_bitwidth(args.bitwidth) {
         eprintln!(
-            "error: unsupported --bitwidth {} (must be 8, 16, 32, or 64)",
+            "error: unsupported --bitwidth {} (must be in 1..=64)",
             args.bitwidth
         );
         return ExitCode::FAILURE;

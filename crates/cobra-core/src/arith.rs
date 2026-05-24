@@ -16,6 +16,27 @@ pub const fn bitmask(bitwidth: u32) -> u64 {
     }
 }
 
+/// Returns true when `bitwidth` is in `CoBRA`'s supported public range.
+#[inline]
+#[must_use]
+pub const fn is_valid_bitwidth(bitwidth: u32) -> bool {
+    bitwidth >= 1 && bitwidth <= 64
+}
+
+/// Mask with only the sign bit set. `bitwidth == 0` returns 0; `bitwidth >= 64`
+/// returns the high bit of `u64`.
+#[inline]
+#[must_use]
+pub const fn sign_bit_mask(bitwidth: u32) -> u64 {
+    if bitwidth == 0 {
+        0
+    } else if bitwidth >= 64 {
+        1u64 << 63
+    } else {
+        1u64 << (bitwidth - 1)
+    }
+}
+
 #[inline]
 #[must_use]
 pub const fn mod_add(a: u64, b: u64, bitwidth: u32) -> u64 {
@@ -68,6 +89,24 @@ mod tests {
         assert_eq!(bitmask(63), 0x7FFF_FFFF_FFFF_FFFF);
         assert_eq!(bitmask(64), u64::MAX);
         assert_eq!(bitmask(65), u64::MAX);
+    }
+
+    #[test]
+    fn bitwidth_range_matches_public_contract() {
+        assert!(!is_valid_bitwidth(0));
+        assert!(is_valid_bitwidth(1));
+        assert!(is_valid_bitwidth(64));
+        assert!(!is_valid_bitwidth(65));
+    }
+
+    #[test]
+    fn sign_bit_mask_edges() {
+        assert_eq!(sign_bit_mask(0), 0);
+        assert_eq!(sign_bit_mask(1), 0x1);
+        assert_eq!(sign_bit_mask(8), 0x80);
+        assert_eq!(sign_bit_mask(63), 1u64 << 62);
+        assert_eq!(sign_bit_mask(64), 1u64 << 63);
+        assert_eq!(sign_bit_mask(65), 1u64 << 63);
     }
 
     #[test]

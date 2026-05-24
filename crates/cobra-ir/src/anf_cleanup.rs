@@ -453,6 +453,7 @@ pub fn cleanup_anf(form: &AnfForm) -> Box<Expr> {
     cleanup_anf_memo(form, &mut cache)
 }
 
+#[allow(clippy::too_many_lines)]
 fn cleanup_anf_memo(form: &AnfForm, cache: &mut AnfCache) -> Box<Expr> {
     if form.monomials.is_empty() {
         return Expr::constant(u64::from(form.constant_bit));

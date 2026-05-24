@@ -838,8 +838,7 @@ pub fn try_simplify_two_var_basis_triple(
                 ];
                 let mut rhs: [u64; 4] = sig_arr;
 
-                let Some(sol) = solve_2adic_fixed::<4>(&mut mat, &mut rhs, mask, bitwidth)
-                else {
+                let Some(sol) = solve_2adic_fixed::<4>(&mut mat, &mut rhs, mask, bitwidth) else {
                     continue;
                 };
                 let (c, a, b, d) = (sol[0], sol[1], sol[2], sol[3]);

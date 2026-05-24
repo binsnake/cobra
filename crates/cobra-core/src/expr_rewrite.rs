@@ -243,6 +243,7 @@ fn refold_negation(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
     expr
 }
 
+#[allow(clippy::too_many_lines)]
 fn extract_common_factor(mut expr: Box<Expr>) -> Box<Expr> {
     let children: Vec<Box<Expr>> = expr.children.drain(..).map(extract_common_factor).collect();
     expr.children = children.into_iter().collect();
@@ -316,9 +317,7 @@ fn extract_common_factor(mut expr: Box<Expr>) -> Box<Expr> {
                 if matches!(f.kind, Kind::Constant(_)) {
                     continue;
                 }
-                if std::mem::discriminant(&f.kind) == candidate_discriminant
-                    && **f == **candidate
-                {
+                if std::mem::discriminant(&f.kind) == candidate_discriminant && **f == **candidate {
                     found = Some(fj);
                     break;
                 }

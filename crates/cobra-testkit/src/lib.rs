@@ -10,16 +10,14 @@
 //! The harness is deliberately small — dataset streaming and the
 //! sweep binary live on top of this library.
 
-use cobra_core::evaluate_boolean_signature;
 use cobra_core::evaluator::Evaluator;
 use cobra_core::expr::Expr;
 use cobra_core::expr_rewrite::build_var_support;
 use cobra_core::expr_utils::remap_var_indices;
 use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
-use cobra_orchestrator::{OrchestratorContext, OrchestratorPolicy, Worklist};
 use cobra_parser::parse_to_ast;
-use cobra_passes::{full_width_check_eval, seed_with_ast, PASS_REGISTRY};
+use cobra_passes::{full_width_check_eval, simplify_expr};
 
 #[derive(Clone, Debug)]
 pub struct Case {
@@ -51,7 +49,10 @@ pub fn parse_dataset(body: &str) -> Vec<Case> {
             continue;
         }
         let (input, expected) = if let Some(tab) = top_level_tab(line) {
-            (line[..tab].trim().to_string(), line[tab + 1..].trim().to_string())
+            (
+                line[..tab].trim().to_string(),
+                line[tab + 1..].trim().to_string(),
+            )
         } else {
             let commas = top_level_commas(line);
             let Some(&first) = commas.first() else {
@@ -150,23 +151,7 @@ pub fn run_case(case: &Case, bitwidth: u32) -> CaseReport {
         bitwidth,
         ..Options::default()
     };
-    let mut ctx = OrchestratorContext::new(opts, parsed_input.vars.clone(), bitwidth);
-    ctx.evaluator = Some(Evaluator::from_expr(&input_expr, bitwidth));
-    ctx.input_sig =
-        evaluate_boolean_signature(&input_expr, parsed_input.vars.len() as u32, bitwidth);
-
-    let mut worklist = Worklist::new();
-    if seed_with_ast(&input_expr, &mut ctx, &mut worklist).is_err() {
-        return errored("seed failed");
-    }
-
-    let outcome = match cobra_orchestrator::simplify_from_worklist(
-        &mut ctx,
-        worklist,
-        OrchestratorPolicy::default(),
-        PASS_REGISTRY,
-        Some(&input_expr),
-    ) {
+    let outcome = match simplify_expr(&input_expr, &parsed_input.vars, opts) {
         Ok(o) => o,
         Err(e) => return errored(&format!("pipeline error: {e:?}")),
     };
@@ -184,15 +169,12 @@ pub fn run_case(case: &Case, bitwidth: u32) -> CaseReport {
             // dataset-test post-processing.
             let simplified_raw = outcome.expr.as_ref().expect("Simplified carries expr");
             let mut simplified = simplified_raw.clone();
-            if !outcome.real_vars.is_empty()
-                && outcome.real_vars.len() < parsed_input.vars.len()
-            {
+            if !outcome.real_vars.is_empty() && outcome.real_vars.len() < parsed_input.vars.len() {
                 let idx_map = build_var_support(&parsed_input.vars, &outcome.real_vars);
                 remap_var_indices(&mut simplified, &idx_map);
             }
             let n_vars = parsed_input.vars.len().max(parsed_expected.vars.len()) as u32;
-            let equivalent_to_input =
-                probes_match(&input_expr, &simplified, n_vars, bitwidth);
+            let equivalent_to_input = probes_match(&input_expr, &simplified, n_vars, bitwidth);
             let matches_expected =
                 probes_match(&parsed_expected.expr, &simplified, n_vars, bitwidth);
             CaseReport {

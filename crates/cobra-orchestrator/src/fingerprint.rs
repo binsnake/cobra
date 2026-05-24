@@ -19,6 +19,7 @@ pub fn hash_combine(seed: u64, value: u64) -> u64 {
 
 /// `ComputeFingerprint`.
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn compute_fingerprint(item: &WorkItem, bitwidth: u32) -> StateFingerprint {
     let kind = item.payload.kind();
     let provenance = item.features.provenance;
@@ -149,7 +150,8 @@ pub fn compute_fingerprint(item: &WorkItem, bitwidth: u32) -> StateFingerprint {
 }
 
 /// Build the content-keyed fingerprint of a [`SemilinearIR`]. Terms are
-/// structural_hash, provenance)` so that two IRs with the same set of
+/// sorted by `(coeff, support, truth_table, structural_hash, provenance)`
+/// so that two IRs with the same set of terms produce the same key.
 #[must_use]
 pub fn build_semilinear_fingerprint_key(ir: &SemilinearIR) -> SemilinearFingerprintKey {
     let mut terms: Vec<SemilinearTermKey> = Vec::with_capacity(ir.terms.len());

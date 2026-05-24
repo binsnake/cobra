@@ -55,16 +55,13 @@ pub const PASS_INDEX_SIZE: usize = 64;
 /// Lets the main loop resolve a `PassId` to its descriptor in O(1)
 /// instead of O(n) linear scan per iteration.
 #[must_use]
-pub fn build_pass_index(
-    registry: &[PassDescriptor],
-) -> [Option<&PassDescriptor>; PASS_INDEX_SIZE] {
+pub fn build_pass_index(registry: &[PassDescriptor]) -> [Option<&PassDescriptor>; PASS_INDEX_SIZE] {
     let mut idx: [Option<&PassDescriptor>; PASS_INDEX_SIZE] = [None; PASS_INDEX_SIZE];
     for desc in registry {
         idx[desc.id.as_u8() as usize] = Some(desc);
     }
     idx
 }
-
 
 #[cfg(test)]
 mod tests {

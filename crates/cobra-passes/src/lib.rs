@@ -27,6 +27,7 @@ pub mod classifier;
 pub mod cob_expr_builder;
 pub mod decomposition_engine;
 pub mod decomposition_helpers;
+pub mod entry;
 pub mod extract_poly_core;
 pub mod extract_product_core;
 pub mod extract_template_core;
@@ -346,6 +347,7 @@ pub const PASS_REGISTRY: &[PassDescriptor] = &[
 
 pub use crate::aux_var::eliminate_aux_vars;
 pub use crate::classifier::classify_structural;
+pub use crate::entry::{simplify, simplify_expr, MAX_INPUT_VARS};
 pub use crate::not_over_arith::{has_not_over_arith, is_purely_arithmetic, lower_not_over_arith};
 pub use crate::pattern_matcher::{
     match_1var, match_2var_boolean, match_pattern, pack_bool_sig, simplify_pattern_subtrees,

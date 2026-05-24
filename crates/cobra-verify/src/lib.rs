@@ -21,7 +21,9 @@ pub enum VerifyOutcome {
     Equivalent,
     /// A counterexample was found; payload is the solver's model string
     /// (best-effort human-readable — format is backend-dependent).
-    Disproved { counterexample: String },
+    Disproved {
+        counterexample: String,
+    },
     TimedOut,
     /// No backend available (e.g. null verifier). Not a failure — callers
     /// that require a hard proof should treat this as "cannot confirm".

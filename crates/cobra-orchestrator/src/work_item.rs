@@ -74,7 +74,7 @@ pub struct WorkItem {
     pub history: Vec<PassId>,
     /// Memoized fingerprint. Filled on first demand, invalidated whenever
     /// fingerprint-contributing state changes. Not serialized; not part
-    /// of equality — WorkItem `Clone` copies the cache as-is.
+    /// of equality — `WorkItem` `Clone` copies the cache as-is.
     fingerprint_cache: std::cell::OnceCell<StateFingerprint>,
 }
 
@@ -123,7 +123,9 @@ impl WorkItem {
             if fp.bitwidth == bitwidth {
                 return std::borrow::Cow::Borrowed(fp);
             }
-            return std::borrow::Cow::Owned(crate::fingerprint::compute_fingerprint(self, bitwidth));
+            return std::borrow::Cow::Owned(crate::fingerprint::compute_fingerprint(
+                self, bitwidth,
+            ));
         }
         let fp = crate::fingerprint::compute_fingerprint(self, bitwidth);
         // Ignore result of set — another caller may have raced us.
@@ -133,7 +135,7 @@ impl WorkItem {
 
     /// Clear the memoized fingerprint. Call whenever a field that feeds
     /// `compute_fingerprint` mutates (payload, features.provenance,
-    /// group_id, signature_recursion_depth, evaluator_override).
+    /// `group_id`, `signature_recursion_depth`, `evaluator_override`).
     pub fn invalidate_fingerprint_cache(&mut self) {
         self.fingerprint_cache = std::cell::OnceCell::new();
     }

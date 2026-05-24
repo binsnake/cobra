@@ -20,7 +20,6 @@ use crate::semilinear::{
     OperatorFamily, SemilinearIR, WeightedAtom,
 };
 
-
 fn has_constant(expr: &Expr) -> bool {
     if matches!(expr.kind, Kind::Constant(_)) {
         return true;
@@ -35,6 +34,7 @@ fn contains_shr(expr: &Expr) -> bool {
     expr.children.iter().any(|c| contains_shr(c))
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy)]
 struct ExprInfo {
     is_purely_bitwise: bool,
@@ -46,10 +46,7 @@ struct ExprInfo {
 /// Single postorder walk computing all four predicates simultaneously.
 /// Results are memoized per subtree by pointer identity for the duration
 /// of one `collect_terms` invocation.
-fn compute_expr_info<'a>(
-    expr: &'a Expr,
-    cache: &mut HashMap<*const Expr, ExprInfo>,
-) -> ExprInfo {
+fn compute_expr_info(expr: &Expr, cache: &mut HashMap<*const Expr, ExprInfo>) -> ExprInfo {
     let key = expr as *const Expr;
     if let Some(info) = cache.get(&key) {
         return *info;
@@ -264,7 +261,8 @@ fn register_atom(ctx: &mut CollectCtx, expr: &Expr) -> AtomId {
     if pure && !key.truth_table.is_empty() {
         ctx.atom_map.insert(key.clone(), atom_id);
     }
-    ctx.hash_cache.insert((struct_hash, key.support.clone()), atom_id);
+    ctx.hash_cache
+        .insert((struct_hash, key.support.clone()), atom_id);
 
     ctx.atom_table.push(AtomInfo {
         atom_id,

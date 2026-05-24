@@ -1,8 +1,8 @@
-
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CobraError {
+    InvalidArgument,
     ParseError,
     NonLinearInput,
     TooManyVariables,
@@ -13,6 +13,7 @@ pub enum CobraError {
 impl fmt::Display for CobraError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match self {
+            Self::InvalidArgument => "invalid argument",
             Self::ParseError => "parse error",
             Self::NonLinearInput => "non-linear input",
             Self::TooManyVariables => "too many variables",

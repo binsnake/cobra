@@ -173,7 +173,9 @@ fn rewrite_at_site(ast: &AstPayload, item: &WorkItem, site: RewriteSite) -> Work
     rewritten.attempted_mask = 0;
     rewritten.group_id = item.group_id;
     rewritten.history.clone_from(&item.history);
-    rewritten.history.push(cobra_orchestrator::PassId::AtomIdentityRewrite);
+    rewritten
+        .history
+        .push(cobra_orchestrator::PassId::AtomIdentityRewrite);
     rewritten
 }
 
@@ -186,6 +188,7 @@ fn rewrite_at_site(ast: &AstPayload, item: &WorkItem, site: RewriteSite) -> Work
 /// the LHS of one of our identities, regardless of the surrounding
 /// addends. The spot check has false-positive rate ≈ 2^-256 × 256 ≈
 /// 2^-248 per try, so it's safe to be loose here.
+#[allow(clippy::vec_box)] // Candidate expressions are owned boxed trees throughout the pass.
 fn try_match_all(node: &Expr, bitwidth: u32) -> Vec<Box<Expr>> {
     let mut out = Vec::new();
     if let Some(c) = match_xor_via_or_minus_and(node) {
@@ -230,8 +233,8 @@ fn match_xor_via_or_minus_and(node: &Expr) -> Option<Box<Expr>> {
 fn match_and_via_not_or_minus_not(node: &Expr) -> Option<Box<Expr>> {
     let (lhs, rhs_neg) = match_binary_add_with_neg(node)?;
     // Identify the Or side and the Not side after peeling Neg.
-    let or_side = pick_kind(lhs, rhs_neg, Kind::Or)?;
-    let not_side = pick_other(lhs, rhs_neg, or_side)?;
+    let or_side = pick_kind(lhs, rhs_neg, &Kind::Or)?;
+    let not_side = pick_other(lhs, rhs_neg, or_side);
     if !matches!(not_side.kind, Kind::Not) || not_side.children.len() != 1 {
         return None;
     }
@@ -294,10 +297,7 @@ fn match_and_via_not_or_plus_a_plus_one(
 }
 
 /// `A - B - 2*(A | ~B) - 2  →  A ^ B`
-fn match_xor_via_ornot_flat(
-    addends: &[Addend<'_>],
-    bitwidth: u32,
-) -> Option<Box<Expr>> {
+fn match_xor_via_ornot_flat(addends: &[Addend<'_>], bitwidth: u32) -> Option<Box<Expr>> {
     let mask = bitmask(bitwidth);
     // Expect exactly 4 addends: +A, -B, -2*(A|~B), -2. Matchers below
     // are commutative across the addend list.
@@ -306,9 +306,9 @@ fn match_xor_via_ornot_flat(
     }
 
     // Locate the `-2` constant term (negated with magnitude 2 mod mask).
-    let neg_two_idx = addends.iter().position(|a| {
-        a.negated && matches!(a.expr.kind, Kind::Constant(v) if (v & mask) == 2)
-    })?;
+    let neg_two_idx = addends
+        .iter()
+        .position(|a| a.negated && matches!(a.expr.kind, Kind::Constant(v) if (v & mask) == 2))?;
 
     // Locate the `-2*(A|~B)` term: negated with shape `Mul(Const(2), Or)`
     // or `Mul(Or, Const(2))`.
@@ -343,7 +343,9 @@ fn match_xor_via_ornot_flat(
     let (mul_idx, or_node) = two_or_idx;
 
     // Remaining two addends must be `+A` and `-B` (order-independent).
-    let remaining: Vec<usize> = (0..4).filter(|i| *i != neg_two_idx && *i != mul_idx).collect();
+    let remaining: Vec<usize> = (0..4)
+        .filter(|i| *i != neg_two_idx && *i != mul_idx)
+        .collect();
     if remaining.len() != 2 {
         return None;
     }
@@ -374,6 +376,7 @@ fn match_xor_via_ornot_flat(
 /// check in the caller verifies whether the full identity holds; this
 /// lets us catch shapes like `(~X|Y) + A + 2` where constant folding
 /// has reshuffled the 3-term form.
+#[allow(clippy::vec_box)] // Shares the candidate buffer shape used by `try_match_all`.
 fn match_and_via_ornot_lax(node: &Expr, addends: &[Addend<'_>], out: &mut Vec<Box<Expr>>) {
     if !matches!(node.kind, Kind::Add) {
         return;
@@ -415,6 +418,7 @@ fn match_and_via_ornot_lax(node: &Expr, addends: &[Addend<'_>], out: &mut Vec<Bo
 /// folding (Mul(2, Or)), and whatever partial mixes the parser and
 /// pattern simplifier leave behind. The full-width check in the caller
 /// gates correctness.
+#[allow(clippy::vec_box)] // Shares the candidate buffer shape used by `try_match_all`.
 fn match_xor_via_ornot_lax(node: &Expr, addends: &[Addend<'_>], out: &mut Vec<Box<Expr>>) {
     if !matches!(node.kind, Kind::Add) {
         return;
@@ -445,16 +449,10 @@ fn match_xor_via_ornot_lax(node: &Expr, addends: &[Addend<'_>], out: &mut Vec<Bo
         };
         let (ol, or_r) = (&or_node.children[0], &or_node.children[1]);
         if matches!(or_r.kind, Kind::Not) && or_r.children.len() == 1 {
-            out.push(Expr::xor(
-                ol.clone_tree(),
-                or_r.children[0].clone_tree(),
-            ));
+            out.push(Expr::xor(ol.clone_tree(), or_r.children[0].clone_tree()));
         }
         if matches!(ol.kind, Kind::Not) && ol.children.len() == 1 {
-            out.push(Expr::xor(
-                or_r.clone_tree(),
-                ol.children[0].clone_tree(),
-            ));
+            out.push(Expr::xor(or_r.clone_tree(), ol.children[0].clone_tree()));
         }
     }
 }
@@ -524,8 +522,8 @@ fn pick_or_and<'a>(lhs: &'a Expr, rhs: &'a Expr) -> Option<(&'a Expr, &'a Expr)>
     }
 }
 
-fn pick_kind<'a>(lhs: &'a Expr, rhs: &'a Expr, kind: Kind) -> Option<&'a Expr> {
-    let matches_kind = |e: &Expr| std::mem::discriminant(&e.kind) == std::mem::discriminant(&kind);
+fn pick_kind<'a>(lhs: &'a Expr, rhs: &'a Expr, kind: &Kind) -> Option<&'a Expr> {
+    let matches_kind = |e: &Expr| std::mem::discriminant(&e.kind) == std::mem::discriminant(kind);
     if matches_kind(lhs) && lhs.children.len() == 2 {
         Some(lhs)
     } else if matches_kind(rhs) && rhs.children.len() == 2 {
@@ -535,11 +533,11 @@ fn pick_kind<'a>(lhs: &'a Expr, rhs: &'a Expr, kind: Kind) -> Option<&'a Expr> {
     }
 }
 
-fn pick_other<'a>(lhs: &'a Expr, rhs: &'a Expr, picked: &'a Expr) -> Option<&'a Expr> {
+fn pick_other<'a>(lhs: &'a Expr, rhs: &'a Expr, picked: &'a Expr) -> &'a Expr {
     if std::ptr::eq(lhs, picked) {
-        Some(rhs)
+        rhs
     } else {
-        Some(lhs)
+        lhs
     }
 }
 
@@ -611,10 +609,7 @@ mod tests {
         let b = Expr::variable(1);
         let lhs = Expr::add(
             Expr::add(
-                Expr::add(
-                    a.clone_tree(),
-                    Expr::neg(b.clone_tree()),
-                ),
+                Expr::add(a.clone_tree(), Expr::neg(b.clone_tree())),
                 Expr::neg(Expr::mul(
                     Expr::constant(2),
                     Expr::or(a.clone_tree(), Expr::not(b.clone_tree())),

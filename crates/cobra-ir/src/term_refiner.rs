@@ -226,7 +226,7 @@ fn refine_group(group: &mut [RefineTerm], ir: &mut SemilinearIR, basis: &Expr, m
         for &idx in indices {
             let m = group[idx].mask;
             let mut placed = false;
-            for slot in slots.iter_mut() {
+            for slot in &mut slots {
                 if (slot.1 & m) == 0 {
                     let rep = slot.0;
                     let merged_mask = (slot.1 | m) & modmask;

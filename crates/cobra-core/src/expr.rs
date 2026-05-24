@@ -7,7 +7,7 @@ use std::fmt::Write as _;
 
 use smallvec::SmallVec;
 
-use crate::arith::bitmask;
+use crate::arith::{bitmask, sign_bit_mask};
 
 /// Node kind. Variants that carry payload (`Constant`, `Variable`, `Shr`)
 /// store it inline instead of in a side channel on the struct.
@@ -178,12 +178,8 @@ fn render_impl(
     match &expr.kind {
         Kind::Constant(val) => {
             let mask = bitmask(bitwidth);
-            let half = if bitwidth >= 64 {
-                1u64 << 63
-            } else {
-                1u64 << (bitwidth - 1)
-            };
-            if *val >= half && *val <= mask {
+            let half = sign_bit_mask(bitwidth);
+            if half != 0 && *val >= half && *val <= mask {
                 let neg = mask.wrapping_sub(*val).wrapping_add(1);
                 let _ = write!(out, "-{neg}");
             } else {

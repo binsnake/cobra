@@ -132,6 +132,7 @@ fn expect_constant(expr: &Expr, msg: &str) -> Result<u64> {
     }
 }
 
+#[allow(clippy::needless_pass_by_value)] // Keep ownership shape aligned with other AST builders.
 fn apply_pow(lhs: Box<Expr>, rhs: &Expr, mask: u64) -> Result<Box<Expr>> {
     let exp = expect_constant(rhs, "unsupported: exponent must be an integer literal")?;
     if exp == 0 {
@@ -144,6 +145,7 @@ fn apply_pow(lhs: Box<Expr>, rhs: &Expr, mask: u64) -> Result<Box<Expr>> {
 // by squaring. Depth is ceil(log2(exp)) instead of exp-1 for the linear chain.
 // For odd exp we emit `pow(base, exp-1) * base` so that `a ** 3` still shapes
 // as `(a * a) * a` — root Mul whose left child is Mul.
+#[allow(clippy::unnecessary_box_returns)] // `Expr` factory helpers return boxed trees throughout this module.
 fn pow_by_squaring(base: &Expr, exp: u64) -> Box<Expr> {
     debug_assert!(exp >= 1);
     if exp == 1 {

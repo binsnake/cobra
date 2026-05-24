@@ -35,9 +35,7 @@ fn eval_semilinear_recursive(
         Kind::Constant(c) => {
             let mut v = pool_take(pool, len);
             let cv = *c & mask;
-            for slot in &mut v {
-                *slot = cv;
-            }
+            v.fill(cv);
             v
         }
         Kind::Variable(idx) => {

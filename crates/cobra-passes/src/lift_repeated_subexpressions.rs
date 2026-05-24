@@ -71,12 +71,7 @@ pub fn run_lift_repeated_subexpressions(
     let mut by_hash: HashMap<u64, Vec<usize>> = HashMap::new();
     let mut entries: Vec<RepeatEntry<'_>> = Vec::new();
     let mut preorder: u32 = 0;
-    collect_non_leaf_subtrees(
-        &ast.expr,
-        &mut preorder,
-        &mut by_hash,
-        &mut entries,
-    );
+    collect_non_leaf_subtrees(&ast.expr, &mut preorder, &mut by_hash, &mut entries);
 
     let mut viable: Vec<&RepeatEntry<'_>> = entries
         .iter()
