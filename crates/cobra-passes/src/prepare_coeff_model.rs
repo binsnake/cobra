@@ -83,6 +83,8 @@ pub fn run_prepare_coeff_model(
     };
     let mut child = item.clone();
     child.payload = StateData::SignatureCoeff(Box::new(child_payload));
+    child.metadata.lean_certificate = None;
+    child.metadata.lean_signature_certificate = None;
     child.signature_recursion_depth = item.signature_recursion_depth.saturating_add(1);
     child.attempted_mask = 0;
     child.group_id = Some(group_id);
@@ -138,7 +140,19 @@ mod tests {
     fn emits_coeff_child_for_two_var_signature() {
         let mut ctx =
             OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
-        let item = mk_sig_item(vec![0, 1, 1, 0], vec!["x".into(), "y".into()], &mut ctx);
+        let mut item = mk_sig_item(vec![0, 1, 1, 0], vec!["x".into(), "y".into()], &mut ctx);
+        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+            64,
+            cobra_core::expr::Expr::variable(0),
+            cobra_core::expr::Expr::variable(0),
+        ));
+        item.metadata.lean_signature_certificate =
+            cobra_orchestrator::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                cobra_core::expr::Expr::variable(0),
+            );
         let gid_before = item.group_id.unwrap();
         let handles_before = ctx.competition_groups[&gid_before].open_handles;
 
@@ -161,6 +175,8 @@ mod tests {
 
         // Recursion depth advanced.
         assert_eq!(pr.next[0].signature_recursion_depth, 1);
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+        assert!(pr.next[0].metadata.lean_signature_certificate.is_none());
     }
 
     #[test]

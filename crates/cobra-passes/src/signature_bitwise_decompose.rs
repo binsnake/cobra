@@ -20,7 +20,9 @@ use cobra_orchestrator::{
 };
 
 use crate::bitwise_decomposer::{compact_signature, compose, enumerate_bitwise_candidates};
-use crate::candidate_normalize::submit_normalized_candidate;
+use crate::candidate_normalize::{
+    signature_certificate_for_candidate, submit_normalized_candidate,
+};
 use crate::mapped_evaluator::build_mapped_evaluator;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
@@ -175,6 +177,12 @@ pub fn run_signature_bitwise_decompose(
                 }
             }
             let cost = cobra_core::expr_cost::compute_cost(&composed).cost;
+            let lean_signature_certificate = signature_certificate_for_candidate(
+                ctx.bitwidth,
+                &sub_ctx.elimination.reduced_sig,
+                &sub_ctx.real_vars,
+                &composed,
+            );
             submit_normalized_candidate(
                 &mut ctx.competition_groups,
                 parent_group_id,
@@ -185,7 +193,9 @@ pub fn run_signature_bitwise_decompose(
                     real_vars: sub_ctx.real_vars.clone(),
                     source_pass: PassId::SignatureBitwiseDecompose,
                     needs_original_space_verification: sub_ctx.needs_original_space_verification,
-                    sig_vector: Vec::new(),
+                    sig_vector: sub_ctx.elimination.reduced_sig.clone(),
+                    lean_certificate: None,
+                    lean_signature_certificate,
                 },
                 ctx.bitwidth,
             );
@@ -211,6 +221,7 @@ pub fn run_signature_bitwise_decompose(
             active_context_indices,
             parent_group_id,
             parent_eval: parent_eval.clone(),
+            parent_signature: sub_ctx.elimination.reduced_sig.clone(),
             parent_real_vars: sub_ctx.real_vars.clone(),
             parent_original_indices: sub_ctx.original_indices.clone(),
             parent_num_vars: num_vars,
@@ -237,6 +248,8 @@ pub fn run_signature_bitwise_decompose(
         })));
         child.features = item.features.clone();
         child.metadata = item.metadata.clone();
+        child.metadata.lean_certificate = None;
+        child.metadata.lean_signature_certificate = None;
         child.depth = item.depth;
         child.rewrite_gen = item.rewrite_gen;
         child.attempted_mask = 0;
@@ -327,6 +340,13 @@ mod tests {
             .competition_groups
             .get(&parent_gid)
             .and_then(|g| g.best.clone());
+        if let Some(winner) = direct_winner.as_ref() {
+            let cert = winner
+                .lean_signature_certificate
+                .as_ref()
+                .expect("direct composed candidate has parent signature certificate");
+            assert!(cert.matches_signature(64, 2, &[0, 0, 0, 1], &winner.expr));
+        }
         assert!(direct_winner.is_some() || !pr.next.is_empty());
     }
 
@@ -357,6 +377,8 @@ mod tests {
                 source_pass: PassId::SignaturePatternMatch,
                 needs_original_space_verification: false,
                 sig_vector: vec![0, 1, 1, 0],
+                lean_certificate: None,
+                lean_signature_certificate: None,
             },
         );
 

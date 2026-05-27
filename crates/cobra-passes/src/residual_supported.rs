@@ -119,6 +119,8 @@ pub fn run_residual_supported(
     })));
     child.features = item.features.clone();
     child.metadata = item.metadata.clone();
+    child.metadata.lean_certificate = None;
+    child.metadata.lean_signature_certificate = None;
     child.group_id = Some(group_id);
     child.signature_recursion_depth = item.signature_recursion_depth;
     child.evaluator_override = Some(residual.remainder_eval.clone());
@@ -194,7 +196,15 @@ mod tests {
         let f = Expr::xor(Expr::variable(0), Expr::variable(1));
         let eval = Evaluator::from_expr(&f, 64);
         let sig = vec![0u64, 1, 1, 0];
-        let item = mk_remainder_item(vec!["x".into(), "y".into()], sig, Expr::constant(0), eval);
+        let mut item =
+            mk_remainder_item(vec!["x".into(), "y".into()], sig, Expr::constant(0), eval);
+        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+            64,
+            Expr::variable(0),
+            Expr::variable(0),
+        ));
+        item.metadata.lean_signature_certificate =
+            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
 
         let pr = run_residual_supported(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::Advance);
@@ -211,5 +221,7 @@ mod tests {
             group.continuation,
             Some(ContinuationData::RemainderRecombine(_))
         ));
+        assert!(child.metadata.lean_certificate.is_none());
+        assert!(child.metadata.lean_signature_certificate.is_none());
     }
 }

@@ -5,11 +5,12 @@
 //! integration exercise the dispatch end-to-end.
 
 use cobra_core::expr::Expr;
-use cobra_core::expr_rewrite::cleanup_final_expr;
+use cobra_core::expr_rewrite::{cleanup_final_expr, try_build_var_support};
+use cobra_core::expr_utils::remap_var_indices;
 use cobra_core::pass_contract::{PassOutcome, VerificationState};
 use cobra_core::result::Result;
 use cobra_core::simplify_outcome::{
-    Diagnostic, SimplifyOutcome, SimplifyOutcomeKind, SimplifyTelemetry,
+    Diagnostic, ProofLevel, SimplifyOutcome, SimplifyOutcomeKind, SimplifyTelemetry,
 };
 
 use crate::context::{OrchestratorContext, OrchestratorPolicy};
@@ -30,7 +31,12 @@ pub fn simplify_from_worklist(
     original_expr: Option<&Expr>,
 ) -> Result<SimplifyOutcome> {
     let result = run_main_loop(ctx, &mut worklist, &mut policy, registry, original_expr)?;
-    Ok(to_simplify_outcome(result, original_expr, ctx.bitwidth))
+    Ok(to_simplify_outcome(
+        result,
+        original_expr,
+        ctx.bitwidth,
+        &ctx.original_vars,
+    ))
 }
 
 /// `ToSimplifyOutcome`: success runs `cleanup_final_expr` on the expr,
@@ -39,6 +45,7 @@ pub fn to_simplify_outcome(
     result: LoopResult,
     original_expr: Option<&Expr>,
     bitwidth: u32,
+    original_vars: &[String],
 ) -> SimplifyOutcome {
     let mut outcome = SimplifyOutcome::default();
 
@@ -50,9 +57,28 @@ pub fn to_simplify_outcome(
             ..
         } => {
             outcome.kind = SimplifyOutcomeKind::Simplified;
-            outcome.expr = Some(cleanup_final_expr(expr, bitwidth));
+            let cleaned_expr = cleanup_final_expr(expr, bitwidth);
+            let has_matching_lean_certificate = result
+                .metadata
+                .lean_certificate
+                .as_ref()
+                .is_some_and(|cert| {
+                    original_expr.is_some_and(|original| {
+                        certificate_matches_public_output(
+                            cert,
+                            bitwidth,
+                            original,
+                            &cleaned_expr,
+                            &real_vars,
+                            original_vars,
+                        )
+                    })
+                });
+            outcome.expr = Some(cleaned_expr);
             outcome.real_vars = real_vars;
             outcome.verified = verification == VerificationState::Verified;
+            outcome.proof_level =
+                proof_level_for_verification(verification, has_matching_lean_certificate);
             outcome.sig_vector = result.metadata.sig_vector;
         }
         other => {
@@ -84,4 +110,122 @@ pub fn to_simplify_outcome(
     };
 
     outcome
+}
+
+fn certificate_matches_public_output(
+    cert: &cobra_verify::LeanCertificate,
+    bitwidth: u32,
+    original: &Expr,
+    public_expr: &Expr,
+    real_vars: &[String],
+    original_vars: &[String],
+) -> bool {
+    if cert.matches_endpoints(bitwidth, original, public_expr) {
+        return true;
+    }
+    let Some(idx_map) = try_build_var_support(original_vars, real_vars) else {
+        return false;
+    };
+    let mut remapped = public_expr.clone_tree();
+    remap_var_indices(&mut remapped, &idx_map);
+    cert.matches_endpoints(bitwidth, original, &remapped)
+}
+
+fn proof_level_for_verification(
+    verification: VerificationState,
+    has_lean_certificate: bool,
+) -> ProofLevel {
+    match (verification, has_lean_certificate) {
+        (VerificationState::Verified, true) => ProofLevel::LeanCertified,
+        (VerificationState::Unverified | VerificationState::Rejected, _) => ProofLevel::Unverified,
+        (VerificationState::Verified, false) => ProofLevel::SpotChecked,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::{OrchestratorTelemetry, RunMetadata};
+    use crate::work_item::ItemMetadata;
+
+    #[test]
+    fn lean_certificate_upgrades_public_proof_level() {
+        let expr = Expr::variable(0);
+        let mut metadata = ItemMetadata::default();
+        metadata.lean_certificate = Some(cobra_verify::LeanCertificate::new(
+            64,
+            expr.clone_tree(),
+            expr.clone_tree(),
+        ));
+        let result = LoopResult {
+            outcome: PassOutcome::success(
+                expr.clone_tree(),
+                vec!["x".into()],
+                VerificationState::Verified,
+            ),
+            metadata,
+            run_metadata: RunMetadata::default(),
+            telemetry: OrchestratorTelemetry::default(),
+        };
+
+        let outcome = to_simplify_outcome(result, Some(&expr), 64, &["x".into()]);
+        assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
+        assert!(outcome.verified);
+    }
+
+    #[test]
+    fn mismatched_lean_certificate_does_not_upgrade_public_proof_level() {
+        let original = Expr::variable(0);
+        let simplified = Expr::variable(1);
+        let mut metadata = ItemMetadata::default();
+        metadata.lean_certificate = Some(cobra_verify::LeanCertificate::new(
+            64,
+            original.clone_tree(),
+            Expr::constant(0),
+        ));
+        let result = LoopResult {
+            outcome: PassOutcome::success(
+                simplified,
+                vec!["x".into(), "y".into()],
+                VerificationState::Verified,
+            ),
+            metadata,
+            run_metadata: RunMetadata::default(),
+            telemetry: OrchestratorTelemetry::default(),
+        };
+
+        let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into()]);
+        assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
+        assert!(outcome.verified);
+    }
+
+    #[test]
+    fn signature_certificate_does_not_upgrade_public_proof_level() {
+        let expr = Expr::variable(0);
+        let mut metadata = ItemMetadata {
+            verification: VerificationState::Verified,
+            lean_signature_certificate: cobra_verify::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                expr.clone_tree(),
+            ),
+            ..ItemMetadata::default()
+        };
+        metadata.sig_vector = vec![0, 1];
+        let result = LoopResult {
+            outcome: PassOutcome::success(
+                expr.clone_tree(),
+                vec!["x".into()],
+                VerificationState::Verified,
+            ),
+            metadata,
+            run_metadata: RunMetadata::default(),
+            telemetry: OrchestratorTelemetry::default(),
+        };
+
+        let outcome = to_simplify_outcome(result, Some(&expr), 64, &["x".into()]);
+        assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
+        assert!(outcome.verified);
+    }
 }

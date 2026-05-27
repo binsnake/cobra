@@ -4,14 +4,17 @@
 //! `needs_original_space_verification = false` and
 //! `VerificationState::Verified`, which lets the main loop accept it.
 
+use cobra_core::expr::Expr;
+use cobra_core::expr_rewrite::try_build_var_support;
+use cobra_core::expr_utils::remap_var_indices;
 use cobra_core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, VerificationState,
 };
 use cobra_core::result::Result;
 
 use cobra_orchestrator::{
-    CandidatePayload, ItemDisposition, OrchestratorContext, PassDecision, PassResult, StateData,
-    WorkItem,
+    CandidatePayload, ItemDisposition, LeanCertificate, OrchestratorContext, PassDecision,
+    PassResult, StateData, WorkItem,
 };
 
 use crate::spot_check::verify_in_original_space;
@@ -76,6 +79,10 @@ pub fn run_verify_candidate(item: &WorkItem, ctx: &mut OrchestratorContext) -> R
         let mut verified_item = item.clone();
         verified_item.payload = StateData::Candidate(Box::new(verified_payload));
         verified_item.metadata.verification = VerificationState::Verified;
+        if verified_item.metadata.lean_certificate.is_none() {
+            verified_item.metadata.lean_certificate =
+                remapped_endpoint_certificate(ctx, &cand.expr, &cand.real_vars);
+        }
 
         return Ok(PassResult {
             decision: PassDecision::Advance,
@@ -110,6 +117,27 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
     matches!(item.payload, StateData::Candidate(_))
 }
 
+fn remapped_endpoint_certificate(
+    ctx: &OrchestratorContext,
+    expr: &Expr,
+    real_vars: &[String],
+) -> Option<LeanCertificate> {
+    let original = ctx.original_expr.as_ref()?;
+    let remapped = if real_vars == ctx.original_vars {
+        expr.clone_tree()
+    } else {
+        let idx_map = try_build_var_support(&ctx.original_vars, real_vars)?;
+        let mut remapped = expr.clone_tree();
+        remap_var_indices(&mut remapped, &idx_map);
+        remapped
+    };
+    Some(LeanCertificate::new(
+        ctx.bitwidth,
+        original.clone_tree(),
+        remapped,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,6 +167,7 @@ mod tests {
 
         let mut ctx =
             OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+        ctx.original_expr = Some(original.clone_tree());
         ctx.evaluator = Some(Evaluator::from_expr(&original, 64));
 
         let item = mk_cand_item(simplified);
@@ -154,6 +183,34 @@ mod tests {
             pr.next[0].metadata.verification,
             VerificationState::Verified
         );
+        assert!(
+            pr.next[0].metadata.lean_certificate.is_some(),
+            "verified original-space candidate should get endpoint Lean certificate"
+        );
+    }
+
+    #[test]
+    fn verify_attaches_endpoint_certificate_for_remapped_vars() {
+        let original = Expr::variable(0);
+        let mut ctx =
+            OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+        ctx.original_expr = Some(original.clone_tree());
+        ctx.evaluator = Some(Evaluator::from_expr(&original, 64));
+
+        let mut item = mk_cand_item(Expr::variable(0));
+        if let StateData::Candidate(cand) = &mut item.payload {
+            cand.real_vars = vec!["x".into()];
+        }
+
+        let pr = run_verify_candidate(&item, &mut ctx).unwrap();
+        assert_eq!(pr.decision, PassDecision::Advance);
+        let cert = pr.next[0]
+            .metadata
+            .lean_certificate
+            .as_ref()
+            .expect("remapped endpoint certificate");
+        assert_eq!(*cert.original, *original);
+        assert_eq!(*cert.simplified, *Expr::variable(0));
     }
 
     #[test]

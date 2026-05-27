@@ -3,6 +3,7 @@
 use cobra_core::expr::Expr;
 use cobra_core::expr_cost::{is_better, ExprCost};
 use cobra_core::pass_contract::{ReasonDetail, VerificationState};
+use cobra_verify::{LeanCertificate, LeanSignatureCertificate};
 
 use crate::continuation::{ContinuationData, GroupId};
 use crate::enums::PassId;
@@ -22,6 +23,8 @@ pub struct CandidateRecord {
     pub source_pass: PassId,
     pub needs_original_space_verification: bool,
     pub sig_vector: Vec<u64>,
+    pub lean_certificate: Option<LeanCertificate>,
+    pub lean_signature_certificate: Option<LeanSignatureCertificate>,
 }
 
 /// Live competition group. Holds the best candidate seen so far, a
@@ -171,6 +174,8 @@ mod tests {
             source_pass: PassId::ClassifyAst,
             needs_original_space_verification: false,
             sig_vector: Vec::new(),
+            lean_certificate: None,
+            lean_signature_certificate: None,
         }
     }
 

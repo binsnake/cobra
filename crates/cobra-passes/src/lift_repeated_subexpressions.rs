@@ -167,6 +167,8 @@ pub fn run_lift_repeated_subexpressions(
     })));
     skel_item.features = item.features.clone();
     skel_item.metadata = item.metadata.clone();
+    skel_item.metadata.lean_certificate = None;
+    skel_item.metadata.lean_signature_certificate = None;
     skel_item.depth = item.depth;
     skel_item.rewrite_gen = item.rewrite_gen;
     skel_item.history.clone_from(&item.history);

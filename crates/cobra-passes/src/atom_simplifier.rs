@@ -22,6 +22,7 @@
 use cobra_core::arith::bitmask;
 use cobra_core::expr::{Expr, Kind};
 use cobra_core::expr_utils::{eval_constant, is_constant_subtree};
+use cobra_orchestrator::{ExprPath, LeanCertificate};
 
 use cobra_ir::semilinear::{AtomId, GlobalVarIdx, SemilinearIR, WeightedAtom};
 
@@ -193,6 +194,116 @@ pub fn simplify_atom(atom: Box<Expr>, bitwidth: u32) -> Box<Expr> {
     atom
 }
 
+/// Simplify an atom and, when every local rewrite is represented in the Lean
+/// theorem pack, return a chained certificate for the same transformation.
+#[must_use]
+pub fn simplify_atom_certified(
+    atom: Box<Expr>,
+    bitwidth: u32,
+) -> (Box<Expr>, Option<LeanCertificate>) {
+    let expected = simplify_atom(atom.clone_tree(), bitwidth);
+    if bitwidth != 64 {
+        return (expected, None);
+    }
+
+    let mut current = atom;
+    let mut chain: Option<LeanCertificate> = None;
+    while let Some((path, after)) = find_first_certifiable_atom_rewrite(&current, bitwidth) {
+        let Some(step) =
+            LeanCertificate::try_single_rewrite_64(bitwidth, current.clone_tree(), path, after)
+        else {
+            return (expected, None);
+        };
+        current = step.simplified.clone_tree();
+        chain = merge_certificate(chain, step);
+    }
+
+    if *current == *expected {
+        (current, chain)
+    } else {
+        (expected, None)
+    }
+}
+
+fn merge_certificate(
+    previous: Option<LeanCertificate>,
+    next: LeanCertificate,
+) -> Option<LeanCertificate> {
+    match previous {
+        Some(prev) => prev.merge_step_chain(next),
+        None => Some(next),
+    }
+}
+
+fn find_first_certifiable_atom_rewrite(
+    root: &Expr,
+    bitwidth: u32,
+) -> Option<(ExprPath, Box<Expr>)> {
+    find_first_certifiable_atom_rewrite_at(root, bitwidth, &mut Vec::new())
+}
+
+fn find_first_certifiable_atom_rewrite_at(
+    root: &Expr,
+    bitwidth: u32,
+    path: &mut Vec<u8>,
+) -> Option<(ExprPath, Box<Expr>)> {
+    for (idx, child) in root.children.iter().enumerate() {
+        let child_idx = u8::try_from(idx).ok()?;
+        path.push(child_idx);
+        if let Some(site) = find_first_certifiable_atom_rewrite_at(child, bitwidth, path) {
+            path.pop();
+            return Some(site);
+        }
+        path.pop();
+    }
+
+    let after = local_certifiable_atom_rewrite(root, bitwidth)?;
+    Some((ExprPath(path.clone()), after))
+}
+
+fn local_certifiable_atom_rewrite(node: &Expr, bitwidth: u32) -> Option<Box<Expr>> {
+    match &node.kind {
+        Kind::Shr(0) if node.children.len() == 1 => Some(node.children[0].clone_tree()),
+        Kind::Not if node.children.len() == 1 => {
+            let child = &node.children[0];
+            if matches!(child.kind, Kind::Not) && child.children.len() == 1 {
+                return Some(child.children[0].clone_tree());
+            }
+            if matches!(child.kind, Kind::And | Kind::Or)
+                && child.children.len() == 2
+                && (matches!(child.children[0].kind, Kind::Not)
+                    || matches!(child.children[1].kind, Kind::Not))
+            {
+                let lhs = Expr::not(child.children[0].clone_tree());
+                let rhs = Expr::not(child.children[1].clone_tree());
+                return if matches!(child.kind, Kind::And) {
+                    Some(Expr::or(lhs, rhs))
+                } else {
+                    Some(Expr::and(lhs, rhs))
+                };
+            }
+            None
+        }
+        Kind::And | Kind::Or
+            if node.children.len() == 2 && exprs_equal(&node.children[0], &node.children[1]) =>
+        {
+            Some(node.children[0].clone_tree())
+        }
+        Kind::And | Kind::Or | Kind::Xor if node.children.len() == 2 => {
+            let mut children = node.children.clone().into_iter();
+            let lhs = children.next().expect("two children");
+            let rhs = children.next().expect("two children");
+            let folded = try_fold_binary(node.kind.clone(), lhs, rhs, bitwidth);
+            if *folded == *node {
+                None
+            } else {
+                Some(folded)
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Merge like terms, drop zero coefficients, absorb complementary
 /// atom pairs into the constant, and bottom-up simplify each atom's
 /// stored subtree. Operates in place.
@@ -307,6 +418,51 @@ mod tests {
         let e = Expr::and(Expr::variable(0), Expr::variable(0));
         let s = simplify_atom(e, 64);
         assert!(matches!(s.kind, Kind::Variable(0)));
+    }
+
+    #[test]
+    fn certified_atom_simplify_covers_identity_chain() {
+        let e = Expr::and(
+            Expr::not(Expr::not(Expr::variable(0))),
+            Expr::constant(u64::MAX),
+        );
+        let (s, cert) = simplify_atom_certified(e, 64);
+        assert!(matches!(s.kind, Kind::Variable(0)));
+        let cert = cert.expect("Lean certificate");
+        assert_eq!(cert.steps.len(), 2);
+        assert_eq!(
+            cert.steps[0].theorem,
+            cobra_orchestrator::LeanTheorem::NotNot64
+        );
+        assert_eq!(
+            cert.steps[1].theorem,
+            cobra_orchestrator::LeanTheorem::AndAllOnes64
+        );
+    }
+
+    #[test]
+    fn certified_atom_simplify_covers_demorgan_chain() {
+        let e = Expr::not(Expr::and(Expr::not(Expr::variable(0)), Expr::variable(1)));
+        let (s, cert) = simplify_atom_certified(e, 64);
+        assert!(matches!(s.kind, Kind::Or));
+        let cert = cert.expect("Lean certificate");
+        assert_eq!(cert.steps.len(), 2);
+        assert_eq!(
+            cert.steps[0].theorem,
+            cobra_orchestrator::LeanTheorem::DemorganNotAnd64
+        );
+        assert_eq!(
+            cert.steps[1].theorem,
+            cobra_orchestrator::LeanTheorem::NotNot64
+        );
+    }
+
+    #[test]
+    fn certified_atom_simplify_declines_constant_folding() {
+        let e = Expr::and(Expr::constant(3), Expr::constant(1));
+        let (s, cert) = simplify_atom_certified(e, 64);
+        assert_eq!(*s, *Expr::constant(1));
+        assert!(cert.is_none());
     }
 
     #[test]

@@ -87,6 +87,8 @@ pub fn run_build_signature_state(
 
     let mut sig_seed = item.clone();
     sig_seed.payload = StateData::Signature(Box::new(seed));
+    sig_seed.metadata.lean_certificate = None;
+    sig_seed.metadata.lean_signature_certificate = None;
     let group_id = if let Some(gid) = item.group_id {
         acquire_handle(&mut ctx.competition_groups, gid);
         gid
@@ -189,7 +191,14 @@ mod tests {
         let expr = Expr::add(Expr::variable(0), Expr::variable(1));
         let mut ctx =
             OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
-        let item = mk_ast_item(expr, Provenance::Lowered);
+        let mut item = mk_ast_item(expr, Provenance::Lowered);
+        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+            64,
+            Expr::variable(0),
+            Expr::variable(0),
+        ));
+        item.metadata.lean_signature_certificate =
+            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
         let pr = run_build_signature_state(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::Advance);
         assert_eq!(pr.next.len(), 1);
@@ -203,6 +212,8 @@ mod tests {
             _ => panic!("expected Signature payload"),
         }
         assert_eq!(pr.next[0].group_id, Some(0));
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+        assert!(pr.next[0].metadata.lean_signature_certificate.is_none());
         assert_eq!(ctx.next_group_id, 1);
         assert_eq!(ctx.competition_groups[&0].open_handles, 1);
     }

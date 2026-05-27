@@ -74,3 +74,4 @@ pub use crate::work_item::{
     StateFingerprint, TransformTerminalSignal, UnsupportedCandidate, WorkItem,
 };
 pub use crate::worklist::{is_better_priority, Worklist};
+pub use cobra_verify::{ExprPath, LeanCertificate, LeanSignatureCertificate, LeanTheorem};

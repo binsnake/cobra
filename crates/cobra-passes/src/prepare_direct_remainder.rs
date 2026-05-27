@@ -106,6 +106,8 @@ pub fn run_prepare_direct_remainder(
 
     let mut next = item.clone();
     next.payload = StateData::Remainder(Box::new(payload));
+    next.metadata.lean_certificate = None;
+    next.metadata.lean_signature_certificate = None;
 
     Ok(PassResult {
         decision: PassDecision::Advance,

@@ -8,10 +8,21 @@
 
 use cobra_core::expr::Expr;
 
+pub mod lean_cert;
+pub mod lean_emit;
 pub mod null;
 #[cfg(feature = "z3")]
 pub mod z3_backend;
 
+pub use crate::lean_cert::{
+    context_from_path, identify_rewrite_theorem_64, CertStep, ContextFrame, ExprContext, ExprPath,
+    LeanCertificate, LeanSignatureCertificate, LeanTheorem,
+};
+pub use crate::lean_emit::{
+    emit_bv_decide_certificate, emit_certificate_header, emit_constant_signature_certificate,
+    emit_context, emit_context_comment, emit_expr, emit_signature_certificate,
+    emit_signature_certificate_model,
+};
 pub use crate::null::NullVerifier;
 #[cfg(feature = "z3")]
 pub use crate::z3_backend::Z3Verifier;

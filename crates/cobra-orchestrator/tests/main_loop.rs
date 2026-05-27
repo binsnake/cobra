@@ -10,7 +10,7 @@ use cobra_core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, VerificationState,
 };
 use cobra_core::result::Result;
-use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
+use cobra_core::simplify_outcome::{Options, ProofLevel, SimplifyOutcomeKind};
 use cobra_orchestrator::{
     create_group, simplify_from_worklist, AstPayload, CandidatePayload, ItemDisposition,
     OrchestratorContext, OrchestratorPolicy, PassDecision, PassDescriptor, PassId, PassResult,
@@ -55,6 +55,58 @@ fn verified_candidate_returned_immediately() {
     assert!(matches!(expr.kind, Kind::Add));
     // Loop ran exactly once (we popped and returned).
     assert_eq!(outcome.telemetry.total_expansions, 1);
+}
+
+#[test]
+fn verified_original_space_candidate_gets_generated_endpoint_certificate() {
+    let original = Expr::add(Expr::variable(0), Expr::variable(1));
+    let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+    ctx.original_expr = Some(original.clone_tree());
+    let mut worklist = Worklist::new();
+    worklist.push(mk_candidate_item(true));
+
+    let outcome = simplify_from_worklist(
+        &mut ctx,
+        worklist,
+        OrchestratorPolicy::default(),
+        &[],
+        Some(&original),
+    )
+    .unwrap();
+
+    assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
+    assert!(outcome.verified);
+    assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
+}
+
+#[test]
+fn verified_reduced_space_candidate_gets_remapped_endpoint_certificate() {
+    let original = Expr::variable(1);
+    let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+    ctx.original_expr = Some(original.clone_tree());
+
+    let mut item = mk_candidate_item(true);
+    if let StateData::Candidate(cand) = &mut item.payload {
+        cand.expr = Expr::variable(0);
+        cand.real_vars = vec!["y".into()];
+    }
+
+    let mut worklist = Worklist::new();
+    worklist.push(item);
+
+    let outcome = simplify_from_worklist(
+        &mut ctx,
+        worklist,
+        OrchestratorPolicy::default(),
+        &[],
+        Some(&original),
+    )
+    .unwrap();
+
+    assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
+    assert!(outcome.verified);
+    assert_eq!(outcome.real_vars, vec!["y".to_owned()]);
+    assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
 }
 
 #[test]
@@ -364,6 +416,46 @@ fn exhaustion_promotes_pic_rewrite_to_verified_candidate() {
     assert_eq!(code.category, ReasonCategory::BestRewritePromoted);
     assert_eq!(code.domain, ReasonDomain::StructuralTransform);
     assert!(outcome.diag.transform_produced_candidate);
+}
+
+#[test]
+fn exhaustion_preserves_lean_certificate_on_promoted_best_rewrite() {
+    let original = Expr::add(Expr::variable(0), Expr::constant(0));
+    let rewrite = Expr::variable(0);
+
+    let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into()], 64);
+    ctx.evaluator = Some(Evaluator::from_expr(&original, 64));
+
+    let mut item = cobra_orchestrator::WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+        expr: rewrite.clone(),
+        classification: None,
+        provenance: Provenance::Rewritten,
+        solve_ctx: None,
+    })));
+    item.rewrite_gen = 1;
+    item.history.push(PassId::AtomIdentityRewrite);
+    item.metadata.lean_certificate = cobra_orchestrator::LeanCertificate::try_single_rewrite_64(
+        64,
+        original.clone_tree(),
+        cobra_orchestrator::ExprPath::default(),
+        rewrite,
+    );
+
+    let mut worklist = Worklist::new();
+    worklist.push(item);
+
+    let outcome = simplify_from_worklist(
+        &mut ctx,
+        worklist,
+        OrchestratorPolicy::default(),
+        &[],
+        Some(&original),
+    )
+    .unwrap();
+
+    assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
+    assert!(outcome.verified);
+    assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
 }
 
 #[test]

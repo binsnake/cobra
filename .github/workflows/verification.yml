@@ -1,0 +1,63 @@
+name: Verification
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  rust-and-lean:
+    name: Rust and Lean verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+      - name: Set up Rust toolchain
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+          rustup show
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check workspace
+        run: cargo check --workspace --all-targets
+
+      - name: Check proof coverage invariants
+        run: cargo test -p cobra-passes proof_coverage::tests
+
+      - name: Test workspace
+        run: cargo test --workspace
+
+      - name: Install elan
+        run: |
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Build Lean verification layer
+        working-directory: formal/lean
+        run: lake build
+
+      - name: Reject unchecked Lean placeholders
+        shell: bash
+        run: |
+          if rg -n '\b(sorry|admit)\b' \
+            formal/lean \
+            crates/cobra-verify/src \
+            crates/cobra-passes/src \
+            crates/cobra-orchestrator/src
+          then
+            echo "::error::Lean verification placeholders are not allowed"
+            exit 1
+          fi

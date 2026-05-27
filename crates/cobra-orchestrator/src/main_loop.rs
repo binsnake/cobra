@@ -57,6 +57,9 @@ struct BestRewrite {
     cost: ExprCost,
     /// Real vars in original space (`ctx.original_vars` when present).
     real_vars: Vec<String>,
+    /// Existing theorem-backed certificate for this rewrite, when the
+    /// producing pass attached one.
+    lean_certificate: Option<cobra_verify::LeanCertificate>,
 }
 
 /// Core dispatch loop. Mutates `ctx`, `worklist`, and `policy` in place;
@@ -132,6 +135,29 @@ pub fn run_main_loop(
             if !cand.needs_original_space_verification {
                 let normalized_expr = cand.expr.clone_tree();
                 let normalized_cost = compute_cost(&normalized_expr).cost;
+                let endpoint_certificate = if item.metadata.lean_certificate.is_none()
+                    && item.metadata.verification == VerificationState::Verified
+                {
+                    ctx.original_expr.as_ref().and_then(|original| {
+                        candidate_expr_in_original_space(
+                            &normalized_expr,
+                            &cand.real_vars,
+                            &ctx.original_vars,
+                        )
+                        .map(|remapped| {
+                            cobra_verify::LeanCertificate::new(
+                                ctx.bitwidth,
+                                original.clone_tree(),
+                                remapped,
+                            )
+                        })
+                    })
+                } else {
+                    None
+                };
+                if endpoint_certificate.is_some() {
+                    item.metadata.lean_certificate = endpoint_certificate;
+                }
 
                 // Stamp `transform_produced_candidate` if any rewrite pass
                 // is in the candidate's lineage.
@@ -158,6 +184,11 @@ pub fn run_main_loop(
                             source_pass: cand.producing_pass,
                             needs_original_space_verification: false,
                             sig_vector: item.metadata.sig_vector.clone(),
+                            lean_certificate: item.metadata.lean_certificate.clone(),
+                            lean_signature_certificate: item
+                                .metadata
+                                .lean_signature_certificate
+                                .clone(),
                         },
                     );
                     if let Some(resolved) = release_handle(&mut ctx.competition_groups, gid) {
@@ -269,6 +300,20 @@ fn make_unsupported_candidate(work: &WorkItem) -> UnsupportedCandidate {
     }
 }
 
+fn candidate_expr_in_original_space(
+    expr: &Expr,
+    real_vars: &[String],
+    original_vars: &[String],
+) -> Option<Box<Expr>> {
+    if real_vars == original_vars {
+        return Some(expr.clone_tree());
+    }
+    let idx_map = try_build_var_support(original_vars, real_vars)?;
+    let mut remapped = expr.clone_tree();
+    remap_var_indices(&mut remapped, &idx_map);
+    Some(remapped)
+}
+
 fn terminal_rank(c: ReasonCategory) -> u8 {
     match c {
         ReasonCategory::VerifyFailed => 2,
@@ -346,6 +391,7 @@ fn maybe_update_best_rewrite(
         expr,
         cost,
         real_vars,
+        lean_certificate: item.metadata.lean_certificate.clone(),
     });
 }
 
@@ -374,11 +420,28 @@ fn try_promote_best_rewrite(
     }
     // downstream callers do — cheap because both expressions are small
     // at this point.
-    let _ = original_expr;
+    let lean_certificate = best
+        .lean_certificate
+        .as_ref()
+        .filter(|cert| {
+            cert.bitwidth == ctx.bitwidth
+                && *cert.original == *original_expr
+                && *cert.simplified == *best.expr
+        })
+        .cloned()
+        .or_else(|| {
+            cobra_verify::LeanCertificate::try_single_rewrite_64(
+                ctx.bitwidth,
+                original_expr.clone_tree(),
+                cobra_verify::ExprPath::default(),
+                best.expr.clone_tree(),
+            )
+        });
 
     let final_meta = ItemMetadata {
         verification: VerificationState::Verified,
         transform_produced_candidate: true,
+        lean_certificate,
         reason_code: Some(ReasonCode {
             category: ReasonCategory::BestRewritePromoted,
             domain: ReasonDomain::StructuralTransform,

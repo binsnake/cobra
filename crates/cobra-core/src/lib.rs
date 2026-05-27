@@ -64,7 +64,7 @@ pub use crate::signature_eval_stats::{
 pub use crate::signature_simplifier::{is_boolean_valued, SignatureContext, SignaturePayload};
 pub use crate::signature_vector::SignatureVector;
 pub use crate::simplify_outcome::{
-    Diagnostic, Options, SimplifyOutcome, SimplifyOutcomeKind, SimplifyTelemetry,
+    Diagnostic, Options, ProofLevel, SimplifyOutcome, SimplifyOutcomeKind, SimplifyTelemetry,
 };
 pub use crate::spot_check::{
     eval_expr, full_width_check, full_width_check_eval, signature_check, verify_in_original_space,

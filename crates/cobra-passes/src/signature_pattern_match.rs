@@ -12,7 +12,9 @@ use cobra_orchestrator::{
     PassResult, StateData, WorkItem,
 };
 
-use crate::candidate_normalize::submit_normalized_candidate;
+use crate::candidate_normalize::{
+    signature_certificate_for_candidate, submit_normalized_candidate,
+};
 use crate::mapped_evaluator::build_mapped_evaluator;
 use crate::pattern_matcher::match_pattern;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
@@ -80,6 +82,8 @@ pub fn run_signature_pattern_match(
     // full-width-verify it. Otherwise emit a top-level candidate as
     // before.
     let cost = compute_cost(&matched).cost;
+    let lean_signature_certificate =
+        signature_certificate_for_candidate(ctx.bitwidth, sig, &sub.real_vars, &matched);
     if let Some(gid) = item.group_id {
         submit_normalized_candidate(
             &mut ctx.competition_groups,
@@ -92,6 +96,8 @@ pub fn run_signature_pattern_match(
                 source_pass: PassId::SignaturePatternMatch,
                 needs_original_space_verification: sub.needs_original_space_verification,
                 sig_vector: sub.elimination.reduced_sig.clone(),
+                lean_certificate: None,
+                lean_signature_certificate,
             },
             ctx.bitwidth,
         );
@@ -114,6 +120,8 @@ pub fn run_signature_pattern_match(
     child.payload = StateData::Candidate(Box::new(candidate));
     child.metadata.verification = VerificationState::Verified;
     child.metadata.sig_vector.clone_from(sig);
+    child.metadata.lean_certificate = None;
+    child.metadata.lean_signature_certificate = lean_signature_certificate;
 
     Ok(PassResult {
         decision: PassDecision::SolvedCandidate,
@@ -162,7 +170,12 @@ mod tests {
         // x ^ y over 2 vars
         let mut ctx =
             OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
-        let item = mk_sig_item(vec![0, 1, 1, 0], vec!["x".into(), "y".into()], false);
+        let mut item = mk_sig_item(vec![0, 1, 1, 0], vec!["x".into(), "y".into()], false);
+        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+            64,
+            Expr::constant(0),
+            Expr::constant(0),
+        ));
         let pr = run_signature_pattern_match(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::SolvedCandidate);
         assert_eq!(pr.disposition, ItemDisposition::RetainCurrent);
@@ -179,6 +192,21 @@ mod tests {
             pr.next[0].metadata.verification,
             VerificationState::Verified
         );
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+        let cert = pr.next[0]
+            .metadata
+            .lean_signature_certificate
+            .as_ref()
+            .expect("Lean signature certificate");
+        assert!(cert.matches_signature(
+            64,
+            2,
+            &[0, 1, 1, 0],
+            match &pr.next[0].payload {
+                StateData::Candidate(c) => &c.expr,
+                _ => unreachable!(),
+            },
+        ));
     }
 
     #[test]

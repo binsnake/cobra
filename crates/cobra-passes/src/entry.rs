@@ -9,6 +9,7 @@ use cobra_core::evaluator::{Evaluator, TraceKind};
 use cobra_core::expr::{Expr, Kind};
 use cobra_core::pass_contract::VerificationState;
 use cobra_core::result::{err, CobraError, Result};
+use cobra_core::simplify_outcome::ProofLevel;
 use cobra_core::simplify_outcome::{Options, SimplifyOutcome, SimplifyOutcomeKind};
 use cobra_core::{evaluate_boolean_signature, is_valid_bitwidth};
 use cobra_ir::{contains_shr, detect_root_low_bit_mask};
@@ -126,6 +127,7 @@ fn build_context(
 ) -> OrchestratorContext {
     let bitwidth = opts.bitwidth;
     let mut ctx = OrchestratorContext::new(opts.clone(), vars.to_vec(), bitwidth);
+    ctx.original_expr = input_expr.map(Expr::clone_tree);
     ctx.input_sig = sig.to_vec();
     ctx.evaluator = if opts.evaluator.has_body() {
         Some(opts.evaluator.with_trace(TraceKind::Root))
@@ -178,6 +180,7 @@ fn try_dynamic_mask(
         evaluate_boolean_signature(&wrapped, result.real_vars.len() as u32, opts.bitwidth);
     result.expr = Some(wrapped);
     result.verified = true;
+    result.proof_level = ProofLevel::SpotChecked;
     Ok(Some(result))
 }
 
@@ -212,6 +215,11 @@ fn try_no_ast_constant_seed(
         expr: Some(candidate),
         sig_vector: sig.to_vec(),
         verified,
+        proof_level: if verified {
+            ProofLevel::SpotChecked
+        } else {
+            ProofLevel::Unverified
+        },
         ..SimplifyOutcome::default()
     })
 }

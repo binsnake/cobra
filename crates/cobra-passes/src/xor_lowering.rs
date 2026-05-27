@@ -12,8 +12,8 @@ use cobra_core::pass_contract::{
 use cobra_core::result::Result;
 
 use cobra_orchestrator::{
-    AstPayload, ItemDisposition, OrchestratorContext, PassDecision, PassResult, Provenance,
-    StateData, WorkItem,
+    AstPayload, ItemDisposition, LeanCertificate, OrchestratorContext, PassDecision, PassResult,
+    Provenance, StateData, WorkItem,
 };
 
 use crate::classifier::classify_structural;
@@ -74,8 +74,14 @@ pub fn run_xor_lowering(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resul
         });
     }
 
+    let rewritten_expr = rw.expr;
+    let lean_certificate = Some(LeanCertificate::new(
+        ctx.bitwidth,
+        ast.expr.clone_tree(),
+        rewritten_expr.clone_tree(),
+    ));
     let mut rewritten = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
-        expr: rw.expr,
+        expr: rewritten_expr,
         classification: Some(new_cls),
         provenance: Provenance::Rewritten,
         solve_ctx: ast.solve_ctx.clone(),
@@ -84,6 +90,8 @@ pub fn run_xor_lowering(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resul
     rewritten.features.classification = Some(new_cls);
     rewritten.features.provenance = Provenance::Rewritten;
     rewritten.metadata = item.metadata.clone();
+    rewritten.metadata.lean_certificate = lean_certificate;
+    rewritten.metadata.lean_signature_certificate = None;
     rewritten.metadata.structural_transform_rounds = rw.rounds_applied;
     rewritten.depth = item.depth;
     rewritten.rewrite_gen = item.rewrite_gen + 1;

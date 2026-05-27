@@ -95,6 +95,8 @@ pub fn run_semilinear_rewrite(
             evaluator: local_eval,
         },
     }));
+    next.metadata.lean_certificate = None;
+    next.metadata.lean_signature_certificate = None;
 
     Ok(PassResult {
         decision: PassDecision::Advance,

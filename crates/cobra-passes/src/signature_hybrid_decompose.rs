@@ -142,6 +142,7 @@ pub fn run_signature_hybrid_decompose(
             op: cand.op,
             parent_group_id,
             parent_eval: parent_eval.clone(),
+            parent_signature: sub_ctx.elimination.reduced_sig.clone(),
             parent_real_vars: sub_ctx.real_vars.clone(),
             parent_original_indices: sub_ctx.original_indices.clone(),
             parent_num_vars: num_vars,
@@ -168,6 +169,8 @@ pub fn run_signature_hybrid_decompose(
         })));
         child.features = item.features.clone();
         child.metadata = item.metadata.clone();
+        child.metadata.lean_certificate = None;
+        child.metadata.lean_signature_certificate = None;
         child.depth = item.depth;
         child.rewrite_gen = item.rewrite_gen;
         child.attempted_mask = 0;
@@ -242,10 +245,12 @@ mod tests {
         assert_eq!(pr.decision, PassDecision::Advance);
         for child in &pr.next {
             let gid = child.group_id.unwrap();
-            assert!(matches!(
-                ctx.competition_groups[&gid].continuation,
-                Some(ContinuationData::HybridCompose(_))
-            ));
+            let Some(ContinuationData::HybridCompose(cont)) =
+                ctx.competition_groups[&gid].continuation.as_ref()
+            else {
+                panic!("expected HybridCompose continuation");
+            };
+            assert_eq!(cont.parent_signature, vec![0, 1, 1, 0]);
         }
     }
 
@@ -290,6 +295,8 @@ mod tests {
                 source_pass: PassId::SignatureAnf,
                 needs_original_space_verification: false,
                 sig_vector: vec![0, 1, 1, 0],
+                lean_certificate: None,
+                lean_signature_certificate: None,
             },
         );
 

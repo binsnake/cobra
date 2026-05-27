@@ -22,7 +22,9 @@ use cobra_orchestrator::{
     StateData, WorkItem,
 };
 
-use crate::candidate_normalize::submit_normalized_candidate;
+use crate::candidate_normalize::{
+    signature_certificate_for_candidate, submit_normalized_candidate,
+};
 use crate::cob_expr_builder::build_cob_expr;
 use crate::mapped_evaluator::build_mapped_evaluator;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
@@ -97,6 +99,8 @@ pub fn run_signature_cob_candidate(
     }
 
     let cost = compute_cost(&expr).cost;
+    let lean_signature_certificate =
+        signature_certificate_for_candidate(ctx.bitwidth, sig, &sub.real_vars, &expr);
     let group_id = item
         .group_id
         .expect("SignatureCobCandidate requires a group_id");
@@ -112,6 +116,8 @@ pub fn run_signature_cob_candidate(
             source_pass: PassId::SignatureCobCandidate,
             needs_original_space_verification: sub.needs_original_space_verification,
             sig_vector: sub.elimination.reduced_sig.clone(),
+            lean_certificate: None,
+            lean_signature_certificate,
         },
         ctx.bitwidth,
     );
@@ -186,6 +192,11 @@ mod tests {
         let best = group.best.as_ref().expect("candidate submitted");
         assert_eq!(best.source_pass, PassId::SignatureCobCandidate);
         assert_eq!(best.verification, VerificationState::Verified);
+        let cert = best
+            .lean_signature_certificate
+            .as_ref()
+            .expect("Lean signature certificate");
+        assert!(cert.matches_signature(64, 2, &[0, 1, 1, 0], &best.expr));
     }
 
     #[test]

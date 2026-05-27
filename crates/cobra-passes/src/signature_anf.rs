@@ -22,7 +22,9 @@ use cobra_orchestrator::{
     PassResult, StateData, WorkItem,
 };
 
-use crate::candidate_normalize::submit_normalized_candidate;
+use crate::candidate_normalize::{
+    signature_certificate_for_candidate, submit_normalized_candidate,
+};
 use crate::mapped_evaluator::build_mapped_evaluator;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
@@ -112,6 +114,8 @@ pub fn run_signature_anf(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resu
     // rather than through `VerifyCandidate` against the top-level
     // evaluator.
     let cost = compute_cost(&anf_expr).cost;
+    let lean_signature_certificate =
+        signature_certificate_for_candidate(ctx.bitwidth, sig, &sub.real_vars, &anf_expr);
     if let Some(gid) = item.group_id {
         submit_normalized_candidate(
             &mut ctx.competition_groups,
@@ -124,6 +128,8 @@ pub fn run_signature_anf(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resu
                 source_pass: PassId::SignatureAnf,
                 needs_original_space_verification: sub.needs_original_space_verification,
                 sig_vector: sub.elimination.reduced_sig.clone(),
+                lean_certificate: None,
+                lean_signature_certificate,
             },
             ctx.bitwidth,
         );
@@ -146,6 +152,8 @@ pub fn run_signature_anf(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resu
     child.payload = StateData::Candidate(Box::new(candidate));
     child.metadata.verification = VerificationState::Verified;
     child.metadata.sig_vector.clone_from(sig);
+    child.metadata.lean_certificate = None;
+    child.metadata.lean_signature_certificate = lean_signature_certificate;
 
     Ok(PassResult {
         decision: PassDecision::SolvedCandidate,
@@ -204,7 +212,12 @@ mod tests {
             Expr::variable(2),
         );
         ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
-        let item = mk_sig_item(sig, vec!["x".into(), "y".into(), "z".into()], false);
+        let mut item = mk_sig_item(sig, vec!["x".into(), "y".into(), "z".into()], false);
+        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+            64,
+            Expr::constant(0),
+            Expr::constant(0),
+        ));
 
         let pr = run_signature_anf(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::SolvedCandidate);
@@ -215,6 +228,13 @@ mod tests {
         // Signature must still match after recovery.
         let recovered = cobra_core::evaluate_boolean_signature(&c.expr, 3, 64);
         assert_eq!(recovered, vec![0, 1, 1, 0, 1, 0, 0, 1]);
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+        let cert = pr.next[0]
+            .metadata
+            .lean_signature_certificate
+            .as_ref()
+            .expect("Lean signature certificate");
+        assert!(cert.matches_signature(64, 3, &[0, 1, 1, 0, 1, 0, 0, 1], &c.expr));
     }
 
     #[test]

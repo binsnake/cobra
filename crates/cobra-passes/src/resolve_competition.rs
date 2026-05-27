@@ -44,7 +44,9 @@ use cobra_orchestrator::{
 };
 
 use crate::bitwise_decomposer::{compose, remap_vars};
-use crate::candidate_normalize::submit_normalized_candidate;
+use crate::candidate_normalize::{
+    signature_certificate_for_candidate, submit_normalized_candidate,
+};
 use crate::classifier::classify_structural;
 use crate::hybrid_decomposer::compose_extraction;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
@@ -105,7 +107,7 @@ pub fn run_resolve_competition(
     let cont = group.continuation.clone().unwrap_or(ContinuationData::None);
 
     let result = match cont {
-        ContinuationData::None => resolve_none(&group, item),
+        ContinuationData::None => resolve_none(&group, item, ctx),
         ContinuationData::BitwiseCompose(c) => resolve_bitwise_compose(&c, &group, ctx),
         ContinuationData::HybridCompose(c) => resolve_hybrid_compose(&c, &group, ctx),
         ContinuationData::OperandRewrite(c) => resolve_operand_rewrite(c, &group, item, ctx),
@@ -129,7 +131,11 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 // None — pass the winner through as a Candidate.
 // ---------------------------------------------------------------
 
-fn resolve_none(group: &CompetitionGroup, item: &WorkItem) -> PassResult {
+fn resolve_none(
+    group: &CompetitionGroup,
+    item: &WorkItem,
+    ctx: &OrchestratorContext,
+) -> PassResult {
     if let Some(winner) = group.best.as_ref() {
         let mut cand_item = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
             expr: winner.expr.clone_tree(),
@@ -142,6 +148,23 @@ fn resolve_none(group: &CompetitionGroup, item: &WorkItem) -> PassResult {
         cand_item.metadata = item.metadata.clone();
         cand_item.metadata.verification = winner.verification;
         cand_item.metadata.sig_vector.clone_from(&winner.sig_vector);
+        cand_item.metadata.lean_certificate = winner
+            .lean_certificate
+            .as_ref()
+            .filter(|cert| cert.bitwidth == ctx.bitwidth && *cert.simplified == *winner.expr)
+            .cloned();
+        cand_item.metadata.lean_signature_certificate = winner
+            .lean_signature_certificate
+            .as_ref()
+            .filter(|cert| {
+                cert.matches_signature(
+                    ctx.bitwidth,
+                    winner.real_vars.len() as u32,
+                    &winner.sig_vector,
+                    &winner.expr,
+                )
+            })
+            .cloned();
         cand_item.depth = item.depth;
         cand_item.rewrite_gen = item.rewrite_gen;
         cand_item.attempted_mask = item.attempted_mask;
@@ -215,6 +238,12 @@ fn resolve_bitwise_compose(
             } else {
                 VerificationState::Unverified
             };
+            let lean_signature_certificate = signature_certificate_for_candidate(
+                ctx.bitwidth,
+                &cont.parent_signature,
+                &cont.parent_real_vars,
+                &composed,
+            );
             let record = CandidateRecord {
                 expr: composed,
                 cost,
@@ -222,7 +251,9 @@ fn resolve_bitwise_compose(
                 real_vars: cont.parent_real_vars.clone(),
                 source_pass: PassId::SignatureBitwiseDecompose,
                 needs_original_space_verification: cont.parent_needs_original_space_verification,
-                sig_vector: Vec::new(),
+                sig_vector: cont.parent_signature.clone(),
+                lean_certificate: None,
+                lean_signature_certificate,
             };
             next = submit_and_release_parent(cont.parent_group_id, record, ctx);
         } else if let Some(resolved) =
@@ -272,6 +303,12 @@ fn resolve_hybrid_compose(
             } else {
                 VerificationState::Unverified
             };
+            let lean_signature_certificate = signature_certificate_for_candidate(
+                ctx.bitwidth,
+                &cont.parent_signature,
+                &cont.parent_real_vars,
+                &composed,
+            );
             let record = CandidateRecord {
                 expr: composed,
                 cost,
@@ -279,7 +316,9 @@ fn resolve_hybrid_compose(
                 real_vars: cont.parent_real_vars.clone(),
                 source_pass: PassId::SignatureHybridDecompose,
                 needs_original_space_verification: cont.parent_needs_original_space_verification,
-                sig_vector: Vec::new(),
+                sig_vector: cont.parent_signature.clone(),
+                lean_certificate: None,
+                lean_signature_certificate,
             };
             next = submit_and_release_parent(cont.parent_group_id, record, ctx);
         } else if let Some(resolved) =
@@ -313,6 +352,8 @@ fn record_winner(group: &CompetitionGroup) -> Option<CandidateRecord> {
         source_pass: w.source_pass,
         needs_original_space_verification: w.needs_original_space_verification,
         sig_vector: w.sig_vector.clone(),
+        lean_certificate: w.lean_certificate.clone(),
+        lean_signature_certificate: w.lean_signature_certificate.clone(),
     })
 }
 
@@ -333,6 +374,11 @@ fn emit_join_rewrite_operand(
     } else {
         None
     };
+    let lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        join.bitwidth,
+        join.full_ast.clone_tree(),
+        rebuilt.clone_tree(),
+    ));
     let mut rewritten = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
         expr: rebuilt,
         classification: Some(new_cls.clone()),
@@ -343,6 +389,8 @@ fn emit_join_rewrite_operand(
     rewritten.features.classification = Some(new_cls);
     rewritten.features.provenance = Provenance::Rewritten;
     rewritten.metadata = item.metadata.clone();
+    rewritten.metadata.lean_certificate = lean_certificate;
+    rewritten.metadata.lean_signature_certificate = None;
     rewritten.depth = join.parent_depth;
     rewritten.rewrite_gen = join.rewrite_gen + 1;
     rewritten.attempted_mask = 0;
@@ -368,6 +416,11 @@ fn emit_join_rewrite_product(
     } else {
         None
     };
+    let lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        join.bitwidth,
+        join.full_ast.clone_tree(),
+        rebuilt.clone_tree(),
+    ));
     let mut rewritten = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
         expr: rebuilt,
         classification: Some(new_cls.clone()),
@@ -378,6 +431,8 @@ fn emit_join_rewrite_product(
     rewritten.features.classification = Some(new_cls);
     rewritten.features.provenance = Provenance::Rewritten;
     rewritten.metadata = item.metadata.clone();
+    rewritten.metadata.lean_certificate = lean_certificate;
+    rewritten.metadata.lean_signature_certificate = None;
     rewritten.depth = join.parent_depth;
     rewritten.rewrite_gen = join.rewrite_gen + 1;
     rewritten.attempted_mask = 0;
@@ -614,6 +669,12 @@ fn resolve_residual_recombine(
     }
 
     let cost = compute_cost(&combined).cost;
+    let recombined_signature_certificate = signature_certificate_for_candidate(
+        ctx.bitwidth,
+        &cont.source_sig,
+        &target_vars,
+        &combined,
+    );
 
     if let Some(parent_gid) = cont.parent_group_id {
         let record = CandidateRecord {
@@ -623,7 +684,9 @@ fn resolve_residual_recombine(
             real_vars: target_vars.clone(),
             source_pass: PassId::ResidualSupported,
             needs_original_space_verification: false,
-            sig_vector: Vec::new(),
+            sig_vector: cont.source_sig.clone(),
+            lean_certificate: None,
+            lean_signature_certificate: recombined_signature_certificate,
         };
         submit_normalized_candidate(
             &mut ctx.competition_groups,
@@ -644,6 +707,8 @@ fn resolve_residual_recombine(
         cand_item.metadata = item.metadata.clone();
         cand_item.metadata.verification = VerificationState::Verified;
         cand_item.metadata.sig_vector.clone_from(&cont.source_sig);
+        cand_item.metadata.lean_certificate = None;
+        cand_item.metadata.lean_signature_certificate = recombined_signature_certificate;
         cand_item.metadata.decomposition_meta = Some(DecompositionMeta {
             extractor_kind: project_extractor_kind(cont.origin) as u8,
             solver_kind: ResidualSolverKind::SupportedPipeline as u8,
@@ -748,6 +813,12 @@ fn resolve_lifted_substitute(
     }
 
     let cost = compute_cost(&substituted).cost;
+    let substituted_signature_certificate = signature_certificate_for_candidate(
+        ctx.bitwidth,
+        &cont.source_sig,
+        &cont.original_vars,
+        &substituted,
+    );
     let mut cand_item = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
         expr: substituted,
         real_vars: cont.original_vars.clone(),
@@ -759,6 +830,8 @@ fn resolve_lifted_substitute(
     cand_item.metadata = item.metadata.clone();
     cand_item.metadata.verification = VerificationState::Verified;
     cand_item.metadata.sig_vector.clone_from(&cont.source_sig);
+    cand_item.metadata.lean_certificate = None;
+    cand_item.metadata.lean_signature_certificate = substituted_signature_certificate;
     cand_item.depth = item.depth;
     cand_item.rewrite_gen = item.rewrite_gen;
     cand_item.attempted_mask = item.attempted_mask;
@@ -800,6 +873,8 @@ mod tests {
             source_pass: PassId::SignaturePatternMatch,
             needs_original_space_verification: false,
             sig_vector: vec![0, 1],
+            lean_certificate: None,
+            lean_signature_certificate: None,
         });
 
         let item = mk_resolve_item(gid);
@@ -809,6 +884,68 @@ mod tests {
         assert!(matches!(pr.next[0].payload, StateData::Candidate(_)));
         // Group erased.
         assert!(!ctx.competition_groups.contains_key(&gid));
+    }
+
+    #[test]
+    fn none_continuation_keeps_only_matching_winner_certificates() {
+        let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into()], 64);
+        let gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
+        ctx.competition_groups.get_mut(&gid).unwrap().best = Some(CandidateRecord {
+            expr: Expr::variable(0),
+            cost: cobra_core::expr_cost::compute_cost(&Expr::variable(0)).cost,
+            verification: VerificationState::Verified,
+            real_vars: vec!["x".into()],
+            source_pass: PassId::SignaturePatternMatch,
+            needs_original_space_verification: false,
+            sig_vector: vec![0, 1],
+            lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+                64,
+                Expr::add(Expr::variable(0), Expr::constant(0)),
+                Expr::variable(0),
+            )),
+            lean_signature_certificate: cobra_orchestrator::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                Expr::variable(0),
+            ),
+        });
+
+        let pr = run_resolve_competition(&mk_resolve_item(gid), &mut ctx).unwrap();
+        assert_eq!(pr.decision, PassDecision::SolvedCandidate);
+        assert!(pr.next[0].metadata.lean_certificate.is_some());
+        assert!(pr.next[0].metadata.lean_signature_certificate.is_some());
+    }
+
+    #[test]
+    fn none_continuation_drops_stale_winner_certificates() {
+        let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into()], 64);
+        let gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
+        ctx.competition_groups.get_mut(&gid).unwrap().best = Some(CandidateRecord {
+            expr: Expr::variable(0),
+            cost: cobra_core::expr_cost::compute_cost(&Expr::variable(0)).cost,
+            verification: VerificationState::Verified,
+            real_vars: vec!["x".into()],
+            source_pass: PassId::SignaturePatternMatch,
+            needs_original_space_verification: false,
+            sig_vector: vec![0, 1],
+            lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+                64,
+                Expr::variable(0),
+                Expr::constant(0),
+            )),
+            lean_signature_certificate: cobra_orchestrator::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![1, 0],
+                Expr::variable(0),
+            ),
+        });
+
+        let pr = run_resolve_competition(&mk_resolve_item(gid), &mut ctx).unwrap();
+        assert_eq!(pr.decision, PassDecision::SolvedCandidate);
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+        assert!(pr.next[0].metadata.lean_signature_certificate.is_none());
     }
 
     #[test]
@@ -827,6 +964,226 @@ mod tests {
         let item = mk_resolve_item(999);
         let pr = run_resolve_competition(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::Advance);
+    }
+
+    #[test]
+    fn bitwise_compose_replaces_child_endpoint_certificate_with_parent_signature_certificate() {
+        let mut ctx =
+            OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+        let parent_gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
+        let child_gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
+
+        {
+            let child = ctx.competition_groups.get_mut(&child_gid).unwrap();
+            child.best = Some(CandidateRecord {
+                expr: Expr::variable(0),
+                cost: cobra_core::expr_cost::compute_cost(&Expr::variable(0)).cost,
+                verification: VerificationState::Verified,
+                real_vars: vec!["y".into()],
+                source_pass: PassId::SignaturePatternMatch,
+                needs_original_space_verification: false,
+                sig_vector: vec![0, 1],
+                lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+                    64,
+                    Expr::variable(0),
+                    Expr::variable(0),
+                )),
+                lean_signature_certificate: None,
+            });
+            child.continuation = Some(ContinuationData::BitwiseCompose(Box::new(
+                BitwiseComposeCont {
+                    var_k: 0,
+                    gate: cobra_orchestrator::GateKind::Xor,
+                    add_coeff: 0,
+                    active_context_indices: vec![1],
+                    parent_group_id: parent_gid,
+                    parent_eval: Some(Evaluator::from_expr(
+                        &Expr::xor(Expr::variable(0), Expr::variable(1)),
+                        64,
+                    )),
+                    parent_signature: vec![0, 1, 1, 0],
+                    parent_real_vars: vec!["x".into(), "y".into()],
+                    parent_original_indices: vec![0, 1],
+                    parent_num_vars: 2,
+                    parent_needs_original_space_verification: false,
+                },
+            )));
+        }
+
+        let pr = run_resolve_competition(&mk_resolve_item(child_gid), &mut ctx).unwrap();
+        assert_eq!(pr.decision, PassDecision::Advance);
+        let best = ctx.competition_groups[&parent_gid]
+            .best
+            .as_ref()
+            .expect("parent candidate submitted");
+        assert!(best.lean_certificate.is_none());
+        let cert = best
+            .lean_signature_certificate
+            .as_ref()
+            .expect("parent signature certificate");
+        assert!(cert.matches_signature(64, 2, &[0, 1, 1, 0], &best.expr));
+    }
+
+    #[test]
+    fn hybrid_compose_replaces_child_endpoint_certificate_with_parent_signature_certificate() {
+        let mut ctx =
+            OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+        let parent_gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
+        let child_gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
+
+        {
+            let child = ctx.competition_groups.get_mut(&child_gid).unwrap();
+            child.best = Some(CandidateRecord {
+                expr: Expr::variable(1),
+                cost: cobra_core::expr_cost::compute_cost(&Expr::variable(1)).cost,
+                verification: VerificationState::Verified,
+                real_vars: vec!["x".into(), "y".into()],
+                source_pass: PassId::SignaturePatternMatch,
+                needs_original_space_verification: false,
+                sig_vector: vec![0, 0, 1, 1],
+                lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+                    64,
+                    Expr::variable(1),
+                    Expr::variable(1),
+                )),
+                lean_signature_certificate: None,
+            });
+            child.continuation = Some(ContinuationData::HybridCompose(Box::new(
+                HybridComposeCont {
+                    var_k: 0,
+                    op: cobra_orchestrator::ExtractOp::Xor,
+                    parent_group_id: parent_gid,
+                    parent_eval: Some(Evaluator::from_expr(
+                        &Expr::xor(Expr::variable(0), Expr::variable(1)),
+                        64,
+                    )),
+                    parent_signature: vec![0, 1, 1, 0],
+                    parent_real_vars: vec!["x".into(), "y".into()],
+                    parent_original_indices: vec![0, 1],
+                    parent_num_vars: 2,
+                    parent_needs_original_space_verification: false,
+                },
+            )));
+        }
+
+        let pr = run_resolve_competition(&mk_resolve_item(child_gid), &mut ctx).unwrap();
+        assert_eq!(pr.decision, PassDecision::Advance);
+        let best = ctx.competition_groups[&parent_gid]
+            .best
+            .as_ref()
+            .expect("parent candidate submitted");
+        assert!(best.lean_certificate.is_none());
+        let cert = best
+            .lean_signature_certificate
+            .as_ref()
+            .expect("parent signature certificate");
+        assert!(cert.matches_signature(64, 2, &[0, 1, 1, 0], &best.expr));
+    }
+
+    #[test]
+    fn operand_join_rewrite_replaces_stale_metadata_with_endpoint_certificate() {
+        let full_ast = Expr::mul(Expr::variable(0), Expr::variable(1));
+        let join = OperandJoinState {
+            lhs_winner: None,
+            rhs_winner: None,
+            lhs_resolved: true,
+            rhs_resolved: true,
+            full_ast: full_ast.clone_tree(),
+            original_mul: full_ast.clone_tree(),
+            target_hash: cobra_orchestrator::expr_identity_hash(&full_ast),
+            baseline_cost: cobra_core::expr_cost::compute_cost(&full_ast).cost,
+            vars: vec!["x".into(), "y".into()],
+            parent_group_id: None,
+            has_solve_ctx: false,
+            solve_ctx_vars: Vec::new(),
+            solve_ctx_evaluator: None,
+            solve_ctx_input_sig: Vec::new(),
+            bitwidth: 64,
+            parent_depth: 0,
+            rewrite_gen: 0,
+            parent_history: Vec::new(),
+        };
+        let mut item = mk_resolve_item(0);
+        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+            64,
+            Expr::variable(0),
+            Expr::variable(0),
+        ));
+        item.metadata.lean_signature_certificate =
+            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+
+        let rewritten = emit_join_rewrite_operand(
+            &join,
+            &item,
+            Expr::mul(Expr::variable(0), Expr::variable(1)),
+        );
+        let cert = rewritten
+            .metadata
+            .lean_certificate
+            .as_ref()
+            .expect("endpoint certificate");
+        if let StateData::FoldedAst(rewritten_ast) = &rewritten.payload {
+            assert!(cert.matches_endpoints(64, &full_ast, &rewritten_ast.expr));
+        } else {
+            panic!("expected folded AST");
+        }
+        assert!(rewritten.metadata.lean_signature_certificate.is_none());
+    }
+
+    #[test]
+    fn product_join_rewrite_replaces_stale_metadata_with_endpoint_certificate() {
+        let full_ast = Expr::add(
+            Expr::mul(Expr::variable(0), Expr::variable(1)),
+            Expr::mul(Expr::variable(0), Expr::variable(2)),
+        );
+        let join = ProductJoinState {
+            x_winner: None,
+            y_winner: None,
+            x_resolved: true,
+            y_resolved: true,
+            original_expr: full_ast.clone_tree(),
+            baseline_cost: cobra_core::expr_cost::compute_cost(&full_ast).cost,
+            vars: vec!["x".into(), "y".into(), "z".into()],
+            parent_group_id: None,
+            has_solve_ctx: false,
+            solve_ctx_vars: Vec::new(),
+            solve_ctx_evaluator: None,
+            solve_ctx_input_sig: Vec::new(),
+            bitwidth: 64,
+            parent_depth: 0,
+            rewrite_gen: 0,
+            parent_history: Vec::new(),
+            full_ast: full_ast.clone_tree(),
+            target_hash: cobra_orchestrator::expr_identity_hash(&full_ast),
+        };
+        let mut item = mk_resolve_item(0);
+        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+            64,
+            Expr::variable(0),
+            Expr::variable(0),
+        ));
+        item.metadata.lean_signature_certificate =
+            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+
+        let rewritten = emit_join_rewrite_product(
+            &join,
+            &item,
+            Expr::mul(
+                Expr::variable(0),
+                Expr::add(Expr::variable(1), Expr::variable(2)),
+            ),
+        );
+        let cert = rewritten
+            .metadata
+            .lean_certificate
+            .as_ref()
+            .expect("endpoint certificate");
+        if let StateData::FoldedAst(rewritten_ast) = &rewritten.payload {
+            assert!(cert.matches_endpoints(64, &full_ast, &rewritten_ast.expr));
+        } else {
+            panic!("expected folded AST");
+        }
+        assert!(rewritten.metadata.lean_signature_certificate.is_none());
     }
 
     #[test]
@@ -851,7 +1208,7 @@ mod tests {
             original_var_count: 1,
             original_eval: Some(original_eval),
             original_vars: vec!["x".into()],
-            source_sig: vec![],
+            source_sig: vec![0, 1],
         }));
 
         let gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
@@ -865,6 +1222,8 @@ mod tests {
                 source_pass: PassId::SignaturePatternMatch,
                 needs_original_space_verification: false,
                 sig_vector: vec![],
+                lean_certificate: None,
+                lean_signature_certificate: None,
             });
             g.continuation = Some(cont);
         }
@@ -876,10 +1235,70 @@ mod tests {
         let StateData::Candidate(cand) = &pr.next[0].payload else {
             panic!("expected Candidate");
         };
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+        let cert = pr.next[0]
+            .metadata
+            .lean_signature_certificate
+            .as_ref()
+            .expect("substituted candidate gets source signature certificate");
+        assert!(cert.matches_signature(64, 1, &[0, 1], &cand.expr));
         // Should evaluate to x.
         let eval = Evaluator::from_expr(&cand.expr, 64);
         for &v in &[0u64, 1, 2, 7, 1024] {
             assert_eq!(eval.eval(&[v]), v);
         }
+    }
+
+    #[test]
+    fn residual_recombine_emits_fresh_source_signature_certificate() {
+        let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into()], 64);
+        ctx.evaluator = Some(Evaluator::from_expr(&Expr::variable(0), 64));
+
+        let cont = ContinuationData::RemainderRecombine(Box::new(RemainderRecombineCont {
+            prefix_expr: Expr::constant(0),
+            origin: cobra_orchestrator::RemainderOrigin::ProductCore,
+            remainder_eval: Evaluator::from_expr(&Expr::variable(0), 64),
+            source_sig: vec![0, 1],
+            remainder_support: Vec::new(),
+            prefix_degree: 0,
+            parent_group_id: None,
+            target_eval: Evaluator::from_expr(&Expr::variable(0), 64),
+            target_vars: vec!["x".into()],
+        }));
+
+        let gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
+        {
+            let group = ctx.competition_groups.get_mut(&gid).unwrap();
+            group.best = Some(CandidateRecord {
+                expr: Expr::variable(0),
+                cost: cobra_core::expr_cost::compute_cost(&Expr::variable(0)).cost,
+                verification: VerificationState::Verified,
+                real_vars: vec!["x".into()],
+                source_pass: PassId::SignaturePatternMatch,
+                needs_original_space_verification: false,
+                sig_vector: vec![0, 1],
+                lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+                    64,
+                    Expr::variable(0),
+                    Expr::variable(0),
+                )),
+                lean_signature_certificate: None,
+            });
+            group.continuation = Some(cont);
+        }
+
+        let item = mk_resolve_item(gid);
+        let pr = run_resolve_competition(&item, &mut ctx).unwrap();
+        assert_eq!(pr.decision, PassDecision::SolvedCandidate);
+        let StateData::Candidate(cand) = &pr.next[0].payload else {
+            panic!("expected Candidate");
+        };
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+        let cert = pr.next[0]
+            .metadata
+            .lean_signature_certificate
+            .as_ref()
+            .expect("recombined candidate gets source signature certificate");
+        assert!(cert.matches_signature(64, 1, &[0, 1], &cand.expr));
     }
 }

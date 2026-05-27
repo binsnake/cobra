@@ -136,6 +136,8 @@ pub fn run_lift_arithmetic_atoms(
     })));
     skel_item.features = item.features.clone();
     skel_item.metadata = item.metadata.clone();
+    skel_item.metadata.lean_certificate = None;
+    skel_item.metadata.lean_signature_certificate = None;
     skel_item.depth = item.depth;
     skel_item.rewrite_gen = item.rewrite_gen;
     skel_item.history.clone_from(&item.history);
@@ -191,7 +193,14 @@ mod tests {
             Expr::add(Expr::variable(0), Expr::variable(1)),
             Expr::variable(2),
         );
-        let item = mk_ast_item(expr);
+        let mut item = mk_ast_item(expr);
+        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+            64,
+            Expr::variable(0),
+            Expr::variable(0),
+        ));
+        item.metadata.lean_signature_certificate =
+            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
         let pr = run_lift_arithmetic_atoms(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::Advance);
         assert_eq!(pr.next.len(), 1);
@@ -201,6 +210,8 @@ mod tests {
         assert_eq!(skel.bindings.len(), 1);
         assert_eq!(skel.outer_ctx.vars.len(), 4); // 3 originals + 1 virtual
         assert_eq!(skel.bindings[0].outer_var_index, 3);
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+        assert!(pr.next[0].metadata.lean_signature_certificate.is_none());
     }
 
     #[test]

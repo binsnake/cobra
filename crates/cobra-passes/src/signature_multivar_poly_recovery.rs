@@ -22,7 +22,9 @@ use cobra_orchestrator::{
     StateData, WorkItem,
 };
 
-use crate::candidate_normalize::submit_normalized_candidate;
+use crate::candidate_normalize::{
+    signature_certificate_for_candidate, submit_normalized_candidate,
+};
 use crate::mapped_evaluator::build_mapped_evaluator;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
@@ -96,6 +98,12 @@ pub fn run_signature_multivar_poly_recovery(
     };
 
     let cost = compute_cost(&expr).cost;
+    let lean_signature_certificate = signature_certificate_for_candidate(
+        ctx.bitwidth,
+        &sub.elimination.reduced_sig,
+        &sub.real_vars,
+        &expr,
+    );
     let group_id = item
         .group_id
         .expect("SignatureMultivarPolyRecovery requires a group_id");
@@ -111,6 +119,8 @@ pub fn run_signature_multivar_poly_recovery(
             source_pass: PassId::SignatureMultivarPolyRecovery,
             needs_original_space_verification: sub.needs_original_space_verification,
             sig_vector: sub.elimination.reduced_sig.clone(),
+            lean_certificate: None,
+            lean_signature_certificate,
         },
         ctx.bitwidth,
     );

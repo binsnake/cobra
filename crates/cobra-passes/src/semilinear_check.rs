@@ -76,6 +76,8 @@ pub fn run_semilinear_check(item: &WorkItem, ctx: &mut OrchestratorContext) -> R
             evaluator: payload.ctx.evaluator.clone(),
         },
     }));
+    next.metadata.lean_certificate = None;
+    next.metadata.lean_signature_certificate = None;
 
     Ok(PassResult {
         decision: PassDecision::Advance,

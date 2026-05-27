@@ -22,6 +22,7 @@ use cobra_orchestrator::{
     PassDecision, PassId, PassResult, RemainderTargetContext, StateData, WorkItem,
 };
 
+use crate::candidate_normalize::signature_certificate_for_candidate;
 use crate::classifier::classify_structural;
 use crate::decomposition_helpers::accept_core;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
@@ -148,10 +149,16 @@ pub fn run_extractor(
                     .passed
                 {
                     let cost = compute_cost(&core.expr).cost;
+                    let lean_signature_certificate = signature_certificate_for_candidate(
+                        ctx.bitwidth,
+                        &sig,
+                        &active_vars,
+                        &core.expr,
+                    );
                     let mut next = item.clone();
                     next.payload = StateData::Candidate(Box::new(CandidatePayload {
                         expr: core.expr,
-                        real_vars: active_vars,
+                        real_vars: active_vars.clone(),
                         cost,
                         producing_pass: source_pass(core.kind, core.degree_used),
                         needs_original_space_verification: false,
@@ -159,6 +166,8 @@ pub fn run_extractor(
                     next.metadata.verification =
                         cobra_core::pass_contract::VerificationState::Verified;
                     next.metadata.sig_vector = sig;
+                    next.metadata.lean_certificate = None;
+                    next.metadata.lean_signature_certificate = lean_signature_certificate;
                     next.metadata.decomposition_meta =
                         Some(cobra_core::pass_contract::DecompositionMeta {
                             extractor_kind: core.kind as u8,
@@ -196,6 +205,8 @@ pub fn run_extractor(
 
             let mut next = item.clone();
             next.payload = StateData::CoreCandidate(Box::new(payload));
+            next.metadata.lean_certificate = None;
+            next.metadata.lean_signature_certificate = None;
 
             Ok(PassResult {
                 decision: PassDecision::Advance,
@@ -221,4 +232,77 @@ fn active_view(
         }
     }
     (ctx.original_vars.clone(), ctx.evaluator.clone(), Vec::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cobra_core::evaluator::Evaluator;
+    use cobra_core::expr::Expr;
+    use cobra_core::simplify_outcome::Options;
+    use cobra_orchestrator::{AstPayload, Provenance};
+
+    struct IdentityExtractor;
+
+    impl Extractor for IdentityExtractor {
+        fn kind(&self) -> ExtractorKind {
+            ExtractorKind::ProductAst
+        }
+
+        fn extract(&self, _ctx: &DecompositionContext<'_>) -> SolverResult<CoreCandidate> {
+            SolverResult::Success(CoreCandidate {
+                expr: Expr::variable(0),
+                kind: ExtractorKind::ProductAst,
+                degree_used: 0,
+            })
+        }
+    }
+
+    #[test]
+    fn direct_extractor_candidate_attaches_source_signature_certificate() {
+        let expr = Expr::variable(0);
+        let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".to_owned()], 64);
+        ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
+        let item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+            expr,
+            classification: None,
+            provenance: Provenance::Original,
+            solve_ctx: None,
+        })));
+
+        let pr = run_extractor(&item, &mut ctx, &IdentityExtractor).unwrap();
+        assert_eq!(pr.decision, PassDecision::SolvedCandidate);
+        let cert = pr.next[0]
+            .metadata
+            .lean_signature_certificate
+            .as_ref()
+            .expect("direct extractor candidate has source signature certificate");
+        assert!(cert.matches_signature(64, 1, &[0, 1], cert.expr.as_ref()));
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+    }
+
+    #[test]
+    fn core_candidate_path_clears_stale_proof_metadata() {
+        let expr = Expr::variable(0);
+        let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".to_owned()], 64);
+        let mut item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+            expr,
+            classification: None,
+            provenance: Provenance::Original,
+            solve_ctx: None,
+        })));
+        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+            64,
+            Expr::variable(0),
+            Expr::variable(0),
+        ));
+        item.metadata.lean_signature_certificate =
+            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+
+        let pr = run_extractor(&item, &mut ctx, &IdentityExtractor).unwrap();
+        assert_eq!(pr.decision, PassDecision::Advance);
+        assert!(matches!(pr.next[0].payload, StateData::CoreCandidate(_)));
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+        assert!(pr.next[0].metadata.lean_signature_certificate.is_none());
+    }
 }

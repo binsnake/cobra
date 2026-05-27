@@ -134,6 +134,8 @@ pub fn run_semilinear_normalize(
     };
     let mut next = item.clone();
     next.payload = StateData::SemilinearNormalized(Box::new(payload));
+    next.metadata.lean_certificate = None;
+    next.metadata.lean_signature_certificate = None;
 
     Ok(PassResult {
         decision: PassDecision::Advance,

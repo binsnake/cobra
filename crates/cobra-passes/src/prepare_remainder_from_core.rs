@@ -21,6 +21,7 @@ use cobra_orchestrator::{
 };
 
 use crate::aux_var::eliminate_aux_vars;
+use crate::candidate_normalize::signature_certificate_for_candidate;
 use crate::decomposition_helpers::build_remainder_evaluator;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
@@ -124,6 +125,12 @@ pub fn run_prepare_remainder_from_core(
             DEFAULT_NUM_SAMPLES,
         );
         if chk.passed {
+            let lean_signature_certificate = signature_certificate_for_candidate(
+                ctx.bitwidth,
+                &core.source_sig,
+                &target_vars,
+                &candidate,
+            );
             let cost = compute_cost(&candidate).cost;
             let payload = CandidatePayload {
                 expr: candidate,
@@ -135,6 +142,9 @@ pub fn run_prepare_remainder_from_core(
             let mut next = item.clone();
             next.payload = StateData::Candidate(Box::new(payload));
             next.metadata.verification = VerificationState::Verified;
+            next.metadata.sig_vector.clone_from(&core.source_sig);
+            next.metadata.lean_certificate = None;
+            next.metadata.lean_signature_certificate = lean_signature_certificate;
             return Ok(PassResult {
                 decision: PassDecision::SolvedCandidate,
                 disposition: ItemDisposition::ConsumeCurrent,
@@ -174,6 +184,8 @@ pub fn run_prepare_remainder_from_core(
 
     let mut next = item.clone();
     next.payload = StateData::Remainder(Box::new(payload));
+    next.metadata.lean_certificate = None;
+    next.metadata.lean_signature_certificate = None;
 
     Ok(PassResult {
         decision: PassDecision::Advance,
@@ -187,4 +199,40 @@ pub fn run_prepare_remainder_from_core(
 #[must_use]
 pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
     matches!(item.payload, StateData::CoreCandidate(_))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cobra_core::evaluator::Evaluator;
+    use cobra_core::simplify_outcome::Options;
+    use cobra_orchestrator::{CoreCandidatePayload, RemainderTargetContext};
+
+    #[test]
+    fn constant_residual_short_circuit_attaches_source_signature_certificate() {
+        let target = Expr::add(Expr::variable(0), Expr::constant(5));
+        let vars = vec!["x".to_owned()];
+        let item = WorkItem::new(StateData::CoreCandidate(Box::new(CoreCandidatePayload {
+            core_expr: Expr::variable(0),
+            extractor_kind: ExtractorKind::Polynomial,
+            degree_used: 1,
+            source_sig: vec![5, 6],
+            target: RemainderTargetContext {
+                eval: Evaluator::from_expr(&target, 64),
+                vars: vars.clone(),
+                remap_support: Vec::new(),
+            },
+        })));
+        let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
+
+        let pr = run_prepare_remainder_from_core(&item, &mut ctx).unwrap();
+        assert_eq!(pr.decision, PassDecision::SolvedCandidate);
+        let cert = pr.next[0]
+            .metadata
+            .lean_signature_certificate
+            .as_ref()
+            .expect("constant residual candidate has source signature certificate");
+        assert!(cert.matches_signature(64, 1, &[5, 6], cert.expr.as_ref()));
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+    }
 }

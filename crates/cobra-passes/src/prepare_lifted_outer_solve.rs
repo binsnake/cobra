@@ -83,6 +83,8 @@ pub fn run_prepare_lifted_outer_solve(
     child.features.classification = Some(cls);
     child.features.provenance = Provenance::Rewritten;
     child.metadata = item.metadata.clone();
+    child.metadata.lean_certificate = None;
+    child.metadata.lean_signature_certificate = None;
     child.depth = item.depth;
     child.rewrite_gen = item.rewrite_gen;
     child.group_id = Some(group_id);
@@ -132,7 +134,14 @@ mod tests {
             source_sig: vec![],
             original_ctx: AstSolveContext::default(),
         };
-        let item = WorkItem::new(StateData::LiftedSkeleton(Box::new(payload)));
+        let mut item = WorkItem::new(StateData::LiftedSkeleton(Box::new(payload)));
+        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+            64,
+            Expr::variable(0),
+            Expr::variable(0),
+        ));
+        item.metadata.lean_signature_certificate =
+            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
         let pr = run_prepare_lifted_outer_solve(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::Advance);
         assert_eq!(pr.next.len(), 1);
@@ -145,5 +154,7 @@ mod tests {
             ctx.competition_groups[&gid].continuation,
             Some(ContinuationData::LiftedSubstitute(_))
         ));
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+        assert!(pr.next[0].metadata.lean_signature_certificate.is_none());
     }
 }

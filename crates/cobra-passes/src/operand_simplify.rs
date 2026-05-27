@@ -157,6 +157,8 @@ pub fn run_operand_simplify(item: &WorkItem, ctx: &mut OrchestratorContext) -> R
         })));
         child.features = item.features.clone();
         child.metadata = item.metadata.clone();
+        child.metadata.lean_certificate = None;
+        child.metadata.lean_signature_certificate = None;
         child.depth = item.depth;
         child.rewrite_gen = item.rewrite_gen;
         child.attempted_mask = item.attempted_mask;

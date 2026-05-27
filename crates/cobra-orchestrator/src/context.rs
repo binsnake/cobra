@@ -52,6 +52,7 @@ pub struct RunMetadata {
 pub struct OrchestratorContext {
     pub opts: Options,
     pub original_vars: Vec<String>,
+    pub original_expr: Option<Box<cobra_core::expr::Expr>>,
     pub evaluator: Option<Evaluator>,
     pub bitwidth: u32,
     pub run_metadata: RunMetadata,
@@ -76,6 +77,7 @@ impl OrchestratorContext {
         Self {
             opts,
             original_vars,
+            original_expr: None,
             evaluator: None,
             bitwidth,
             run_metadata: RunMetadata::default(),

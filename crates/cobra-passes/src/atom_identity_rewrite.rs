@@ -28,8 +28,8 @@ use cobra_core::result::Result;
 use cobra_core::spot_check::full_width_check_eval;
 
 use cobra_orchestrator::{
-    expr_identity_hash, replace_by_hash, AstPayload, ItemDisposition, OrchestratorContext,
-    PassDecision, PassResult, Provenance, StateData, WorkItem,
+    expr_identity_hash, replace_by_hash, AstPayload, ExprPath, ItemDisposition, LeanCertificate,
+    OrchestratorContext, PassDecision, PassResult, Provenance, StateData, WorkItem,
 };
 
 use crate::classifier::classify_structural;
@@ -106,7 +106,7 @@ pub fn run_atom_identity_rewrite(
         });
     };
 
-    let rewritten = rewrite_at_site(ast, item, site);
+    let rewritten = rewrite_at_site(ast, item, site, ctx.bitwidth);
     Ok(PassResult {
         decision: PassDecision::Advance,
         disposition: ItemDisposition::ConsumeCurrent,
@@ -118,6 +118,7 @@ pub fn run_atom_identity_rewrite(
 struct RewriteSite {
     /// Hash of the node whose subtree is replaced.
     target_hash: u64,
+    path: ExprPath,
     candidate: Box<Expr>,
 }
 
@@ -126,10 +127,22 @@ struct RewriteSite {
 // must beat baseline cost AND pass a 256-sample spot-check against the
 // matched subtree's evaluator.
 fn find_first_rewrite_site(root: &Expr, bitwidth: u32) -> Option<RewriteSite> {
-    for child in &root.children {
-        if let Some(s) = find_first_rewrite_site(child, bitwidth) {
+    find_first_rewrite_site_at(root, bitwidth, &mut Vec::new())
+}
+
+fn find_first_rewrite_site_at(
+    root: &Expr,
+    bitwidth: u32,
+    path: &mut Vec<u8>,
+) -> Option<RewriteSite> {
+    for (idx, child) in root.children.iter().enumerate() {
+        let child_idx = u8::try_from(idx).ok()?;
+        path.push(child_idx);
+        if let Some(s) = find_first_rewrite_site_at(child, bitwidth, path) {
+            path.pop();
             return Some(s);
         }
+        path.pop();
     }
     let candidates = try_match_all(root, bitwidth);
     if candidates.is_empty() {
@@ -147,14 +160,27 @@ fn find_first_rewrite_site(root: &Expr, bitwidth: u32) -> Option<RewriteSite> {
         }
         return Some(RewriteSite {
             target_hash: expr_identity_hash(root),
+            path: ExprPath(path.clone()),
             candidate,
         });
     }
     None
 }
 
-fn rewrite_at_site(ast: &AstPayload, item: &WorkItem, site: RewriteSite) -> WorkItem {
-    let mut repl = Some(site.candidate);
+fn rewrite_at_site(
+    ast: &AstPayload,
+    item: &WorkItem,
+    site: RewriteSite,
+    bitwidth: u32,
+) -> WorkItem {
+    let after = site.candidate;
+    let cert = LeanCertificate::try_single_rewrite_64(
+        bitwidth,
+        ast.expr.clone_tree(),
+        site.path,
+        after.clone_tree(),
+    );
+    let mut repl = Some(after);
     let (rebuilt, _) = replace_by_hash(ast.expr.clone_tree(), site.target_hash, &mut repl);
     let new_cls = classify_structural(&rebuilt);
     let solve_ctx = ast.solve_ctx.clone();
@@ -168,6 +194,9 @@ fn rewrite_at_site(ast: &AstPayload, item: &WorkItem, site: RewriteSite) -> Work
     rewritten.features.classification = Some(new_cls);
     rewritten.features.provenance = Provenance::Rewritten;
     rewritten.metadata = item.metadata.clone();
+    rewritten.metadata.lean_certificate =
+        cert.and_then(|cert| merge_certificate(item.metadata.lean_certificate.clone(), cert));
+    rewritten.metadata.lean_signature_certificate = None;
     rewritten.depth = item.depth;
     rewritten.rewrite_gen = item.rewrite_gen + 1;
     rewritten.attempted_mask = 0;
@@ -177,6 +206,16 @@ fn rewrite_at_site(ast: &AstPayload, item: &WorkItem, site: RewriteSite) -> Work
         .history
         .push(cobra_orchestrator::PassId::AtomIdentityRewrite);
     rewritten
+}
+
+fn merge_certificate(
+    previous: Option<LeanCertificate>,
+    next: LeanCertificate,
+) -> Option<LeanCertificate> {
+    match previous {
+        Some(prev) => prev.merge_step_chain(next),
+        None => Some(next),
+    }
 }
 
 // ---------- identity matchers ----------
@@ -626,5 +665,73 @@ mod tests {
     fn no_match_on_plain_add() {
         let e = Expr::add(Expr::variable(0), Expr::variable(1));
         assert!(try_match_all(&e, 64).is_empty());
+    }
+
+    #[test]
+    fn run_attaches_lean_certificate_for_strict_identity() {
+        let x = Expr::variable(0);
+        let y = Expr::variable(1);
+        let lhs = Expr::add(
+            Expr::or(x.clone_tree(), y.clone_tree()),
+            Expr::neg(Expr::and(x.clone_tree(), y.clone_tree())),
+        );
+        let item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+            expr: lhs,
+            classification: None,
+            provenance: Provenance::Original,
+            solve_ctx: None,
+        })));
+        let mut ctx = OrchestratorContext::new(
+            cobra_core::simplify_outcome::Options::default(),
+            vec!["x".into(), "y".into()],
+            64,
+        );
+
+        let pr = run_atom_identity_rewrite(&item, &mut ctx).expect("pass runs");
+        assert_eq!(pr.decision, PassDecision::Advance);
+        let cert = pr.next[0]
+            .metadata
+            .lean_certificate
+            .as_ref()
+            .expect("Lean certificate");
+        assert_eq!(cert.bitwidth, 64);
+        assert_eq!(cert.steps.len(), 1);
+        assert_eq!(
+            cert.steps[0].theorem,
+            cobra_orchestrator::LeanTheorem::OrSubAndEqXor64
+        );
+    }
+
+    #[test]
+    fn uncertified_width_clears_stale_proof_metadata() {
+        let x = Expr::variable(0);
+        let y = Expr::variable(1);
+        let lhs = Expr::add(
+            Expr::or(x.clone_tree(), y.clone_tree()),
+            Expr::neg(Expr::and(x.clone_tree(), y.clone_tree())),
+        );
+        let mut item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+            expr: lhs,
+            classification: None,
+            provenance: Provenance::Original,
+            solve_ctx: None,
+        })));
+        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+            32,
+            Expr::variable(0),
+            Expr::variable(0),
+        ));
+        item.metadata.lean_signature_certificate =
+            cobra_orchestrator::LeanSignatureCertificate::new(32, 1, vec![0, 1], Expr::variable(0));
+        let mut ctx = OrchestratorContext::new(
+            cobra_core::simplify_outcome::Options::default(),
+            vec!["x".into(), "y".into()],
+            32,
+        );
+
+        let pr = run_atom_identity_rewrite(&item, &mut ctx).expect("pass runs");
+        assert_eq!(pr.decision, PassDecision::Advance);
+        assert!(pr.next[0].metadata.lean_certificate.is_none());
+        assert!(pr.next[0].metadata.lean_signature_certificate.is_none());
     }
 }

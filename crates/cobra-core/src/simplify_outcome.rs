@@ -83,6 +83,20 @@ pub enum SimplifyOutcomeKind {
     Error,
 }
 
+/// Strength of evidence attached to a simplified expression.
+///
+/// `verified: bool` is retained for API compatibility. New callers should
+/// inspect `proof_level` to distinguish spot-checked candidates from
+/// mechanically checked or solver-proved results.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ProofLevel {
+    #[default]
+    Unverified,
+    SpotChecked,
+    SmtProved,
+    LeanCertified,
+}
+
 /// Result of a single call to `Simplify`.
 #[derive(Clone, Debug)]
 pub struct SimplifyOutcome {
@@ -91,6 +105,7 @@ pub struct SimplifyOutcome {
     pub sig_vector: Vec<u64>,
     pub real_vars: Vec<String>,
     pub verified: bool,
+    pub proof_level: ProofLevel,
     pub diag: Diagnostic,
     pub telemetry: SimplifyTelemetry,
 }
@@ -103,6 +118,7 @@ impl Default for SimplifyOutcome {
             sig_vector: Vec::new(),
             real_vars: Vec::new(),
             verified: false,
+            proof_level: ProofLevel::Unverified,
             diag: Diagnostic::default(),
             telemetry: SimplifyTelemetry::default(),
         }
@@ -140,5 +156,6 @@ mod tests {
         assert!(o.expr.is_none());
         assert!(o.sig_vector.is_empty());
         assert!(!o.verified);
+        assert_eq!(o.proof_level, ProofLevel::Unverified);
     }
 }

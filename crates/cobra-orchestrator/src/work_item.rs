@@ -5,6 +5,7 @@ use cobra_core::evaluator::Evaluator;
 use cobra_core::pass_contract::{
     DecompositionMeta, ReasonCode, ReasonDetail, ReasonFrame, VerificationState,
 };
+use cobra_verify::{LeanCertificate, LeanSignatureCertificate};
 
 use crate::continuation::GroupId;
 use crate::enums::{ItemDisposition, PassDecision, PassId, Provenance};
@@ -53,6 +54,8 @@ pub struct ItemMetadata {
     pub decomposition_causes: Vec<ReasonFrame>,
     pub last_failure: ReasonDetail,
     pub structural_transform_terminal: Option<TransformTerminalSignal>,
+    pub lean_certificate: Option<LeanCertificate>,
+    pub lean_signature_certificate: Option<LeanSignatureCertificate>,
 }
 
 // ----- Work item -----

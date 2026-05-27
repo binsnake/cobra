@@ -19,7 +19,7 @@ use cobra_core::result::Result;
 
 use cobra_orchestrator::{
     create_group, create_join, expr_identity_hash, replace_by_hash, AstPayload, AstSolveContext,
-    ContinuationData, EliminationResult, FactorRole, ItemDisposition, JoinState,
+    ContinuationData, EliminationResult, FactorRole, ItemDisposition, JoinState, LeanCertificate,
     OrchestratorContext, PassDecision, PassResult, ProductCollapseCont, ProductJoinState,
     Provenance, SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem,
 };
@@ -170,6 +170,7 @@ fn active_ast_vars(item: &WorkItem, ctx: &OrchestratorContext) -> Vec<String> {
 fn rewrite_with_direct_candidate(
     ast: &AstPayload,
     item: &WorkItem,
+    bitwidth: u32,
     add_hash: u64,
     candidate: Box<Expr>,
 ) -> WorkItem {
@@ -177,6 +178,11 @@ fn rewrite_with_direct_candidate(
     let (rebuilt, _) = replace_by_hash(ast.expr.clone_tree(), add_hash, &mut repl);
     let new_cls = classify_structural(&rebuilt);
     let solve_ctx = ast.solve_ctx.clone();
+    let lean_certificate = Some(LeanCertificate::new(
+        bitwidth,
+        ast.expr.clone_tree(),
+        rebuilt.clone_tree(),
+    ));
     let mut rewritten = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
         expr: rebuilt,
         classification: Some(new_cls),
@@ -187,6 +193,8 @@ fn rewrite_with_direct_candidate(
     rewritten.features.classification = Some(new_cls);
     rewritten.features.provenance = Provenance::Rewritten;
     rewritten.metadata = item.metadata.clone();
+    rewritten.metadata.lean_certificate = lean_certificate;
+    rewritten.metadata.lean_signature_certificate = None;
     rewritten.depth = item.depth;
     rewritten.rewrite_gen = item.rewrite_gen + 1;
     rewritten.attempted_mask = 0;
@@ -272,7 +280,8 @@ pub fn run_product_identity_collapse(
     }
 
     if let Some((direct, _)) = best_direct {
-        let rewritten = rewrite_with_direct_candidate(ast, item, site.add_hash, direct);
+        let rewritten =
+            rewrite_with_direct_candidate(ast, item, ctx.bitwidth, site.add_hash, direct);
         return Ok(PassResult {
             decision: PassDecision::Advance,
             disposition: ItemDisposition::ConsumeCurrent,
@@ -343,6 +352,8 @@ pub fn run_product_identity_collapse(
             })));
             child.features = item.features.clone();
             child.metadata = item.metadata.clone();
+            child.metadata.lean_certificate = None;
+            child.metadata.lean_signature_certificate = None;
             child.depth = item.depth;
             child.rewrite_gen = item.rewrite_gen;
             child.attempted_mask = item.attempted_mask;
@@ -409,5 +420,50 @@ mod tests {
         let item = mk_ast_item(expr);
         let pr = run_product_identity_collapse(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::NoProgress);
+    }
+
+    #[test]
+    fn direct_rewrite_replaces_stale_metadata_with_endpoint_certificate() {
+        let ast = AstPayload {
+            expr: Expr::add(
+                Expr::mul(Expr::variable(0), Expr::variable(1)),
+                Expr::mul(Expr::variable(0), Expr::variable(2)),
+            ),
+            classification: None,
+            provenance: Provenance::Original,
+            solve_ctx: None,
+        };
+        let mut item = WorkItem::new(StateData::FoldedAst(Box::new(ast.clone())));
+        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+            64,
+            Expr::variable(0),
+            Expr::variable(0),
+        ));
+        item.metadata.lean_signature_certificate =
+            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+        let add_hash = expr_identity_hash(&ast.expr);
+
+        let rewritten = rewrite_with_direct_candidate(
+            &ast,
+            &item,
+            64,
+            add_hash,
+            Expr::mul(
+                Expr::variable(0),
+                Expr::add(Expr::variable(1), Expr::variable(2)),
+            ),
+        );
+
+        let cert = rewritten
+            .metadata
+            .lean_certificate
+            .as_ref()
+            .expect("endpoint certificate");
+        if let StateData::FoldedAst(rewritten_ast) = &rewritten.payload {
+            assert!(cert.matches_endpoints(64, &ast.expr, &rewritten_ast.expr));
+        } else {
+            panic!("expected folded AST");
+        }
+        assert!(rewritten.metadata.lean_signature_certificate.is_none());
     }
 }

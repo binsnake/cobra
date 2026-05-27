@@ -33,7 +33,9 @@ use cobra_orchestrator::{
 };
 
 use crate::aux_var::eliminate_aux_vars;
-use crate::candidate_normalize::submit_normalized_candidate;
+use crate::candidate_normalize::{
+    signature_certificate_for_candidate, submit_normalized_candidate,
+};
 use crate::cob_expr_builder::build_cob_expr;
 use crate::decomposition_helpers::build_remainder_evaluator;
 use crate::mapped_evaluator::build_mapped_evaluator;
@@ -168,6 +170,12 @@ pub fn run_signature_singleton_poly_recovery(
             });
         }
         let cost = compute_cost(&candidate).cost;
+        let lean_signature_certificate = signature_certificate_for_candidate(
+            ctx.bitwidth,
+            &sub.elimination.reduced_sig,
+            &sub.real_vars,
+            &candidate,
+        );
         submit_normalized_candidate(
             &mut ctx.competition_groups,
             group_id,
@@ -179,6 +187,8 @@ pub fn run_signature_singleton_poly_recovery(
                 source_pass: PassId::SignatureSingletonPolyRecovery,
                 needs_original_space_verification: sub.needs_original_space_verification,
                 sig_vector: sub.elimination.reduced_sig.clone(),
+                lean_certificate: None,
+                lean_signature_certificate,
             },
             ctx.bitwidth,
         );
@@ -223,6 +233,12 @@ pub fn run_signature_singleton_poly_recovery(
             });
         }
         let cost = compute_cost(&candidate).cost;
+        let lean_signature_certificate = signature_certificate_for_candidate(
+            ctx.bitwidth,
+            &sub.elimination.reduced_sig,
+            &sub.real_vars,
+            &candidate,
+        );
         submit_normalized_candidate(
             &mut ctx.competition_groups,
             group_id,
@@ -234,6 +250,8 @@ pub fn run_signature_singleton_poly_recovery(
                 source_pass: PassId::SignatureSingletonPolyRecovery,
                 needs_original_space_verification: sub.needs_original_space_verification,
                 sig_vector: sub.elimination.reduced_sig.clone(),
+                lean_certificate: None,
+                lean_signature_certificate,
             },
             ctx.bitwidth,
         );
@@ -294,6 +312,8 @@ pub fn run_signature_singleton_poly_recovery(
 
     let mut residual_item = item.clone();
     residual_item.payload = StateData::Remainder(Box::new(payload));
+    residual_item.metadata.lean_certificate = None;
+    residual_item.metadata.lean_signature_certificate = None;
     residual_item.attempted_mask = 0;
     residual_item.group_id = Some(group_id);
 

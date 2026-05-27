@@ -47,6 +47,7 @@ pub mod operand_simplify;
 pub mod pattern_matcher;
 pub mod prepare_lifted_outer_solve;
 pub mod product_identity_collapse;
+pub mod proof_coverage;
 pub mod self_check;
 pub mod spot_check;
 pub mod template_decomposer;
