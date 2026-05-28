@@ -114,8 +114,16 @@ pub fn run_signature_anf(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resu
     // rather than through `VerifyCandidate` against the top-level
     // evaluator.
     let cost = compute_cost(&anf_expr).cost;
-    let lean_signature_certificate =
-        signature_certificate_for_candidate(ctx.bitwidth, sig, &sub.real_vars, &anf_expr);
+    let Some(lean_signature_certificate) =
+        signature_certificate_for_candidate(ctx.bitwidth, sig, &sub.real_vars, &anf_expr)
+    else {
+        return Ok(PassResult {
+            decision: PassDecision::NoProgress,
+            disposition: ItemDisposition::RetainCurrent,
+            next: Vec::new(),
+            reason: ReasonDetail::default(),
+        });
+    };
     if let Some(gid) = item.group_id {
         submit_normalized_candidate(
             &mut ctx.competition_groups,
@@ -129,7 +137,7 @@ pub fn run_signature_anf(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resu
                 needs_original_space_verification: sub.needs_original_space_verification,
                 sig_vector: sub.elimination.reduced_sig.clone(),
                 lean_certificate: None,
-                lean_signature_certificate,
+                lean_signature_certificate: Some(lean_signature_certificate),
             },
             ctx.bitwidth,
         );
@@ -153,7 +161,7 @@ pub fn run_signature_anf(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resu
     child.metadata.verification = VerificationState::Verified;
     child.metadata.sig_vector.clone_from(sig);
     child.metadata.lean_certificate = None;
-    child.metadata.lean_signature_certificate = lean_signature_certificate;
+    child.metadata.lean_signature_certificate = Some(lean_signature_certificate);
 
     Ok(PassResult {
         decision: PassDecision::SolvedCandidate,

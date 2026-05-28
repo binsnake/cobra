@@ -21,7 +21,10 @@ use cobra_core::result::Result;
 use cobra_core::spot_check::full_width_check_eval;
 
 use crate::attempt_cache::PassAttemptCache;
-use crate::competition::{release_handle, submit_candidate, CandidateRecord};
+use crate::competition::{
+    endpoint_certificate_matches_candidate_signature, release_handle, submit_candidate,
+    CandidateRecord,
+};
 use crate::context::{OrchestratorContext, OrchestratorPolicy, OrchestratorTelemetry, RunMetadata};
 use crate::enums::{ItemDisposition, PassDecision, PassId};
 use crate::ranker::unsupported_rank_better;
@@ -135,30 +138,6 @@ pub fn run_main_loop(
             if !cand.needs_original_space_verification {
                 let normalized_expr = cand.expr.clone_tree();
                 let normalized_cost = compute_cost(&normalized_expr).cost;
-                let endpoint_certificate = if item.metadata.lean_certificate.is_none()
-                    && item.metadata.verification == VerificationState::Verified
-                {
-                    ctx.original_expr.as_ref().and_then(|original| {
-                        candidate_expr_in_original_space(
-                            &normalized_expr,
-                            &cand.real_vars,
-                            &ctx.original_vars,
-                        )
-                        .map(|remapped| {
-                            cobra_verify::LeanCertificate::new(
-                                ctx.bitwidth,
-                                original.clone_tree(),
-                                remapped,
-                            )
-                        })
-                    })
-                } else {
-                    None
-                };
-                if endpoint_certificate.is_some() {
-                    item.metadata.lean_certificate = endpoint_certificate;
-                }
-
                 // Stamp `transform_produced_candidate` if any rewrite pass
                 // is in the candidate's lineage.
                 if item.history.iter().any(|h| {
@@ -173,13 +152,22 @@ pub fn run_main_loop(
                 }
 
                 if let Some(gid) = item.group_id {
+                    let verification = proof_backed_group_verification(
+                        item.metadata.verification,
+                        ctx.bitwidth,
+                        &normalized_expr,
+                        &cand.real_vars,
+                        &item.metadata.sig_vector,
+                        item.metadata.lean_certificate.as_ref(),
+                        item.metadata.lean_signature_certificate.as_ref(),
+                    );
                     submit_candidate(
                         &mut ctx.competition_groups,
                         gid,
                         CandidateRecord {
                             expr: normalized_expr,
                             cost: normalized_cost,
-                            verification: item.metadata.verification,
+                            verification,
                             real_vars: cand.real_vars.clone(),
                             source_pass: cand.producing_pass,
                             needs_original_space_verification: false,
@@ -190,6 +178,7 @@ pub fn run_main_loop(
                                 .lean_signature_certificate
                                 .clone(),
                         },
+                        ctx.bitwidth,
                     );
                     if let Some(resolved) = release_handle(&mut ctx.competition_groups, gid) {
                         worklist.push(resolved);
@@ -300,20 +289,6 @@ fn make_unsupported_candidate(work: &WorkItem) -> UnsupportedCandidate {
     }
 }
 
-fn candidate_expr_in_original_space(
-    expr: &Expr,
-    real_vars: &[String],
-    original_vars: &[String],
-) -> Option<Box<Expr>> {
-    if real_vars == original_vars {
-        return Some(expr.clone_tree());
-    }
-    let idx_map = try_build_var_support(original_vars, real_vars)?;
-    let mut remapped = expr.clone_tree();
-    remap_var_indices(&mut remapped, &idx_map);
-    Some(remapped)
-}
-
 fn terminal_rank(c: ReasonCategory) -> u8 {
     match c {
         ReasonCategory::VerifyFailed => 2,
@@ -399,9 +374,10 @@ fn maybe_update_best_rewrite(
 /// `PassOutcome::Success`. Requires `ctx.evaluator` to be populated (so
 /// we can check against the original at full width) and the rewrite's
 /// cost to be strictly better than the input's. A 256-sample full-width
-/// check is the gating verification. Returns `None` when the check
-/// fails or the evaluator is unavailable; caller then falls back to
-/// `build_exhaustion_result`.
+/// check is only a candidate filter; the promoted result is marked
+/// verified only when a matching Lean certificate can be carried or
+/// generated. Returns `None` when the check fails or the evaluator is
+/// unavailable; caller then falls back to `build_exhaustion_result`.
 fn try_promote_best_rewrite(
     best: &BestRewrite,
     original_cost: ExprCost,
@@ -430,16 +406,21 @@ fn try_promote_best_rewrite(
         })
         .cloned()
         .or_else(|| {
-            cobra_verify::LeanCertificate::try_single_rewrite_64(
+            cobra_verify::LeanCertificate::try_single_rewrite_between_64(
                 ctx.bitwidth,
                 original_expr.clone_tree(),
-                cobra_verify::ExprPath::default(),
                 best.expr.clone_tree(),
             )
         });
 
+    let verification = if lean_certificate.is_some() {
+        VerificationState::Verified
+    } else {
+        VerificationState::Unverified
+    };
+
     let final_meta = ItemMetadata {
-        verification: VerificationState::Verified,
+        verification,
         transform_produced_candidate: true,
         lean_certificate,
         reason_code: Some(ReasonCode {
@@ -451,11 +432,7 @@ fn try_promote_best_rewrite(
     };
 
     Some(LoopResult {
-        outcome: PassOutcome::success(
-            best.expr.clone_tree(),
-            best.real_vars.clone(),
-            VerificationState::Verified,
-        ),
+        outcome: PassOutcome::success(best.expr.clone_tree(), best.real_vars.clone(), verification),
         metadata: final_meta,
         run_metadata: ctx.run_metadata.clone(),
         telemetry,
@@ -590,6 +567,35 @@ fn is_semilinear_pass(id: PassId) -> bool {
     )
 }
 
+fn proof_backed_group_verification(
+    verification: VerificationState,
+    bitwidth: u32,
+    expr: &Expr,
+    real_vars: &[String],
+    sig_vector: &[u64],
+    lean_certificate: Option<&cobra_verify::LeanCertificate>,
+    lean_signature_certificate: Option<&cobra_verify::LeanSignatureCertificate>,
+) -> VerificationState {
+    if verification != VerificationState::Verified {
+        return verification;
+    }
+
+    let endpoint_ok = lean_certificate.is_some_and(|cert| {
+        endpoint_certificate_matches_candidate_signature(
+            cert, bitwidth, expr, real_vars, sig_vector,
+        )
+    });
+    let signature_ok = lean_signature_certificate.is_some_and(|cert| {
+        cert.matches_signature(bitwidth, real_vars.len() as u32, sig_vector, expr)
+    });
+
+    if endpoint_ok || signature_ok {
+        VerificationState::Verified
+    } else {
+        VerificationState::Unverified
+    }
+}
+
 /// Build the `LoopResult` returned when the worklist exhausts without
 /// from the exhaustion comment to the final `ToSimplifyOutcome` call.
 fn build_exhaustion_result(
@@ -688,5 +694,49 @@ fn build_exhaustion_result(
         metadata: final_meta,
         run_metadata: ctx.run_metadata.clone(),
         telemetry,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cobra_verify::LeanCertificate;
+
+    #[test]
+    fn proof_backed_group_verification_rejects_endpoint_with_wrong_source_signature() {
+        let expr = Expr::variable(0);
+        let cert = LeanCertificate::new(64, expr.clone_tree(), expr.clone_tree());
+        let vars = vec!["x".to_owned()];
+
+        let verification = proof_backed_group_verification(
+            VerificationState::Verified,
+            64,
+            &expr,
+            &vars,
+            &[1, 0],
+            Some(&cert),
+            None,
+        );
+
+        assert_eq!(verification, VerificationState::Unverified);
+    }
+
+    #[test]
+    fn proof_backed_group_verification_accepts_endpoint_with_matching_source_signature() {
+        let expr = Expr::variable(0);
+        let cert = LeanCertificate::new(64, expr.clone_tree(), expr.clone_tree());
+        let vars = vec!["x".to_owned()];
+
+        let verification = proof_backed_group_verification(
+            VerificationState::Verified,
+            64,
+            &expr,
+            &vars,
+            &[0, 1],
+            Some(&cert),
+            None,
+        );
+
+        assert_eq!(verification, VerificationState::Verified);
     }
 }

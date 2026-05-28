@@ -15,6 +15,7 @@ use cobra_core::classification::{needs_structural_recovery, StructuralFlag};
 use cobra_core::expr::{Expr, Kind};
 use cobra_core::expr_rewrite::has_nonleaf_bitwise;
 use cobra_core::expr_utils::has_var_dep;
+use cobra_orchestrator::ExprPath;
 
 use crate::classifier::classify_structural;
 
@@ -124,6 +125,44 @@ fn count_sites_and_nodes(expr: &Expr) -> (u32, u32) {
     count_sites_and_nodes_impl(expr, RewriteContext::default())
 }
 
+fn lower_xor_site(expr: &Expr) -> Option<Box<Expr>> {
+    if !matches!(expr.kind, Kind::Xor) || expr.children.len() != 2 {
+        return None;
+    }
+    let lhs = expr.children[0].clone_tree();
+    let rhs = expr.children[1].clone_tree();
+    let lhs2 = expr.children[0].clone_tree();
+    let rhs2 = expr.children[1].clone_tree();
+    let sum = Expr::add(lhs, rhs);
+    let and_term = Expr::and(lhs2, rhs2);
+    let two_and = Expr::mul(Expr::constant(2), and_term);
+    Some(Expr::add(sum, Expr::neg(two_and)))
+}
+
+#[must_use]
+pub fn find_first_xor_lowering_rewrite(expr: &Expr) -> Option<(ExprPath, Box<Expr>)> {
+    fn go(expr: &Expr, ctx: RewriteContext, path: &mut Vec<u8>) -> Option<(ExprPath, Box<Expr>)> {
+        let child_ctx = child_context(expr, ctx);
+        for (idx, child) in expr.children.iter().enumerate() {
+            let idx = u8::try_from(idx).ok()?;
+            path.push(idx);
+            if let Some(found) = go(child, child_ctx, path) {
+                path.pop();
+                return Some(found);
+            }
+            path.pop();
+        }
+        if child_ctx.unsupported() {
+            if let Some(lowered) = lower_xor_site(expr) {
+                return Some((ExprPath(path.clone()), lowered));
+            }
+        }
+        None
+    }
+
+    go(expr, RewriteContext::default(), &mut Vec::new())
+}
+
 #[allow(clippy::boxed_local)]
 fn apply_xor_lowering(expr: Box<Expr>, ctx: RewriteContext) -> Box<Expr> {
     let mut e = *expr;
@@ -133,15 +172,7 @@ fn apply_xor_lowering(expr: Box<Expr>, ctx: RewriteContext) -> Box<Expr> {
         e.children[i] = apply_xor_lowering(child, child_ctx);
     }
     if matches!(e.kind, Kind::Xor) && child_ctx.unsupported() && e.children.len() == 2 {
-        let lhs = e.children[0].clone_tree();
-        let rhs = e.children[1].clone_tree();
-        let lhs2 = e.children[0].clone_tree();
-        let rhs2 = e.children[1].clone_tree();
-        let sum = Expr::add(lhs, rhs);
-        let and_term = Expr::and(lhs2, rhs2);
-        let two_and = Expr::mul(Expr::constant(2), and_term);
-        let neg_two_and = Expr::neg(two_and);
-        return Expr::add(sum, neg_two_and);
+        return lower_xor_site(&e).expect("xor lowering site");
     }
     Box::new(e)
 }

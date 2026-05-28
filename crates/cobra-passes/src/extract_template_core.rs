@@ -1,6 +1,7 @@
 //! Template-core extractor — invokes the layered template search
-//! against the current evaluator and emits the recovered expression as
-//! a verified core candidate.
+//! against the current evaluator. Formal proof metadata is attached in
+//! the shared decomposition engine when a direct candidate is emitted,
+//! or by downstream recomposition for core/remainder paths.
 
 use cobra_core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,

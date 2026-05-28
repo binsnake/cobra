@@ -45,9 +45,7 @@ pub const fn pass_registry() -> &'static [PassDescriptor] {
     &[]
 }
 /// Size of the pass-index lookup table. Matches the 64-bit
-/// `attempted_mask` invariant that bounds every `PassId` value to `< 64`,
-/// which covers both real passes (`PassId::COUNT`) and pseudo-pass
-/// history markers past that boundary.
+/// `attempted_mask` invariant that bounds every `PassId` value to `< 64`.
 pub const PASS_INDEX_SIZE: usize = 64;
 
 /// Build a fixed-size lookup table indexed by `PassId::as_u8()`.

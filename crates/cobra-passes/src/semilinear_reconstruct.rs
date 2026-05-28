@@ -105,6 +105,19 @@ pub fn run_semilinear_reconstruct(
     let lean_signature_certificate = source_sig
         .as_ref()
         .and_then(|sig| signature_certificate_for_candidate(ctx.bitwidth, sig, &vars, &simplified));
+    if verification == VerificationState::Verified && lean_signature_certificate.is_none() {
+        let r = reason(
+            "final candidate has no matching Lean signature certificate",
+            ReasonCategory::VerifyFailed,
+        );
+        ctx.run_metadata.semilinear_failure = Some(r.clone());
+        return Ok(PassResult {
+            decision: PassDecision::Blocked,
+            disposition: ItemDisposition::ConsumeCurrent,
+            next: Vec::new(),
+            reason: r,
+        });
+    }
 
     let cost = compute_cost(&simplified).cost;
     let mut cand_item = item.clone();

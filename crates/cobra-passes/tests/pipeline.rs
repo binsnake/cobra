@@ -167,7 +167,10 @@ fn pipeline_simplifies_xor_via_pattern_match() {
     .unwrap();
 
     assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    assert!(outcome.verified);
+    assert_eq!(
+        outcome.verified,
+        outcome.proof_level == cobra_core::simplify_outcome::ProofLevel::LeanCertified
+    );
     assert_eq!(outcome.real_vars, vec!["x".to_owned(), "y".to_owned()]);
     let expr = outcome.expr.expect("simplified expression");
     assert!(matches!(expr.kind, Kind::Xor));
@@ -175,8 +178,8 @@ fn pipeline_simplifies_xor_via_pattern_match() {
 }
 
 /// Scaled-boolean lift: `parse "5 + 2 * (x ^ y)"` simplifies back to
-/// the same affine form. The pipeline produces a verified candidate
-/// whose top is `Add(Constant(5), Mul(Constant(2), Xor(...)))`.
+/// the same affine form. Public verification is reported only when the
+/// result carries Lean-certified evidence.
 #[test]
 fn pipeline_simplifies_scaled_boolean_xor() {
     use cobra_core::expr::Kind;
@@ -210,7 +213,10 @@ fn pipeline_simplifies_scaled_boolean_xor() {
     .unwrap();
 
     assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    assert!(outcome.verified);
+    assert_eq!(
+        outcome.verified,
+        outcome.proof_level == cobra_core::simplify_outcome::ProofLevel::LeanCertified
+    );
     let expr = outcome.expr.expect("simplified expression");
     // Either Add(5, Mul(2, Xor)) directly, or potentially a tree the
     // cleanup pass canonicalised — assert via signature equivalence to
@@ -344,7 +350,10 @@ fn pipeline_simplifies_three_var_xor_via_anf() {
     .unwrap();
 
     assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    assert!(outcome.verified);
+    assert_eq!(
+        outcome.verified,
+        outcome.proof_level == cobra_core::simplify_outcome::ProofLevel::LeanCertified
+    );
     let expr = outcome.expr.expect("simplified expression");
     // `x ^ y ^ z` — some XOR tree at the top. ANF build yields a
     // left-associative XOR chain.

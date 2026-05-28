@@ -7,8 +7,10 @@
 //!   expression back into the gate template that spawned it, then
 //!   submit it to the parent group and release that group's handle.
 //! - `OperandRewrite` / `ProductCollapse`: record the side that just
-//!   resolved on the shared `JoinState`. When both sides have closed,
-//!   build candidate `Mul`s and emit a rewritten AST.
+//!   resolved on the shared `JoinState`. Operand joins emit rewritten
+//!   ASTs; product joins emit verified signature candidates because the
+//!   recomposition is a Boolean-signature equivalence, not generally a
+//!   full bit-vector endpoint identity.
 //! - `RemainderRecombine`: verify and combine `prefix + solved` (or
 //!   just `solved` for direct boolean-null residuals), submit to the
 //!   parent group.
@@ -25,6 +27,7 @@
     clippy::too_many_lines
 )]
 
+use cobra_core::evaluate_boolean_signature;
 use cobra_core::expr::Expr;
 use cobra_core::expr_cost::{compute_cost, is_better, ExprCost};
 use cobra_core::expr_utils::remap_var_indices;
@@ -146,7 +149,6 @@ fn resolve_none(
         })));
         cand_item.features = item.features.clone();
         cand_item.metadata = item.metadata.clone();
-        cand_item.metadata.verification = winner.verification;
         cand_item.metadata.sig_vector.clone_from(&winner.sig_vector);
         cand_item.metadata.lean_certificate = winner
             .lean_certificate
@@ -165,6 +167,14 @@ fn resolve_none(
                 )
             })
             .cloned();
+        cand_item.metadata.verification = if winner.verification == VerificationState::Verified
+            && (cand_item.metadata.lean_certificate.is_some()
+                || cand_item.metadata.lean_signature_certificate.is_some())
+        {
+            VerificationState::Verified
+        } else {
+            VerificationState::Unverified
+        };
         cand_item.depth = item.depth;
         cand_item.rewrite_gen = item.rewrite_gen;
         cand_item.attempted_mask = item.attempted_mask;
@@ -374,11 +384,18 @@ fn emit_join_rewrite_operand(
     } else {
         None
     };
-    let lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+    let lean_certificate = cobra_orchestrator::LeanCertificate::try_single_rewrite_between_64(
         join.bitwidth,
         join.full_ast.clone_tree(),
         rebuilt.clone_tree(),
-    ));
+    )
+    .or_else(|| {
+        Some(cobra_orchestrator::LeanCertificate::new(
+            join.bitwidth,
+            join.full_ast.clone_tree(),
+            rebuilt.clone_tree(),
+        ))
+    });
     let mut rewritten = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
         expr: rebuilt,
         classification: Some(new_cls.clone()),
@@ -399,46 +416,47 @@ fn emit_join_rewrite_operand(
     rewritten
 }
 
-fn emit_join_rewrite_product(
+fn emit_join_candidate_product(
     join: &ProductJoinState,
     item: &WorkItem,
     replacement: Box<Expr>,
-) -> WorkItem {
+    source_pass: PassId,
+) -> Option<WorkItem> {
     let mut repl = Some(replacement);
     let (rebuilt, _) = replace_by_hash(join.full_ast.clone_tree(), join.target_hash, &mut repl);
-    let new_cls = classify_structural(&rebuilt);
-    let solve_ctx = if join.has_solve_ctx {
-        Some(cobra_orchestrator::AstSolveContext {
-            vars: join.solve_ctx_vars.clone(),
-            evaluator: join.solve_ctx_evaluator.clone(),
-            input_sig: join.solve_ctx_input_sig.clone(),
-        })
+    let active_vars = if join.has_solve_ctx {
+        join.solve_ctx_vars.clone()
     } else {
-        None
+        join.vars.clone()
     };
-    let lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
-        join.bitwidth,
-        join.full_ast.clone_tree(),
-        rebuilt.clone_tree(),
-    ));
-    let mut rewritten = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+    let source_sig = if join.has_solve_ctx && !join.solve_ctx_input_sig.is_empty() {
+        join.solve_ctx_input_sig.clone()
+    } else {
+        evaluate_boolean_signature(&join.full_ast, active_vars.len() as u32, join.bitwidth)
+    };
+    let cost = compute_cost(&rebuilt).cost;
+    let lean_signature_certificate =
+        signature_certificate_for_candidate(join.bitwidth, &source_sig, &active_vars, &rebuilt)?;
+
+    let mut cand_item = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
         expr: rebuilt,
-        classification: Some(new_cls.clone()),
-        provenance: Provenance::Rewritten,
-        solve_ctx,
+        real_vars: active_vars,
+        cost,
+        producing_pass: source_pass,
+        needs_original_space_verification: false,
     })));
-    rewritten.features = item.features.clone();
-    rewritten.features.classification = Some(new_cls);
-    rewritten.features.provenance = Provenance::Rewritten;
-    rewritten.metadata = item.metadata.clone();
-    rewritten.metadata.lean_certificate = lean_certificate;
-    rewritten.metadata.lean_signature_certificate = None;
-    rewritten.depth = join.parent_depth;
-    rewritten.rewrite_gen = join.rewrite_gen + 1;
-    rewritten.attempted_mask = 0;
-    rewritten.group_id = join.parent_group_id;
-    rewritten.history.clone_from(&join.parent_history);
-    rewritten
+    cand_item.features = item.features.clone();
+    cand_item.metadata = item.metadata.clone();
+    cand_item.metadata.verification = VerificationState::Verified;
+    cand_item.metadata.sig_vector = source_sig;
+    cand_item.metadata.lean_certificate = None;
+    cand_item.metadata.lean_signature_certificate = Some(lean_signature_certificate);
+    cand_item.depth = join.parent_depth;
+    cand_item.rewrite_gen = join.rewrite_gen + 1;
+    cand_item.attempted_mask = 0;
+    cand_item.group_id = join.parent_group_id;
+    cand_item.history.clone_from(&join.parent_history);
+    Some(cand_item)
 }
 
 fn resolve_operand_rewrite(
@@ -578,8 +596,12 @@ fn resolve_product_collapse(
         if chk.passed {
             let cost = compute_cost(&candidate).cost;
             if is_better(&cost, &join.baseline_cost) {
-                pr.next
-                    .push(emit_join_rewrite_product(&join, item, candidate));
+                if let Some(candidate) =
+                    emit_join_candidate_product(&join, item, candidate, x_w.source_pass)
+                {
+                    pr.decision = PassDecision::SolvedCandidate;
+                    pr.next.push(candidate);
+                }
             }
         }
     }
@@ -669,12 +691,15 @@ fn resolve_residual_recombine(
     }
 
     let cost = compute_cost(&combined).cost;
-    let recombined_signature_certificate = signature_certificate_for_candidate(
+    let Some(recombined_signature_certificate) = signature_certificate_for_candidate(
         ctx.bitwidth,
         &cont.source_sig,
         &target_vars,
         &combined,
-    );
+    ) else {
+        release_parent(&mut pr, ctx);
+        return pr;
+    };
 
     if let Some(parent_gid) = cont.parent_group_id {
         let record = CandidateRecord {
@@ -686,7 +711,7 @@ fn resolve_residual_recombine(
             needs_original_space_verification: false,
             sig_vector: cont.source_sig.clone(),
             lean_certificate: None,
-            lean_signature_certificate: recombined_signature_certificate,
+            lean_signature_certificate: Some(recombined_signature_certificate),
         };
         submit_normalized_candidate(
             &mut ctx.competition_groups,
@@ -708,7 +733,7 @@ fn resolve_residual_recombine(
         cand_item.metadata.verification = VerificationState::Verified;
         cand_item.metadata.sig_vector.clone_from(&cont.source_sig);
         cand_item.metadata.lean_certificate = None;
-        cand_item.metadata.lean_signature_certificate = recombined_signature_certificate;
+        cand_item.metadata.lean_signature_certificate = Some(recombined_signature_certificate);
         cand_item.metadata.decomposition_meta = Some(DecompositionMeta {
             extractor_kind: project_extractor_kind(cont.origin) as u8,
             solver_kind: ResidualSolverKind::SupportedPipeline as u8,
@@ -819,6 +844,17 @@ fn resolve_lifted_substitute(
         &cont.original_vars,
         &substituted,
     );
+    let Some(substituted_signature_certificate) = substituted_signature_certificate else {
+        return PassResult {
+            decision: PassDecision::Blocked,
+            disposition: ItemDisposition::ConsumeCurrent,
+            next: Vec::new(),
+            reason: ast_reason(
+                ReasonCategory::VerifyFailed,
+                "Lifted substitute has no matching Lean signature certificate",
+            ),
+        };
+    };
     let mut cand_item = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
         expr: substituted,
         real_vars: cont.original_vars.clone(),
@@ -831,7 +867,7 @@ fn resolve_lifted_substitute(
     cand_item.metadata.verification = VerificationState::Verified;
     cand_item.metadata.sig_vector.clone_from(&cont.source_sig);
     cand_item.metadata.lean_certificate = None;
-    cand_item.metadata.lean_signature_certificate = substituted_signature_certificate;
+    cand_item.metadata.lean_signature_certificate = Some(substituted_signature_certificate);
     cand_item.depth = item.depth;
     cand_item.rewrite_gen = item.rewrite_gen;
     cand_item.attempted_mask = item.attempted_mask;
@@ -946,6 +982,10 @@ mod tests {
         assert_eq!(pr.decision, PassDecision::SolvedCandidate);
         assert!(pr.next[0].metadata.lean_certificate.is_none());
         assert!(pr.next[0].metadata.lean_signature_certificate.is_none());
+        assert_eq!(
+            pr.next[0].metadata.verification,
+            VerificationState::Unverified
+        );
     }
 
     #[test]
@@ -1131,7 +1171,7 @@ mod tests {
     }
 
     #[test]
-    fn product_join_rewrite_replaces_stale_metadata_with_endpoint_certificate() {
+    fn product_join_rewrite_replaces_stale_metadata_with_signature_certificate() {
         let full_ast = Expr::add(
             Expr::mul(Expr::variable(0), Expr::variable(1)),
             Expr::mul(Expr::variable(0), Expr::variable(2)),
@@ -1165,25 +1205,32 @@ mod tests {
         item.metadata.lean_signature_certificate =
             cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
 
-        let rewritten = emit_join_rewrite_product(
+        let candidate = emit_join_candidate_product(
             &join,
             &item,
             Expr::mul(
                 Expr::variable(0),
                 Expr::add(Expr::variable(1), Expr::variable(2)),
             ),
-        );
-        let cert = rewritten
+            PassId::ProductIdentityCollapse,
+        )
+        .expect("product join emits signature-certified candidate");
+        assert!(candidate.metadata.lean_certificate.is_none());
+        let cert = candidate
             .metadata
-            .lean_certificate
+            .lean_signature_certificate
             .as_ref()
-            .expect("endpoint certificate");
-        if let StateData::FoldedAst(rewritten_ast) = &rewritten.payload {
-            assert!(cert.matches_endpoints(64, &full_ast, &rewritten_ast.expr));
+            .expect("signature certificate");
+        if let StateData::Candidate(candidate_payload) = &candidate.payload {
+            assert!(cert.matches_signature(
+                64,
+                3,
+                &[0, 0, 0, 1, 0, 1, 0, 2],
+                &candidate_payload.expr
+            ));
         } else {
-            panic!("expected folded AST");
+            panic!("expected candidate");
         }
-        assert!(rewritten.metadata.lean_signature_certificate.is_none());
     }
 
     #[test]

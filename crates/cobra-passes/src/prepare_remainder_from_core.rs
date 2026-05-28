@@ -125,12 +125,19 @@ pub fn run_prepare_remainder_from_core(
             DEFAULT_NUM_SAMPLES,
         );
         if chk.passed {
-            let lean_signature_certificate = signature_certificate_for_candidate(
+            let Some(lean_signature_certificate) = signature_certificate_for_candidate(
                 ctx.bitwidth,
                 &core.source_sig,
                 &target_vars,
                 &candidate,
-            );
+            ) else {
+                return Ok(PassResult {
+                    decision: PassDecision::NoProgress,
+                    disposition: ItemDisposition::RetainCurrent,
+                    next: Vec::new(),
+                    reason: ReasonDetail::default(),
+                });
+            };
             let cost = compute_cost(&candidate).cost;
             let payload = CandidatePayload {
                 expr: candidate,
@@ -144,7 +151,7 @@ pub fn run_prepare_remainder_from_core(
             next.metadata.verification = VerificationState::Verified;
             next.metadata.sig_vector.clone_from(&core.source_sig);
             next.metadata.lean_certificate = None;
-            next.metadata.lean_signature_certificate = lean_signature_certificate;
+            next.metadata.lean_signature_certificate = Some(lean_signature_certificate);
             return Ok(PassResult {
                 decision: PassDecision::SolvedCandidate,
                 disposition: ItemDisposition::ConsumeCurrent,

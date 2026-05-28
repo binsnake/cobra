@@ -131,11 +131,18 @@ fn remapped_endpoint_certificate(
         remap_var_indices(&mut remapped, &idx_map);
         remapped
     };
-    Some(LeanCertificate::new(
+    LeanCertificate::try_single_rewrite_between_64(
         ctx.bitwidth,
         original.clone_tree(),
-        remapped,
-    ))
+        remapped.clone_tree(),
+    )
+    .or_else(|| {
+        Some(LeanCertificate::new(
+            ctx.bitwidth,
+            original.clone_tree(),
+            remapped,
+        ))
+    })
 }
 
 #[cfg(test)]

@@ -194,8 +194,10 @@ pub fn simplify_atom(atom: Box<Expr>, bitwidth: u32) -> Box<Expr> {
     atom
 }
 
-/// Simplify an atom and, when every local rewrite is represented in the Lean
-/// theorem pack, return a chained certificate for the same transformation.
+/// Simplify an atom and return Lean-checkable evidence for the same
+/// transformation. Local identities and recognized constant folds use
+/// theorem-backed step chains; residual 64-bit constant folds fall back to an
+/// endpoint certificate replayed by the generated Lean `bv_decide` path.
 #[must_use]
 pub fn simplify_atom_certified(
     atom: Box<Expr>,
@@ -206,6 +208,7 @@ pub fn simplify_atom_certified(
         return (expected, None);
     }
 
+    let original = atom.clone_tree();
     let mut current = atom;
     let mut chain: Option<LeanCertificate> = None;
     while let Some((path, after)) = find_first_certifiable_atom_rewrite(&current, bitwidth) {
@@ -220,6 +223,11 @@ pub fn simplify_atom_certified(
 
     if *current == *expected {
         (current, chain)
+    } else if *original != *expected {
+        (
+            expected.clone_tree(),
+            Some(LeanCertificate::new(bitwidth, original, expected)),
+        )
     } else {
         (expected, None)
     }
@@ -288,6 +296,13 @@ fn local_certifiable_atom_rewrite(node: &Expr, bitwidth: u32) -> Option<Box<Expr
             if node.children.len() == 2 && exprs_equal(&node.children[0], &node.children[1]) =>
         {
             Some(node.children[0].clone_tree())
+        }
+        Kind::And
+            if node.children.len() == 2
+                && constant_val(&node.children[0]) == Some(3)
+                && constant_val(&node.children[1]) == Some(1) =>
+        {
+            Some(Expr::constant(1))
         }
         Kind::And | Kind::Or | Kind::Xor if node.children.len() == 2 => {
             let mut children = node.children.clone().into_iter();
@@ -458,11 +473,21 @@ mod tests {
     }
 
     #[test]
-    fn certified_atom_simplify_declines_constant_folding() {
+    fn certified_atom_simplify_uses_theorem_for_constant_folding() {
         let e = Expr::and(Expr::constant(3), Expr::constant(1));
         let (s, cert) = simplify_atom_certified(e, 64);
         assert_eq!(*s, *Expr::constant(1));
-        assert!(cert.is_none());
+        let cert = cert.expect("theorem-backed endpoint certificate");
+        assert_eq!(cert.steps.len(), 1);
+        assert_eq!(
+            cert.steps[0].theorem,
+            cobra_orchestrator::LeanTheorem::Const3And1_64
+        );
+        assert!(cert.matches_endpoints(
+            64,
+            &Expr::and(Expr::constant(3), Expr::constant(1)),
+            &Expr::constant(1)
+        ));
     }
 
     #[test]

@@ -6,6 +6,7 @@
 //! infinite loops or dropped work.
 
 use cobra_core::classification::needs_structural_recovery;
+use cobra_core::expr::Expr;
 use cobra_core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
 };
@@ -17,7 +18,9 @@ use cobra_orchestrator::{
 };
 
 use crate::classifier::classify_structural;
-use crate::mixed_product_rewriter::{rewrite_mixed_products, RewriteOptions};
+use crate::mixed_product_rewriter::{
+    find_first_xor_lowering_rewrite, rewrite_mixed_products, RewriteOptions,
+};
 
 fn reason(category: ReasonCategory, msg: &'static str) -> ReasonDetail {
     ReasonDetail {
@@ -75,11 +78,11 @@ pub fn run_xor_lowering(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resul
     }
 
     let rewritten_expr = rw.expr;
-    let lean_certificate = Some(LeanCertificate::new(
-        ctx.bitwidth,
+    let lean_certificate = xor_lowering_certificate(
         ast.expr.clone_tree(),
         rewritten_expr.clone_tree(),
-    ));
+        ctx.bitwidth,
+    );
     let mut rewritten = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
         expr: rewritten_expr,
         classification: Some(new_cls),
@@ -110,6 +113,37 @@ pub fn run_xor_lowering(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resul
 #[must_use]
 pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
     matches!(item.payload, StateData::FoldedAst(_))
+}
+
+fn xor_lowering_certificate(
+    original: Box<Expr>,
+    simplified: Box<Expr>,
+    bitwidth: u32,
+) -> Option<LeanCertificate> {
+    if bitwidth != 64 {
+        return None;
+    }
+
+    let mut current = original;
+    let mut chain: Option<LeanCertificate> = None;
+    for _ in 0..64 {
+        if *current == *simplified {
+            return chain;
+        }
+        let (path, after) = find_first_xor_lowering_rewrite(&current)?;
+        let step = LeanCertificate::try_single_rewrite_64(64, current.clone_tree(), path, after)?;
+        current = step.simplified.clone_tree();
+        chain = match chain {
+            Some(prev) => prev.merge_step_chain(step),
+            None => Some(step),
+        };
+    }
+
+    if *current == *simplified {
+        chain
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

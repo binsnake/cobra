@@ -101,6 +101,14 @@ pub fn run_signature_cob_candidate(
     let cost = compute_cost(&expr).cost;
     let lean_signature_certificate =
         signature_certificate_for_candidate(ctx.bitwidth, sig, &sub.real_vars, &expr);
+    if verification == VerificationState::Verified && lean_signature_certificate.is_none() {
+        return Ok(PassResult {
+            decision: PassDecision::NoProgress,
+            disposition: ItemDisposition::RetainCurrent,
+            next: Vec::new(),
+            reason: verify_failed("CoB candidate has no matching Lean signature certificate"),
+        });
+    }
     let group_id = item
         .group_id
         .expect("SignatureCobCandidate requires a group_id");

@@ -353,7 +353,8 @@ pub use crate::entry::{simplify, simplify_expr, MAX_INPUT_VARS};
 pub use crate::not_over_arith::{has_not_over_arith, is_purely_arithmetic, lower_not_over_arith};
 pub use crate::pattern_matcher::{
     match_1var, match_2var_boolean, match_pattern, pack_bool_sig, simplify_pattern_subtrees,
-    try_simplify_pattern_subtree, try_simplify_two_var_pattern_sum,
+    simplify_pattern_subtrees_certified, try_simplify_pattern_subtree,
+    try_simplify_two_var_pattern_sum,
 };
 pub use crate::seed::seed_with_ast;
 pub use crate::spot_check::{full_width_check_eval, verify_in_original_space, CheckResult};

@@ -19,7 +19,7 @@ use cobra_orchestrator::{
 };
 
 use crate::classifier::classify_structural;
-use crate::pattern_matcher::simplify_pattern_subtrees;
+use crate::pattern_matcher::simplify_pattern_subtrees_certified;
 
 #[allow(clippy::unnecessary_wraps)]
 pub fn run_prepare_lifted_outer_solve(
@@ -67,7 +67,8 @@ pub fn run_prepare_lifted_outer_solve(
 
     // Pre-simplify the outer expression — lifting often exposes small
     // pattern-collapsible shells.
-    let outer = simplify_pattern_subtrees(skel.outer_expr.clone_tree(), ctx.bitwidth);
+    let (outer, lean_certificate) =
+        simplify_pattern_subtrees_certified(skel.outer_expr.clone_tree(), ctx.bitwidth);
     let cls = classify_structural(&outer);
 
     let mut solve_ctx = skel.outer_ctx.clone();
@@ -83,7 +84,7 @@ pub fn run_prepare_lifted_outer_solve(
     child.features.classification = Some(cls);
     child.features.provenance = Provenance::Rewritten;
     child.metadata = item.metadata.clone();
-    child.metadata.lean_certificate = None;
+    child.metadata.lean_certificate = lean_certificate;
     child.metadata.lean_signature_certificate = None;
     child.depth = item.depth;
     child.rewrite_gen = item.rewrite_gen;
@@ -156,5 +157,48 @@ mod tests {
         ));
         assert!(pr.next[0].metadata.lean_certificate.is_none());
         assert!(pr.next[0].metadata.lean_signature_certificate.is_none());
+    }
+
+    #[test]
+    fn outer_pattern_presimplify_attaches_endpoint_certificate() {
+        let mut ctx =
+            OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+        let payload = LiftedSkeletonPayload {
+            outer_expr: Expr::add(Expr::variable(2), Expr::constant(0)),
+            outer_ctx: AstSolveContext {
+                vars: vec!["x".into(), "y".into(), "v0".into()],
+                evaluator: None,
+                input_sig: vec![0, 0, 0, 1, 0, 0, 0, 1],
+            },
+            bindings: vec![cobra_orchestrator::LiftedBinding {
+                kind: LiftedValueKind::ArithmeticAtom,
+                outer_var_index: 2,
+                subtree: Expr::add(Expr::variable(0), Expr::variable(1)),
+                structural_hash: 0,
+                original_support: vec![0, 1],
+            }],
+            original_var_count: 2,
+            baseline_cost: ExprCost::default(),
+            source_sig: vec![],
+            original_ctx: AstSolveContext::default(),
+        };
+        let item = WorkItem::new(StateData::LiftedSkeleton(Box::new(payload)));
+
+        let pr = run_prepare_lifted_outer_solve(&item, &mut ctx).unwrap();
+        assert_eq!(pr.decision, PassDecision::Advance);
+        let StateData::FoldedAst(ast) = &pr.next[0].payload else {
+            panic!("expected FoldedAst child")
+        };
+        assert_eq!(*ast.expr, *Expr::variable(2));
+        let cert = pr.next[0]
+            .metadata
+            .lean_certificate
+            .as_ref()
+            .expect("outer simplification certificate");
+        assert!(cert.matches_endpoints(
+            64,
+            &Expr::add(Expr::variable(2), Expr::constant(0)),
+            &Expr::variable(2)
+        ));
     }
 }

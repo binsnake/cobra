@@ -9,7 +9,7 @@ use cobra_core::expr_cost::{compute_cost, is_better};
 use cobra_core::expr_rewrite::try_build_var_support;
 use cobra_core::expr_utils::remap_var_indices;
 use cobra_core::result::CobraError;
-use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
+use cobra_core::simplify_outcome::{Options, ProofLevel, SimplifyOutcomeKind};
 use cobra_core::{eval_expr, evaluate_boolean_signature, full_width_check_eval};
 use cobra_parser::parse_to_ast;
 use cobra_passes::{simplify, simplify_expr, MAX_INPUT_VARS};
@@ -92,6 +92,18 @@ fn assert_full_width_simplifies(input: &str) -> cobra_core::SimplifyOutcome {
     full_width_expr_case(input, 64, Options::default())
 }
 
+fn assert_public_verified_only_when_lean_certified(input: &str, out: &cobra_core::SimplifyOutcome) {
+    assert_eq!(
+        out.verified,
+        out.proof_level == ProofLevel::LeanCertified,
+        "`{input}` public verification must match LeanCertified proof level"
+    );
+    assert!(
+        !(out.verified && out.proof_level == ProofLevel::SpotChecked),
+        "`{input}` must not report spot-check-only evidence as verified"
+    );
+}
+
 #[test]
 fn constant_no_ast_without_evaluator_is_unverified() {
     let vars = names(&["x", "y"]);
@@ -102,7 +114,7 @@ fn constant_no_ast_without_evaluator_is_unverified() {
 }
 
 #[test]
-fn constant_no_ast_with_evaluator_is_verified() {
+fn constant_no_ast_with_evaluator_is_unverified_without_lean_evidence() {
     let vars = names(&["x", "y"]);
     let opts = Options {
         evaluator: Evaluator::from_closure(|_| 42),
@@ -111,7 +123,8 @@ fn constant_no_ast_with_evaluator_is_verified() {
     let out = simplify(&[42, 42, 42, 42], &vars, None, opts).unwrap();
     assert_eq!(out.kind, SimplifyOutcomeKind::Simplified);
     assert_eq!(rendered(&out, 64), "42");
-    assert!(out.verified);
+    assert!(!out.verified);
+    assert_eq!(out.proof_level, ProofLevel::Unverified);
 }
 
 #[test]
@@ -569,7 +582,8 @@ fn large_constant_no_ast_preserves_value() {
 }
 
 #[test]
-fn upstream_polynomial_and_singleton_power_cases_verify() {
+fn upstream_polynomial_and_singleton_power_cases_report_public_verification_only_when_lean_certified(
+) {
     for input in [
         "x * y",
         "x * x",
@@ -583,12 +597,13 @@ fn upstream_polynomial_and_singleton_power_cases_verify() {
         "(x & y) + x * y",
     ] {
         let out = assert_full_width_simplifies(input);
-        assert!(out.verified, "`{input}` was not marked verified");
+        assert_public_verified_only_when_lean_certified(input, &out);
     }
 }
 
 #[test]
-fn upstream_mixed_rewrite_and_bitwise_over_poly_cases_verify() {
+fn upstream_mixed_rewrite_and_bitwise_over_poly_cases_report_public_verification_only_when_lean_certified(
+) {
     for input in [
         "(x & y) * (x | y) + (x & ~y) * (~x & y)",
         "(x + y) & z",
@@ -598,7 +613,7 @@ fn upstream_mixed_rewrite_and_bitwise_over_poly_cases_verify() {
         "d | ~(a * b)",
     ] {
         let out = assert_full_width_simplifies(input);
-        assert!(out.verified, "`{input}` was not marked verified");
+        assert_public_verified_only_when_lean_certified(input, &out);
     }
 
     let out = full_width_expr_case(
@@ -609,11 +624,12 @@ fn upstream_mixed_rewrite_and_bitwise_over_poly_cases_verify() {
             ..Options::default()
         },
     );
-    assert!(out.verified);
+    assert_public_verified_only_when_lean_certified("d | (c * a)", &out);
 }
 
 #[test]
-fn upstream_semilinear_and_not_lowering_cases_verify() {
+fn upstream_semilinear_and_not_lowering_cases_report_public_verification_only_when_lean_certified()
+{
     for input in [
         "1 + (~a & y)",
         "-3 + -3 * (a | y | z)",
@@ -621,21 +637,22 @@ fn upstream_semilinear_and_not_lowering_cases_verify() {
         "2 - a + 2 * y - 2 * (a & y)",
     ] {
         let out = assert_full_width_simplifies(input);
-        assert!(out.verified, "`{input}` was not marked verified");
+        assert_public_verified_only_when_lean_certified(input, &out);
     }
 
     for input in ["~(b * b)", "~(a + b)"] {
         let out = assert_full_width_simplifies(input);
-        assert!(out.verified, "`{input}` was not marked verified");
+        assert_public_verified_only_when_lean_certified(input, &out);
     }
 }
 
 #[test]
-fn upstream_product_residual_and_dynamic_mask_cases_verify() {
+fn upstream_product_residual_and_dynamic_mask_cases_report_public_verification_only_when_lean_certified(
+) {
     let product_residual =
         "(x & y) * (x | y) + (x & ~y) * (~x & y) + ~x - (x | ~y) - 10 * (x & ~y) - 10 * (x & y)";
     let out = assert_full_width_simplifies(product_residual);
-    assert!(out.verified);
+    assert_public_verified_only_when_lean_certified(product_residual, &out);
 
     let original = parsed_expr(product_residual, 64).0;
     let original_cost = compute_cost(&original).cost;
@@ -648,7 +665,10 @@ fn upstream_product_residual_and_dynamic_mask_cases_verify() {
 
     for input in ["0xff & (x + y + (~x | ~y) + 1)", "(x + ~x + 1) & 0xf"] {
         let out = assert_full_width_simplifies(input);
-        assert!(out.verified, "`{input}` was not marked verified");
+        assert!(
+            !out.verified && out.proof_level == ProofLevel::Unverified,
+            "`{input}` should not claim verification after dynamic-mask wrapping without Lean evidence"
+        );
     }
 
     let (issue9, vars) = parsed_expr("a | ((1 + a) & (2 - a))", 64);
@@ -666,10 +686,11 @@ fn upstream_product_residual_and_dynamic_mask_cases_verify() {
 }
 
 #[test]
-fn upstream_mixed_product_decomposition_cases_verify() {
+fn upstream_mixed_product_decomposition_cases_report_public_verification_only_when_lean_certified()
+{
     for input in ["(x ^ y) * z", "(x & y) * z", "(e * e) & d"] {
         let out = assert_full_width_simplifies(input);
-        assert!(out.verified, "`{input}` was not marked verified");
+        assert_public_verified_only_when_lean_certified(input, &out);
     }
 }
 

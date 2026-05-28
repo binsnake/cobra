@@ -13,6 +13,7 @@ cobra-orchestrator = { path = "../cobra-orchestrator" }
 
 [dev-dependencies]
 cobra-parser = { path = "../cobra-parser" }
+cobra-verify = { path = "../cobra-verify" }
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

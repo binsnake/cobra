@@ -16,6 +16,7 @@ use cobra_core::expr::{Expr, Kind};
 use cobra_core::expr_cost::{compute_cost, is_better, ExprCost};
 use cobra_core::expr_rewrite::apply_coefficient;
 use cobra_core::expr_utils::{collect_vars, remap_var_indices};
+use cobra_orchestrator::{ExprPath, LeanCertificate};
 
 use crate::atom_simplifier::simplify_atom;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
@@ -1022,6 +1023,84 @@ pub fn simplify_pattern_subtrees(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr
     expr
 }
 
+/// Certified form of [`simplify_pattern_subtrees`]. Recognized local rewrites
+/// are emitted as theorem-backed step chains. Larger table-driven pattern
+/// rewrites fall back to an endpoint certificate so generated Lean replay still
+/// checks the exact before/after expression pair.
+#[must_use]
+pub fn simplify_pattern_subtrees_certified(
+    expr: Box<Expr>,
+    bitwidth: u32,
+) -> (Box<Expr>, Option<LeanCertificate>) {
+    let expected = simplify_pattern_subtrees(expr.clone_tree(), bitwidth);
+    if bitwidth != 64 {
+        return (expected, None);
+    }
+
+    let original = expr.clone_tree();
+    let mut current = expr;
+    let mut chain: Option<LeanCertificate> = None;
+    for _ in 0..128 {
+        if *current == *expected {
+            return (current, chain);
+        }
+
+        let Some((path, after)) = find_first_pattern_rewrite_site(&current, bitwidth) else {
+            break;
+        };
+        let Some(step) =
+            LeanCertificate::try_single_rewrite_64(bitwidth, current.clone_tree(), path, after)
+        else {
+            break;
+        };
+        current = step.simplified.clone_tree();
+        chain = merge_certificate(chain, step);
+    }
+
+    if *current == *expected {
+        (current, chain)
+    } else if *original != *expected {
+        (
+            expected.clone_tree(),
+            Some(LeanCertificate::new(bitwidth, original, expected)),
+        )
+    } else {
+        (expected, None)
+    }
+}
+
+fn merge_certificate(
+    previous: Option<LeanCertificate>,
+    next: LeanCertificate,
+) -> Option<LeanCertificate> {
+    match previous {
+        Some(prev) => prev.merge_step_chain(next),
+        None => Some(next),
+    }
+}
+
+fn find_first_pattern_rewrite_site(root: &Expr, bitwidth: u32) -> Option<(ExprPath, Box<Expr>)> {
+    find_first_pattern_rewrite_site_at(root, bitwidth, &mut Vec::new())
+}
+
+fn find_first_pattern_rewrite_site_at(
+    root: &Expr,
+    bitwidth: u32,
+    path: &mut Vec<u8>,
+) -> Option<(ExprPath, Box<Expr>)> {
+    for (idx, child) in root.children.iter().enumerate() {
+        let child_idx = u8::try_from(idx).ok()?;
+        path.push(child_idx);
+        if let Some(site) = find_first_pattern_rewrite_site_at(child, bitwidth, path) {
+            path.pop();
+            return Some(site);
+        }
+        path.pop();
+    }
+
+    try_simplify_pattern_subtree(root, bitwidth).map(|after| (ExprPath(path.clone()), after))
+}
+
 fn match_applied_coefficient(expr: &Expr, coeff: u64, bitwidth: u32) -> Option<&Expr> {
     if coeff == 1 {
         return Some(expr);
@@ -1372,6 +1451,55 @@ mod tests {
         let input = Expr::variable(0);
         let out = simplify_pattern_subtrees(input.clone_tree(), 64);
         assert!(matches!(out.kind, Kind::Variable(0)));
+    }
+
+    #[test]
+    fn certified_pattern_simplify_chains_trivial_arith() {
+        let input = Expr::mul(
+            Expr::add(Expr::variable(0), Expr::constant(0)),
+            Expr::constant(1),
+        );
+        let (out, cert) = simplify_pattern_subtrees_certified(input.clone_tree(), 64);
+        assert_eq!(*out, *Expr::variable(0));
+        let cert = cert.expect("Lean certificate");
+        assert!(cert.matches_endpoints(64, &input, &out));
+        assert_eq!(cert.steps.len(), 2);
+        assert_eq!(
+            cert.steps[0].theorem,
+            cobra_orchestrator::LeanTheorem::AddZero64
+        );
+        assert_eq!(
+            cert.steps[1].theorem,
+            cobra_orchestrator::LeanTheorem::MulOne64
+        );
+    }
+
+    #[test]
+    fn certified_pattern_simplify_uses_theorem_for_scaled_pattern_sum() {
+        let input = Expr::add(
+            Expr::mul(
+                Expr::constant(2),
+                Expr::and(Expr::variable(0), Expr::variable(1)),
+            ),
+            Expr::mul(
+                Expr::constant(2),
+                Expr::or(Expr::variable(0), Expr::variable(1)),
+            ),
+        );
+
+        let (out, cert) = simplify_pattern_subtrees_certified(input.clone_tree(), 64);
+        assert!(is_better(
+            &compute_cost(&out).cost,
+            &compute_cost(&input).cost
+        ));
+        let cert = cert.expect("endpoint certificate");
+        assert!(cert.matches_endpoints(64, &input, &out));
+        assert!(
+            cert.steps.iter().any(|step| {
+                step.theorem == cobra_orchestrator::LeanTheorem::TwoMulAndOrSumEqTwoMulAdd64
+            }),
+            "scaled pattern-sum should use its named theorem"
+        );
     }
 
     #[test]

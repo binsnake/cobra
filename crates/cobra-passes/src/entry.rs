@@ -179,8 +179,8 @@ fn try_dynamic_mask(
     result.sig_vector =
         evaluate_boolean_signature(&wrapped, result.real_vars.len() as u32, opts.bitwidth);
     result.expr = Some(wrapped);
-    result.verified = true;
-    result.proof_level = ProofLevel::SpotChecked;
+    result.verified = false;
+    result.proof_level = ProofLevel::Unverified;
     Ok(Some(result))
 }
 
@@ -195,7 +195,6 @@ fn try_no_ast_constant_seed(
         return None;
     }
 
-    let mut verified = false;
     if let Some(eval) = ctx.evaluator.as_ref() {
         let check = full_width_check_eval(
             eval,
@@ -207,19 +206,14 @@ fn try_no_ast_constant_seed(
         if !check.passed {
             return None;
         }
-        verified = true;
     }
 
     Some(SimplifyOutcome {
         kind: SimplifyOutcomeKind::Simplified,
         expr: Some(candidate),
         sig_vector: sig.to_vec(),
-        verified,
-        proof_level: if verified {
-            ProofLevel::SpotChecked
-        } else {
-            ProofLevel::Unverified
-        },
+        verified: false,
+        proof_level: ProofLevel::Unverified,
         ..SimplifyOutcome::default()
     })
 }

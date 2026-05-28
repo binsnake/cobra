@@ -55,6 +55,10 @@ theorem and_or_sum_eq_add_64 (x y : BitVec 64) :
     (x &&& y) + (x ||| y) = x + y := by
   bv_decide
 
+theorem two_mul_and_or_sum_eq_two_mul_add_64 (x y : BitVec 64) :
+    (2#64 * (x &&& y)) + (2#64 * (x ||| y)) = (2#64 * x) + (2#64 * y) := by
+  bv_decide
+
 theorem not_or_sub_not_eq_and_64 (x y : BitVec 64) :
     ((~~~x) ||| y) - (~~~x) = x &&& y := by
   bv_decide
@@ -82,6 +86,14 @@ theorem mul_comm_64 (x y : BitVec 64) :
 theorem mul_assoc_64 (x y z : BitVec 64) :
     (x * y) * z = x * (y * z) := by
   bv_decide (config := { acNf := true })
+
+theorem mul_add_64 (x y z : BitVec 64) :
+    x * (y + z) = x * y + x * z := by
+  rw [BitVec.mul_add]
+
+theorem add_mul_64 (x y z : BitVec 64) :
+    (x + y) * z = x * z + y * z := by
+  rw [BitVec.add_mul]
 
 theorem add_zero_64 (x : BitVec 64) :
     x + 0#64 = x := by
@@ -151,6 +163,10 @@ theorem and_zero_64 (x : BitVec 64) :
     x &&& 0#64 = 0#64 := by
   bv_decide
 
+theorem const_3_and_1_64 :
+    3#64 &&& 1#64 = 1#64 := by
+  bv_decide
+
 theorem zero_and_64 (x : BitVec 64) :
     0#64 &&& x = 0#64 := by
   bv_decide
@@ -187,8 +203,20 @@ theorem demorgan_not_and_64 (x y : BitVec 64) :
     ~~~(x &&& y) = (~~~x) ||| (~~~y) := by
   bv_decide
 
+theorem demorgan_or_not_not_64 (x y : BitVec 64) :
+    (~~~x) ||| (~~~y) = ~~~(x &&& y) := by
+  bv_decide
+
+theorem demorgan_not_and_not_not_64 (x y : BitVec 64) :
+    ~~~((~~~x) &&& (~~~y)) = x ||| y := by
+  bv_decide
+
 theorem demorgan_not_or_64 (x y : BitVec 64) :
     ~~~(x ||| y) = (~~~x) &&& (~~~y) := by
+  bv_decide
+
+theorem demorgan_not_or_not_not_64 (x y : BitVec 64) :
+    ~~~((~~~x) ||| (~~~y)) = x &&& y := by
   bv_decide
 
 theorem shr_zero_64 (x : BitVec 64) :

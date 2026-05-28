@@ -3,6 +3,7 @@
 use cobra_core::evaluate_boolean_signature;
 use cobra_core::expr::Expr;
 use cobra_core::expr_cost::compute_cost;
+use cobra_core::pass_contract::VerificationState;
 use cobra_orchestrator::{
     submit_candidate, CandidateRecord, GroupId, GroupMap, LeanSignatureCertificate,
 };
@@ -28,11 +29,13 @@ pub fn submit_normalized_candidate(
     record: CandidateRecord,
     bitwidth: u32,
 ) -> bool {
-    submit_candidate(
-        groups,
-        group_id,
-        normalize_candidate_record(record, bitwidth),
-    )
+    let record = normalize_candidate_record(record, bitwidth);
+    if record.verification == VerificationState::Verified
+        && record.lean_signature_certificate.is_none()
+    {
+        return false;
+    }
+    submit_candidate(groups, group_id, record, bitwidth)
 }
 
 #[must_use]
@@ -61,5 +64,59 @@ mod tests {
 
         let stale = signature_certificate_for_candidate(64, &[1, 0], &vars, &Expr::variable(0));
         assert!(stale.is_none());
+    }
+
+    #[test]
+    fn verified_normalized_candidate_requires_proof_metadata() {
+        let mut groups = GroupMap::default();
+        groups.insert(0, cobra_orchestrator::CompetitionGroup::default());
+        let submitted = submit_normalized_candidate(
+            &mut groups,
+            0,
+            CandidateRecord {
+                expr: Expr::variable(0),
+                cost: cobra_core::expr_cost::ExprCost::default(),
+                verification: VerificationState::Verified,
+                real_vars: vec!["x".to_owned()],
+                source_pass: cobra_orchestrator::PassId::SignaturePatternMatch,
+                needs_original_space_verification: false,
+                sig_vector: vec![1, 0],
+                lean_certificate: None,
+                lean_signature_certificate: None,
+            },
+            64,
+        );
+
+        assert!(!submitted);
+        assert!(groups[&0].best.is_none());
+    }
+
+    #[test]
+    fn verified_normalized_candidate_requires_matching_signature_certificate() {
+        let mut groups = GroupMap::default();
+        groups.insert(0, cobra_orchestrator::CompetitionGroup::default());
+        let submitted = submit_normalized_candidate(
+            &mut groups,
+            0,
+            CandidateRecord {
+                expr: Expr::variable(0),
+                cost: cobra_core::expr_cost::ExprCost::default(),
+                verification: VerificationState::Verified,
+                real_vars: vec!["x".to_owned()],
+                source_pass: cobra_orchestrator::PassId::SignaturePatternMatch,
+                needs_original_space_verification: false,
+                sig_vector: vec![1, 0],
+                lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+                    64,
+                    Expr::variable(0),
+                    Expr::variable(0),
+                )),
+                lean_signature_certificate: None,
+            },
+            64,
+        );
+
+        assert!(!submitted);
+        assert!(groups[&0].best.is_none());
     }
 }

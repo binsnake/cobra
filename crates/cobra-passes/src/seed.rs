@@ -10,14 +10,14 @@ use cobra_core::pass_contract::ReasonDetail;
 use cobra_core::result::Result;
 
 use cobra_orchestrator::{
-    AstPayload, OrchestratorContext, PassDecision, PassId, Provenance, StateData, WorkItem,
-    Worklist,
+    AstPayload, LeanCertificate, OrchestratorContext, PassDecision, PassId, Provenance, StateData,
+    WorkItem, Worklist,
 };
 
 use crate::atom_identity_rewrite::apply_atom_identities;
 use crate::classify_ast::run_classify_ast;
 use crate::lower_not_over_arith::run_lower_not_over_arith;
-use crate::pattern_matcher::simplify_pattern_subtrees;
+use crate::pattern_matcher::simplify_pattern_subtrees_certified;
 
 /// Seed `worklist` with one or two `FoldedAst` items prepared from
 ///
@@ -42,13 +42,14 @@ pub fn seed_with_ast(
 ) -> Result<()> {
     // Pre-simplify small subexpressions via pattern-table lookup.
     // Peels off MBA obfuscation layers (e.g., (X+Y+1)+(~X|~Y) → X|Y)
-    let rewritten = simplify_pattern_subtrees(Box::new(input_expr.clone()), ctx.bitwidth);
+    let (pattern_rewritten, pattern_cert) =
+        simplify_pattern_subtrees_certified(Box::new(input_expr.clone()), ctx.bitwidth);
     // Apply atom-level bitwise identities (e.g. `(A|B)-(A&B) -> A^B`)
     // bottom-up. These hold over arbitrary integer atoms and need to
     // fire at seed time so Linear-classified inputs benefit — the
     // in-pipeline `AtomIdentityRewrite` only runs on exploration
     // candidates.
-    let rewritten = apply_atom_identities(rewritten, ctx.bitwidth);
+    let rewritten = apply_atom_identities(pattern_rewritten.clone_tree(), ctx.bitwidth);
     // Detect whether any seed-time rewrite changed the tree. When it
     // did, the seed item already carries a cost-improving, verified
     // rewrite — stamp it so the main loop's exhaustion-path fallback
@@ -56,6 +57,13 @@ pub fn seed_with_ast(
     // (covers e.g. degenerate PIC shapes that collapse to a single
     // Mul during seed).
     let pattern_rewrite_fired = rewritten.as_ref() != input_expr;
+    let seed_lean_certificate = seed_rewrite_certificate(
+        input_expr,
+        &pattern_rewritten,
+        &rewritten,
+        ctx.bitwidth,
+        pattern_cert,
+    );
 
     // Build the Original-provenance seed.
     let mut seed = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
@@ -65,6 +73,7 @@ pub fn seed_with_ast(
         solve_ctx: None,
     })));
     seed.features.provenance = Provenance::Original;
+    seed.metadata.lean_certificate = seed_lean_certificate;
 
     // Step 1: LowerNotOverArith on the Original seed.
     let lr = run_lower_not_over_arith(&seed, ctx)?;
@@ -139,6 +148,39 @@ pub fn seed_with_ast(
     Ok(())
 }
 
+fn seed_rewrite_certificate(
+    original: &Expr,
+    pattern_rewritten: &Expr,
+    rewritten: &Expr,
+    bitwidth: u32,
+    pattern_cert: Option<LeanCertificate>,
+) -> Option<LeanCertificate> {
+    if original == rewritten || bitwidth != 64 {
+        return None;
+    }
+
+    let atom_cert = if pattern_rewritten == rewritten {
+        None
+    } else {
+        LeanCertificate::try_single_rewrite_between_64(
+            bitwidth,
+            pattern_rewritten.clone_tree(),
+            rewritten.clone_tree(),
+        )
+    };
+
+    match (pattern_cert, atom_cert) {
+        (Some(pattern), Some(atom)) => pattern
+            .merge_step_chain(atom)
+            .filter(|cert| cert.matches_endpoints(bitwidth, original, rewritten)),
+        (Some(pattern), None) if pattern.matches_endpoints(bitwidth, original, rewritten) => {
+            Some(pattern)
+        }
+        (None, Some(atom)) if atom.matches_endpoints(bitwidth, original, rewritten) => Some(atom),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +236,39 @@ mod tests {
 
         assert!(ctx.lowering_fired);
         assert_eq!(worklist.len(), 2);
+    }
+
+    #[test]
+    fn seed_pattern_rewrite_carries_lean_certificate() {
+        let expr = Expr::add(
+            Expr::and(Expr::variable(0), Expr::variable(1)),
+            Expr::or(Expr::variable(0), Expr::variable(1)),
+        );
+        let mut ctx =
+            OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+        let mut worklist = Worklist::new();
+        seed_with_ast(&expr, &mut ctx, &mut worklist).unwrap();
+
+        let mut found = false;
+        while let Some(item) = worklist.pop() {
+            if !item.history.contains(&PassId::PatternSubtreeRewrite) {
+                continue;
+            }
+            found = true;
+            let cert = item
+                .metadata
+                .lean_certificate
+                .as_ref()
+                .expect("seed rewrite has Lean certificate");
+            let StateData::FoldedAst(ast) = &item.payload else {
+                panic!("expected folded AST")
+            };
+            assert!(cert.matches_endpoints(64, &expr, &ast.expr));
+            assert!(cert
+                .steps
+                .iter()
+                .any(|step| step.theorem == cobra_orchestrator::LeanTheorem::AndOrSumEqAdd64));
+        }
+        assert!(found, "seed rewrite marker should be present");
     }
 }

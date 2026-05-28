@@ -1,9 +1,7 @@
 //! `ProductIdentityCollapse` — pattern-rewrites
-//! `(a & m1) * (b & m1) + (c & m2) * (d & m2)` shapes by:
-//!   1. trying a direct `Mul` reconstruction when shared `And` factors
-//!      coincide, then
-//!   2. falling back to two `SignatureState` children per valid
-//!      partition assignment, joined via `ProductCollapseCont`.
+//! `(a & m1) * (b & m1) + (c & m2) * (d & m2)` shapes by emitting two
+//! `SignatureState` children per valid partition assignment, joined via
+//! `ProductCollapseCont`.
 //!
 //! Operates on `FoldedAst` payloads and finds the first `Add(Mul, Mul)`
 //! site (depth-first walk, left-to-right). Up to four assignments are
@@ -13,19 +11,16 @@ use cobra_core::arith::bitmask;
 use cobra_core::classification::Classification;
 use cobra_core::evaluate_boolean_signature;
 use cobra_core::expr::{Expr, Kind};
-use cobra_core::expr_cost::{compute_cost, is_better};
+use cobra_core::expr_cost::compute_cost;
 use cobra_core::pass_contract::ReasonDetail;
 use cobra_core::result::Result;
 
 use cobra_orchestrator::{
-    create_group, create_join, expr_identity_hash, replace_by_hash, AstPayload, AstSolveContext,
-    ContinuationData, EliminationResult, FactorRole, ItemDisposition, JoinState, LeanCertificate,
-    OrchestratorContext, PassDecision, PassResult, ProductCollapseCont, ProductJoinState,
-    Provenance, SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem,
+    create_group, create_join, expr_identity_hash, AstSolveContext, ContinuationData,
+    EliminationResult, FactorRole, ItemDisposition, JoinState, OrchestratorContext, PassDecision,
+    PassResult, ProductCollapseCont, ProductJoinState, SignatureStatePayload,
+    SignatureSubproblemContext, StateData, WorkItem,
 };
-
-use crate::classifier::classify_structural;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 const MAX_ASSIGNMENTS: usize = 4;
 
@@ -59,9 +54,6 @@ fn find_first_product_site(root: &Expr) -> Option<ProductSite<'_>> {
 struct ProductAssignment {
     sig_x: Vec<u64>,
     sig_y: Vec<u64>,
-    i: usize,
-    l: usize,
-    r: usize,
 }
 
 /// 8 role assignments over the 4 factors `[L0, L1, R0, R1]`.
@@ -122,13 +114,7 @@ fn enumerate_valid_assignments(
         }
         let sig_x: Vec<u64> = (0..sig_len).map(|j| (sig_i[j] | sig_l[j]) & mask).collect();
         let sig_y: Vec<u64> = (0..sig_len).map(|j| (sig_i[j] | sig_r[j]) & mask).collect();
-        out.push(ProductAssignment {
-            sig_x,
-            sig_y,
-            i,
-            l,
-            r,
-        });
+        out.push(ProductAssignment { sig_x, sig_y });
         if out.len() >= MAX_ASSIGNMENTS {
             break;
         }
@@ -137,27 +123,6 @@ fn enumerate_valid_assignments(
 }
 
 /// `(a & m) * (a & n)` → `a` when both AND-terms share a factor.
-fn reconstruct_masked_product_factor(
-    inclusive_term: &Expr,
-    exclusive_term: &Expr,
-) -> Option<Box<Expr>> {
-    if !matches!(inclusive_term.kind, Kind::And)
-        || !matches!(exclusive_term.kind, Kind::And)
-        || inclusive_term.children.len() != 2
-        || exclusive_term.children.len() != 2
-    {
-        return None;
-    }
-    for lhs_child in &inclusive_term.children {
-        for rhs_child in &exclusive_term.children {
-            if **lhs_child == **rhs_child {
-                return Some(lhs_child.clone_tree());
-            }
-        }
-    }
-    None
-}
-
 fn active_ast_vars(item: &WorkItem, ctx: &OrchestratorContext) -> Vec<String> {
     if let StateData::FoldedAst(ast) = &item.payload {
         if let Some(sc) = &ast.solve_ctx {
@@ -165,42 +130,6 @@ fn active_ast_vars(item: &WorkItem, ctx: &OrchestratorContext) -> Vec<String> {
         }
     }
     ctx.original_vars.clone()
-}
-
-fn rewrite_with_direct_candidate(
-    ast: &AstPayload,
-    item: &WorkItem,
-    bitwidth: u32,
-    add_hash: u64,
-    candidate: Box<Expr>,
-) -> WorkItem {
-    let mut repl = Some(candidate);
-    let (rebuilt, _) = replace_by_hash(ast.expr.clone_tree(), add_hash, &mut repl);
-    let new_cls = classify_structural(&rebuilt);
-    let solve_ctx = ast.solve_ctx.clone();
-    let lean_certificate = Some(LeanCertificate::new(
-        bitwidth,
-        ast.expr.clone_tree(),
-        rebuilt.clone_tree(),
-    ));
-    let mut rewritten = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
-        expr: rebuilt,
-        classification: Some(new_cls),
-        provenance: Provenance::Rewritten,
-        solve_ctx,
-    })));
-    rewritten.features = item.features.clone();
-    rewritten.features.classification = Some(new_cls);
-    rewritten.features.provenance = Provenance::Rewritten;
-    rewritten.metadata = item.metadata.clone();
-    rewritten.metadata.lean_certificate = lean_certificate;
-    rewritten.metadata.lean_signature_certificate = None;
-    rewritten.depth = item.depth;
-    rewritten.rewrite_gen = item.rewrite_gen + 1;
-    rewritten.attempted_mask = 0;
-    rewritten.group_id = item.group_id;
-    rewritten.history.clone_from(&item.history);
-    rewritten
 }
 
 #[allow(clippy::unnecessary_wraps, clippy::too_many_lines)]
@@ -240,57 +169,11 @@ pub fn run_product_identity_collapse(
     }
 
     let baseline_cost = compute_cost(site.add_node).cost;
-    let factors = [
-        &site.add_node.children[0].children[0],
-        &site.add_node.children[0].children[1],
-        &site.add_node.children[1].children[0],
-        &site.add_node.children[1].children[1],
-    ];
 
-    // Step 1: try direct Mul reconstruction.
-    let mut best_direct: Option<(Box<Expr>, _)> = None;
-    let chk_eval = cobra_core::evaluator::Evaluator::from_expr(site.add_node, ctx.bitwidth);
-    for assign in &assignments {
-        let direct_x = reconstruct_masked_product_factor(factors[assign.i], factors[assign.l]);
-        let direct_y = reconstruct_masked_product_factor(factors[assign.i], factors[assign.r]);
-        let (Some(dx), Some(dy)) = (direct_x, direct_y) else {
-            continue;
-        };
-        let direct = Expr::mul(dx, dy);
-        let chk = full_width_check_eval(
-            &chk_eval,
-            num_vars,
-            &direct,
-            ctx.bitwidth,
-            DEFAULT_NUM_SAMPLES,
-        );
-        if !chk.passed {
-            continue;
-        }
-        let cost = compute_cost(&direct).cost;
-        if !is_better(&cost, &baseline_cost) {
-            continue;
-        }
-        if let Some((_, bc)) = &best_direct {
-            if !is_better(&cost, bc) {
-                continue;
-            }
-        }
-        best_direct = Some((direct, cost));
-    }
-
-    if let Some((direct, _)) = best_direct {
-        let rewritten =
-            rewrite_with_direct_candidate(ast, item, ctx.bitwidth, site.add_hash, direct);
-        return Ok(PassResult {
-            decision: PassDecision::Advance,
-            disposition: ItemDisposition::ConsumeCurrent,
-            next: vec![rewritten],
-            reason: ReasonDetail::default(),
-        });
-    }
-
-    // Step 2: fan out into ProductJoinState per assignment.
+    // Direct product reconstruction is only a Boolean-signature identity for
+    // some mask partitions, not a full 64-bit endpoint identity. Keep this
+    // pass on the verified path by emitting child signature subproblems and
+    // letting `ResolveCompetition` produce replayed source-signature evidence.
     let solve_ctx = ast.solve_ctx.as_ref();
     let solve_ctx_vars = solve_ctx.map(|s| s.vars.clone()).unwrap_or_default();
     let solve_ctx_evaluator = solve_ctx.and_then(|s| s.evaluator.clone());
@@ -386,6 +269,7 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 mod tests {
     use super::*;
     use cobra_core::simplify_outcome::Options;
+    use cobra_orchestrator::{AstPayload, Provenance};
 
     fn mk_ast_item(expr: Box<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
@@ -423,17 +307,20 @@ mod tests {
     }
 
     #[test]
-    fn direct_rewrite_replaces_stale_metadata_with_endpoint_certificate() {
-        let ast = AstPayload {
-            expr: Expr::add(
-                Expr::mul(Expr::variable(0), Expr::variable(1)),
-                Expr::mul(Expr::variable(0), Expr::variable(2)),
+    fn fanout_clears_stale_proof_metadata() {
+        let expr = Expr::add(
+            Expr::mul(
+                Expr::and(Expr::variable(0), Expr::variable(1)),
+                Expr::or(Expr::variable(0), Expr::variable(1)),
             ),
-            classification: None,
-            provenance: Provenance::Original,
-            solve_ctx: None,
-        };
-        let mut item = WorkItem::new(StateData::FoldedAst(Box::new(ast.clone())));
+            Expr::mul(
+                Expr::and(Expr::variable(0), Expr::not(Expr::variable(1))),
+                Expr::and(Expr::not(Expr::variable(0)), Expr::variable(1)),
+            ),
+        );
+        let mut ctx =
+            OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+        let mut item = mk_ast_item(expr);
         item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
             64,
             Expr::variable(0),
@@ -441,29 +328,15 @@ mod tests {
         ));
         item.metadata.lean_signature_certificate =
             cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
-        let add_hash = expr_identity_hash(&ast.expr);
 
-        let rewritten = rewrite_with_direct_candidate(
-            &ast,
-            &item,
-            64,
-            add_hash,
-            Expr::mul(
-                Expr::variable(0),
-                Expr::add(Expr::variable(1), Expr::variable(2)),
-            ),
-        );
-
-        let cert = rewritten
-            .metadata
-            .lean_certificate
-            .as_ref()
-            .expect("endpoint certificate");
-        if let StateData::FoldedAst(rewritten_ast) = &rewritten.payload {
-            assert!(cert.matches_endpoints(64, &ast.expr, &rewritten_ast.expr));
-        } else {
-            panic!("expected folded AST");
+        let pr = run_product_identity_collapse(&item, &mut ctx).unwrap();
+        assert_eq!(pr.decision, PassDecision::Advance);
+        assert_eq!(pr.disposition, ItemDisposition::ConsumeCurrent);
+        assert!(!pr.next.is_empty());
+        for child in pr.next {
+            assert!(matches!(child.payload, StateData::Signature(_)));
+            assert!(child.metadata.lean_certificate.is_none());
+            assert!(child.metadata.lean_signature_certificate.is_none());
         }
-        assert!(rewritten.metadata.lean_signature_certificate.is_none());
     }
 }

@@ -18,7 +18,7 @@ use cobra_orchestrator::{
     RemainderStatePayload, RemainderTargetContext, StateData, WorkItem,
 };
 
-use crate::aux_var::eliminate_aux_vars;
+use crate::aux_var::eliminate_aux_vars_fw;
 
 fn reason(msg: &'static str, category: ReasonCategory, subcode: u16) -> ReasonDetail {
     ReasonDetail {
@@ -74,7 +74,7 @@ pub fn run_prepare_direct_remainder(
     // evaluation of the AST. This is the residual candidate.
     let decomp_sig = evaluate_boolean_signature(&ast.expr, num_vars, ctx.bitwidth);
 
-    let elim = eliminate_aux_vars(&decomp_sig, &active_vars);
+    let elim = eliminate_aux_vars_fw(&decomp_sig, &active_vars, &eval, ctx.bitwidth);
     let support = build_var_support(&active_vars, &elim.real_vars);
 
     if !is_boolean_null_sig(&decomp_sig) {

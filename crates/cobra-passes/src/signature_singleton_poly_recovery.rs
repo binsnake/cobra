@@ -170,12 +170,19 @@ pub fn run_signature_singleton_poly_recovery(
             });
         }
         let cost = compute_cost(&candidate).cost;
-        let lean_signature_certificate = signature_certificate_for_candidate(
+        let Some(lean_signature_certificate) = signature_certificate_for_candidate(
             ctx.bitwidth,
             &sub.elimination.reduced_sig,
             &sub.real_vars,
             &candidate,
-        );
+        ) else {
+            return Ok(PassResult {
+                decision: PassDecision::NoProgress,
+                disposition: ItemDisposition::RetainCurrent,
+                next: Vec::new(),
+                reason: ReasonDetail::default(),
+            });
+        };
         submit_normalized_candidate(
             &mut ctx.competition_groups,
             group_id,
@@ -188,7 +195,7 @@ pub fn run_signature_singleton_poly_recovery(
                 needs_original_space_verification: sub.needs_original_space_verification,
                 sig_vector: sub.elimination.reduced_sig.clone(),
                 lean_certificate: None,
-                lean_signature_certificate,
+                lean_signature_certificate: Some(lean_signature_certificate),
             },
             ctx.bitwidth,
         );
@@ -233,12 +240,19 @@ pub fn run_signature_singleton_poly_recovery(
             });
         }
         let cost = compute_cost(&candidate).cost;
-        let lean_signature_certificate = signature_certificate_for_candidate(
+        let Some(lean_signature_certificate) = signature_certificate_for_candidate(
             ctx.bitwidth,
             &sub.elimination.reduced_sig,
             &sub.real_vars,
             &candidate,
-        );
+        ) else {
+            return Ok(PassResult {
+                decision: PassDecision::NoProgress,
+                disposition: ItemDisposition::RetainCurrent,
+                next: Vec::new(),
+                reason: ReasonDetail::default(),
+            });
+        };
         submit_normalized_candidate(
             &mut ctx.competition_groups,
             group_id,
@@ -251,7 +265,7 @@ pub fn run_signature_singleton_poly_recovery(
                 needs_original_space_verification: sub.needs_original_space_verification,
                 sig_vector: sub.elimination.reduced_sig.clone(),
                 lean_certificate: None,
-                lean_signature_certificate,
+                lean_signature_certificate: Some(lean_signature_certificate),
             },
             ctx.bitwidth,
         );

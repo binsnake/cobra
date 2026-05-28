@@ -20,6 +20,7 @@ pub enum LeanTheorem {
     XorEqAddSubTwoMulAnd64,
     OrSubAndEqXor64,
     AndOrSumEqAdd64,
+    TwoMulAndOrSumEqTwoMulAdd64,
     NotOrSubNotEqAnd64,
     NotOrAddSelfAddOneEqAnd64,
     XorViaOrNot64,
@@ -27,6 +28,8 @@ pub enum LeanTheorem {
     AddAssoc64,
     MulComm64,
     MulAssoc64,
+    MulAdd64,
+    AddMul64,
     AddZero64,
     MulZero64,
     MulOne64,
@@ -44,6 +47,7 @@ pub enum LeanTheorem {
     XorZero64,
     ZeroXor64,
     AndZero64,
+    Const3And1_64,
     ZeroAnd64,
     OrZero64,
     ZeroOr64,
@@ -52,11 +56,106 @@ pub enum LeanTheorem {
     OrAllOnes64,
     AllOnesOr64,
     DemorganNotAnd64,
+    DemorganOrNotNot64,
+    DemorganNotAndNotNot64,
     DemorganNotOr64,
+    DemorganNotOrNotNot64,
     ShrZero64,
 }
 
 impl LeanTheorem {
+    pub const ALL: &'static [Self] = &[
+        Self::CompileSound,
+        Self::ContextPreservesSemanticEquivalence,
+        Self::RewriteStepSound,
+        Self::ChainSound,
+        Self::BnotEqNegAddMask64,
+        Self::BnotEqNegAddAllOnes64,
+        Self::XorEqAddSubTwoMulAnd64,
+        Self::OrSubAndEqXor64,
+        Self::AndOrSumEqAdd64,
+        Self::TwoMulAndOrSumEqTwoMulAdd64,
+        Self::NotOrSubNotEqAnd64,
+        Self::NotOrAddSelfAddOneEqAnd64,
+        Self::XorViaOrNot64,
+        Self::AddComm64,
+        Self::AddAssoc64,
+        Self::MulComm64,
+        Self::MulAssoc64,
+        Self::MulAdd64,
+        Self::AddMul64,
+        Self::AddZero64,
+        Self::MulZero64,
+        Self::MulOne64,
+        Self::ZeroAdd64,
+        Self::ZeroMul64,
+        Self::OneMul64,
+        Self::NegNeg64,
+        Self::NotNot64,
+        Self::AndComm64,
+        Self::OrComm64,
+        Self::XorComm64,
+        Self::AndSelf64,
+        Self::OrSelf64,
+        Self::XorSelf64,
+        Self::XorZero64,
+        Self::ZeroXor64,
+        Self::AndZero64,
+        Self::Const3And1_64,
+        Self::ZeroAnd64,
+        Self::OrZero64,
+        Self::ZeroOr64,
+        Self::AndAllOnes64,
+        Self::AllOnesAnd64,
+        Self::OrAllOnes64,
+        Self::AllOnesOr64,
+        Self::DemorganNotAnd64,
+        Self::DemorganOrNotNot64,
+        Self::DemorganNotAndNotNot64,
+        Self::DemorganNotOr64,
+        Self::DemorganNotOrNotNot64,
+        Self::ShrZero64,
+    ];
+
+    pub const RECOGNIZED_REWRITE_64: &'static [Self] = &[
+        Self::XorEqAddSubTwoMulAnd64,
+        Self::OrSubAndEqXor64,
+        Self::AndOrSumEqAdd64,
+        Self::TwoMulAndOrSumEqTwoMulAdd64,
+        Self::NotOrAddSelfAddOneEqAnd64,
+        Self::XorViaOrNot64,
+        Self::NotOrSubNotEqAnd64,
+        Self::AddZero64,
+        Self::MulZero64,
+        Self::MulOne64,
+        Self::ZeroAdd64,
+        Self::ZeroMul64,
+        Self::OneMul64,
+        Self::NegNeg64,
+        Self::NotNot64,
+        Self::AndSelf64,
+        Self::OrSelf64,
+        Self::XorSelf64,
+        Self::XorZero64,
+        Self::ZeroXor64,
+        Self::AndZero64,
+        Self::Const3And1_64,
+        Self::ZeroAnd64,
+        Self::OrZero64,
+        Self::ZeroOr64,
+        Self::AndAllOnes64,
+        Self::AllOnesAnd64,
+        Self::OrAllOnes64,
+        Self::AllOnesOr64,
+        Self::DemorganNotAnd64,
+        Self::DemorganOrNotNot64,
+        Self::DemorganNotAndNotNot64,
+        Self::DemorganNotOr64,
+        Self::DemorganNotOrNotNot64,
+        Self::BnotEqNegAddAllOnes64,
+        Self::ShrZero64,
+    ];
+
     #[must_use]
     pub const fn lean_name(self) -> &'static str {
         match self {
@@ -69,6 +168,7 @@ impl LeanTheorem {
             Self::XorEqAddSubTwoMulAnd64 => "Cobra.xor_eq_add_sub_two_mul_and_64",
             Self::OrSubAndEqXor64 => "Cobra.or_sub_and_eq_xor_64",
             Self::AndOrSumEqAdd64 => "Cobra.and_or_sum_eq_add_64",
+            Self::TwoMulAndOrSumEqTwoMulAdd64 => "Cobra.two_mul_and_or_sum_eq_two_mul_add_64",
             Self::NotOrSubNotEqAnd64 => "Cobra.not_or_sub_not_eq_and_64",
             Self::NotOrAddSelfAddOneEqAnd64 => "Cobra.not_or_add_self_add_one_eq_and_64",
             Self::XorViaOrNot64 => "Cobra.xor_via_or_not_64",
@@ -76,6 +176,8 @@ impl LeanTheorem {
             Self::AddAssoc64 => "Cobra.add_assoc_64",
             Self::MulComm64 => "Cobra.mul_comm_64",
             Self::MulAssoc64 => "Cobra.mul_assoc_64",
+            Self::MulAdd64 => "Cobra.mul_add_64",
+            Self::AddMul64 => "Cobra.add_mul_64",
             Self::AddZero64 => "Cobra.add_zero_64",
             Self::MulZero64 => "Cobra.mul_zero_64",
             Self::MulOne64 => "Cobra.mul_one_64",
@@ -93,6 +195,7 @@ impl LeanTheorem {
             Self::XorZero64 => "Cobra.xor_zero_64",
             Self::ZeroXor64 => "Cobra.zero_xor_64",
             Self::AndZero64 => "Cobra.and_zero_64",
+            Self::Const3And1_64 => "Cobra.const_3_and_1_64",
             Self::ZeroAnd64 => "Cobra.zero_and_64",
             Self::OrZero64 => "Cobra.or_zero_64",
             Self::ZeroOr64 => "Cobra.zero_or_64",
@@ -101,7 +204,10 @@ impl LeanTheorem {
             Self::OrAllOnes64 => "Cobra.or_all_ones_64",
             Self::AllOnesOr64 => "Cobra.all_ones_or_64",
             Self::DemorganNotAnd64 => "Cobra.demorgan_not_and_64",
+            Self::DemorganOrNotNot64 => "Cobra.demorgan_or_not_not_64",
+            Self::DemorganNotAndNotNot64 => "Cobra.demorgan_not_and_not_not_64",
             Self::DemorganNotOr64 => "Cobra.demorgan_not_or_64",
+            Self::DemorganNotOrNotNot64 => "Cobra.demorgan_not_or_not_not_64",
             Self::ShrZero64 => "Cobra.shr_zero_64",
         }
     }
@@ -272,6 +378,26 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
                     }
                 }
             }
+            if let Some((a, b)) = and_or_sum_operands(lhs, rhs) {
+                if is_add_of(after, a, b) {
+                    return Some(Thm::AndOrSumEqAdd64);
+                }
+            }
+            if let Some((a, b)) = scaled_and_or_sum_operands(lhs, rhs, 2) {
+                if is_scaled_add_of(after, a, b, 2) {
+                    return Some(Thm::TwoMulAndOrSumEqTwoMulAdd64);
+                }
+            }
+            if let Some((a, b)) = not_or_add_self_add_one_operands(before) {
+                if is_and_of(after, a, b) {
+                    return Some(Thm::NotOrAddSelfAddOneEqAnd64);
+                }
+            }
+            if let Some((a, b)) = xor_via_or_not_operands(before) {
+                if is_xor_of(after, a, b) {
+                    return Some(Thm::XorViaOrNot64);
+                }
+            }
         }
         Kind::Mul if before.children.len() == 2 => {
             let lhs = &before.children[0];
@@ -298,6 +424,9 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
             if is_zero(rhs) && is_zero(after) {
                 return Some(Thm::AndZero64);
             }
+            if is_const_value(lhs, 3) && is_const_value(rhs, 1) && is_const_value(after, 1) {
+                return Some(Thm::Const3And1_64);
+            }
             if is_zero(lhs) && is_zero(after) {
                 return Some(Thm::ZeroAnd64);
             }
@@ -320,6 +449,11 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
             if is_zero(lhs) && expr_eq(rhs, after) {
                 return Some(Thm::ZeroOr64);
             }
+            if let Some((lhs, rhs)) = not_pair_operands(lhs, rhs) {
+                if is_not_of_and(after, lhs, rhs) {
+                    return Some(Thm::DemorganOrNotNot64);
+                }
+            }
             if is_all_ones(rhs) && is_all_ones(after) {
                 return Some(Thm::OrAllOnes64);
             }
@@ -330,6 +464,9 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
         Kind::Xor if before.children.len() == 2 => {
             let lhs = &before.children[0];
             let rhs = &before.children[1];
+            if is_xor_lowering_of(after, lhs, rhs) {
+                return Some(Thm::XorEqAddSubTwoMulAnd64);
+            }
             if expr_eq(lhs, rhs) && is_zero(after) {
                 return Some(Thm::XorSelf64);
             }
@@ -352,8 +489,22 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
                 if was_and && is_or_of_not_pair(after, lhs, rhs) {
                     return Some(Thm::DemorganNotAnd64);
                 }
+                if was_and {
+                    if let Some((lhs, rhs)) = not_pair_operands(lhs, rhs) {
+                        if is_or_of(after, lhs, rhs) {
+                            return Some(Thm::DemorganNotAndNotNot64);
+                        }
+                    }
+                }
                 if !was_and && is_and_of_not_pair(after, lhs, rhs) {
                     return Some(Thm::DemorganNotOr64);
+                }
+                if !was_and {
+                    if let Some((lhs, rhs)) = not_pair_operands(lhs, rhs) {
+                        if is_and_of(after, lhs, rhs) {
+                            return Some(Thm::DemorganNotOrNotNot64);
+                        }
+                    }
                 }
             }
             if is_neg_add_all_ones_of(after, child) {
@@ -408,6 +559,37 @@ fn same_or_and_operands<'a>(or_node: &'a Expr, and_node: &'a Expr) -> Option<(&'
     }
 }
 
+fn and_or_sum_operands<'a>(lhs: &'a Expr, rhs: &'a Expr) -> Option<(&'a Expr, &'a Expr)> {
+    if let Some((a, b)) = same_or_and_operands(lhs, rhs) {
+        Some((a, b))
+    } else {
+        same_or_and_operands(rhs, lhs)
+    }
+}
+
+fn scaled_and_or_sum_operands<'a>(
+    lhs: &'a Expr,
+    rhs: &'a Expr,
+    coeff: u64,
+) -> Option<(&'a Expr, &'a Expr)> {
+    let lhs = scaled_child(lhs, coeff)?;
+    let rhs = scaled_child(rhs, coeff)?;
+    and_or_sum_operands(lhs, rhs)
+}
+
+fn scaled_child(expr: &Expr, coeff: u64) -> Option<&Expr> {
+    if !matches!(expr.kind, Kind::Mul) || expr.children.len() != 2 {
+        return None;
+    }
+    if is_const_value(&expr.children[0], coeff) {
+        Some(&expr.children[1])
+    } else if is_const_value(&expr.children[1], coeff) {
+        Some(&expr.children[0])
+    } else {
+        None
+    }
+}
+
 fn not_or_minus_not_operands<'a>(
     or_node: &'a Expr,
     not_node: &'a Expr,
@@ -431,6 +613,106 @@ fn not_or_minus_not_operands<'a>(
     }
 }
 
+struct SignedAddend<'a> {
+    expr: &'a Expr,
+    negated: bool,
+}
+
+fn flatten_signed_addends<'a>(expr: &'a Expr, negated: bool, out: &mut Vec<SignedAddend<'a>>) {
+    match expr.kind {
+        Kind::Add if expr.children.len() == 2 => {
+            flatten_signed_addends(&expr.children[0], negated, out);
+            flatten_signed_addends(&expr.children[1], negated, out);
+        }
+        Kind::Neg if expr.children.len() == 1 => {
+            flatten_signed_addends(&expr.children[0], !negated, out);
+        }
+        _ => out.push(SignedAddend { expr, negated }),
+    }
+}
+
+fn not_or_add_self_add_one_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
+    let mut addends = Vec::new();
+    flatten_signed_addends(expr, false, &mut addends);
+    if addends.len() != 3 || addends.iter().any(|a| a.negated) {
+        return None;
+    }
+
+    let one_idx = addends.iter().position(|a| is_one(a.expr))?;
+    let or_idx = addends
+        .iter()
+        .enumerate()
+        .find(|(idx, a)| *idx != one_idx && matches!(a.expr.kind, Kind::Or))
+        .map(|(idx, _)| idx)?;
+    let a_idx = (0..3).find(|idx| *idx != one_idx && *idx != or_idx)?;
+
+    let a = addends[a_idx].expr;
+    let or_node = addends[or_idx].expr;
+    if or_node.children.len() != 2 {
+        return None;
+    }
+    let lhs = &or_node.children[0];
+    let rhs = &or_node.children[1];
+    if is_not_of(lhs, a) {
+        Some((a, rhs))
+    } else if is_not_of(rhs, a) {
+        Some((a, lhs))
+    } else {
+        None
+    }
+}
+
+fn xor_via_or_not_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
+    let mut addends = Vec::new();
+    flatten_signed_addends(expr, false, &mut addends);
+    if addends.len() != 4 {
+        return None;
+    }
+
+    let neg_two_idx = addends
+        .iter()
+        .position(|a| a.negated && is_const_value(a.expr, 2))?;
+    let two_or = addends.iter().enumerate().find_map(|(idx, a)| {
+        if idx == neg_two_idx || !a.negated || !matches!(a.expr.kind, Kind::Mul) {
+            return None;
+        }
+        let lhs = &a.expr.children[0];
+        let rhs = &a.expr.children[1];
+        if is_const_value(lhs, 2) && matches!(rhs.kind, Kind::Or) {
+            Some((idx, rhs.as_ref()))
+        } else if is_const_value(rhs, 2) && matches!(lhs.kind, Kind::Or) {
+            Some((idx, lhs.as_ref()))
+        } else {
+            None
+        }
+    })?;
+
+    let (mul_idx, or_node) = two_or;
+    if or_node.children.len() != 2 {
+        return None;
+    }
+    let remaining: Vec<_> = (0..4)
+        .filter(|idx| *idx != neg_two_idx && *idx != mul_idx)
+        .collect();
+    if remaining.len() != 2 {
+        return None;
+    }
+    let (a_idx, b_idx) = match (addends[remaining[0]].negated, addends[remaining[1]].negated) {
+        (false, true) => (remaining[0], remaining[1]),
+        (true, false) => (remaining[1], remaining[0]),
+        _ => return None,
+    };
+    let a = addends[a_idx].expr;
+    let b = addends[b_idx].expr;
+    let lhs = &or_node.children[0];
+    let rhs = &or_node.children[1];
+    if (expr_eq(lhs, a) && is_not_of(rhs, b)) || (expr_eq(rhs, a) && is_not_of(lhs, b)) {
+        Some((a, b))
+    } else {
+        None
+    }
+}
+
 fn not_of_and_or(expr: &Expr) -> Option<(&Expr, &Expr, bool)> {
     if !matches!(expr.kind, Kind::And | Kind::Or) || expr.children.len() != 2 {
         return None;
@@ -448,10 +730,63 @@ fn is_xor_of(expr: &Expr, lhs: &Expr, rhs: &Expr) -> bool {
         && unordered_pair_eq(&expr.children[0], &expr.children[1], lhs, rhs)
 }
 
+fn is_add_of(expr: &Expr, lhs: &Expr, rhs: &Expr) -> bool {
+    matches!(expr.kind, Kind::Add)
+        && expr.children.len() == 2
+        && unordered_pair_eq(&expr.children[0], &expr.children[1], lhs, rhs)
+}
+
+fn is_scaled_add_of(expr: &Expr, lhs: &Expr, rhs: &Expr, coeff: u64) -> bool {
+    if !matches!(expr.kind, Kind::Add) || expr.children.len() != 2 {
+        return false;
+    }
+    let lhs_scaled = Expr::mul(Expr::constant(coeff), lhs.clone_tree());
+    let rhs_scaled = Expr::mul(Expr::constant(coeff), rhs.clone_tree());
+    unordered_pair_eq(
+        &expr.children[0],
+        &expr.children[1],
+        &lhs_scaled,
+        &rhs_scaled,
+    )
+}
+
 fn is_and_of(expr: &Expr, lhs: &Expr, rhs: &Expr) -> bool {
     matches!(expr.kind, Kind::And)
         && expr.children.len() == 2
         && unordered_pair_eq(&expr.children[0], &expr.children[1], lhs, rhs)
+}
+
+fn is_or_of(expr: &Expr, lhs: &Expr, rhs: &Expr) -> bool {
+    matches!(expr.kind, Kind::Or)
+        && expr.children.len() == 2
+        && unordered_pair_eq(&expr.children[0], &expr.children[1], lhs, rhs)
+}
+
+fn is_xor_lowering_of(expr: &Expr, lhs: &Expr, rhs: &Expr) -> bool {
+    let Kind::Add = expr.kind else {
+        return false;
+    };
+    if expr.children.len() != 2 {
+        return false;
+    }
+    let sum = &expr.children[0];
+    let neg_two_and = &expr.children[1];
+    if !matches!(sum.kind, Kind::Add)
+        || sum.children.len() != 2
+        || !unordered_pair_eq(&sum.children[0], &sum.children[1], lhs, rhs)
+        || !matches!(neg_two_and.kind, Kind::Neg)
+        || neg_two_and.children.len() != 1
+    {
+        return false;
+    }
+    let two_and = &neg_two_and.children[0];
+    if !matches!(two_and.kind, Kind::Mul) || two_and.children.len() != 2 {
+        return false;
+    }
+    let a = &two_and.children[0];
+    let b = &two_and.children[1];
+    (is_const_value(a, 2) && is_and_of(b, lhs, rhs))
+        || (is_const_value(b, 2) && is_and_of(a, lhs, rhs))
 }
 
 fn is_or_of_not_pair(expr: &Expr, lhs: &Expr, rhs: &Expr) -> bool {
@@ -466,6 +801,24 @@ fn is_and_of_not_pair(expr: &Expr, lhs: &Expr, rhs: &Expr) -> bool {
         && expr.children.len() == 2
         && ((is_not_of(&expr.children[0], lhs) && is_not_of(&expr.children[1], rhs))
             || (is_not_of(&expr.children[0], rhs) && is_not_of(&expr.children[1], lhs)))
+}
+
+fn not_pair_operands<'a>(lhs: &'a Expr, rhs: &'a Expr) -> Option<(&'a Expr, &'a Expr)> {
+    if matches!(lhs.kind, Kind::Not)
+        && lhs.children.len() == 1
+        && matches!(rhs.kind, Kind::Not)
+        && rhs.children.len() == 1
+    {
+        Some((&lhs.children[0], &rhs.children[0]))
+    } else {
+        None
+    }
+}
+
+fn is_not_of_and(expr: &Expr, lhs: &Expr, rhs: &Expr) -> bool {
+    matches!(expr.kind, Kind::Not)
+        && expr.children.len() == 1
+        && is_and_of(&expr.children[0], lhs, rhs)
 }
 
 fn is_neg_add_all_ones_of(expr: &Expr, inner: &Expr) -> bool {
@@ -499,6 +852,10 @@ fn is_zero(expr: &Expr) -> bool {
 
 fn is_one(expr: &Expr) -> bool {
     matches!(expr.kind, Kind::Constant(1))
+}
+
+fn is_const_value(expr: &Expr, value: u64) -> bool {
+    matches!(expr.kind, Kind::Constant(v) if v == value)
 }
 
 fn is_all_ones(expr: &Expr) -> bool {
@@ -592,6 +949,75 @@ impl LeanCertificate {
     }
 
     #[must_use]
+    pub fn try_single_rewrite_between_64(
+        bitwidth: u32,
+        original: Box<Expr>,
+        simplified: Box<Expr>,
+    ) -> Option<Self> {
+        if bitwidth != 64 {
+            return None;
+        }
+
+        fn go(
+            bitwidth: u32,
+            original_root: &Expr,
+            simplified_root: &Expr,
+            original_site: &Expr,
+            simplified_site: &Expr,
+            path: &mut Vec<u8>,
+        ) -> Option<LeanCertificate> {
+            if let Some(cert) = LeanCertificate::try_single_rewrite_64(
+                bitwidth,
+                original_root.clone_tree(),
+                ExprPath(path.clone()),
+                simplified_site.clone_tree(),
+            ) {
+                if *cert.simplified == *simplified_root {
+                    return Some(cert);
+                }
+            }
+
+            if original_site.kind != simplified_site.kind
+                || original_site.children.len() != simplified_site.children.len()
+                || original_site.children.len() > usize::from(u8::MAX)
+            {
+                return None;
+            }
+
+            for (idx, (before_child, after_child)) in original_site
+                .children
+                .iter()
+                .zip(simplified_site.children.iter())
+                .enumerate()
+            {
+                path.push(u8::try_from(idx).ok()?);
+                if let Some(cert) = go(
+                    bitwidth,
+                    original_root,
+                    simplified_root,
+                    before_child,
+                    after_child,
+                    path,
+                ) {
+                    path.pop();
+                    return Some(cert);
+                }
+                path.pop();
+            }
+            None
+        }
+
+        go(
+            bitwidth,
+            &original,
+            &simplified,
+            &original,
+            &simplified,
+            &mut Vec::new(),
+        )
+    }
+
+    #[must_use]
     pub fn merge_step_chain(mut self, next: Self) -> Option<Self> {
         if self.bitwidth != next.bitwidth || *self.simplified != *next.original {
             return None;
@@ -677,6 +1103,18 @@ mod tests {
             "Cobra.demorgan_not_or_64"
         );
         assert_eq!(
+            LeanTheorem::DemorganOrNotNot64.lean_name(),
+            "Cobra.demorgan_or_not_not_64"
+        );
+        assert_eq!(
+            LeanTheorem::DemorganNotAndNotNot64.lean_name(),
+            "Cobra.demorgan_not_and_not_not_64"
+        );
+        assert_eq!(
+            LeanTheorem::DemorganNotOrNotNot64.lean_name(),
+            "Cobra.demorgan_not_or_not_not_64"
+        );
+        assert_eq!(
             LeanTheorem::BnotEqNegAddAllOnes64.lean_name(),
             "Cobra.bnot_eq_neg_add_all_ones_64"
         );
@@ -760,6 +1198,48 @@ mod tests {
             identify_rewrite_theorem_64(&Expr::shr(x.clone_tree(), 0), &x),
             Some(LeanTheorem::ShrZero64)
         );
+        assert_eq!(
+            identify_rewrite_theorem_64(
+                &Expr::and(Expr::constant(3), Expr::constant(1)),
+                &Expr::constant(1)
+            ),
+            Some(LeanTheorem::Const3And1_64)
+        );
+        assert_eq!(
+            identify_rewrite_theorem_64(
+                &Expr::and(Expr::constant(1), Expr::constant(3)),
+                &Expr::constant(1)
+            ),
+            None
+        );
+        let y = Expr::variable(1);
+        assert_eq!(
+            identify_rewrite_theorem_64(
+                &Expr::or(Expr::not(x.clone_tree()), Expr::not(y.clone_tree())),
+                &Expr::not(Expr::and(x.clone_tree(), y.clone_tree()))
+            ),
+            Some(LeanTheorem::DemorganOrNotNot64)
+        );
+        assert_eq!(
+            identify_rewrite_theorem_64(
+                &Expr::not(Expr::and(
+                    Expr::not(x.clone_tree()),
+                    Expr::not(y.clone_tree())
+                )),
+                &Expr::or(x.clone_tree(), y.clone_tree())
+            ),
+            Some(LeanTheorem::DemorganNotAndNotNot64)
+        );
+        assert_eq!(
+            identify_rewrite_theorem_64(
+                &Expr::not(Expr::or(
+                    Expr::not(x.clone_tree()),
+                    Expr::not(y.clone_tree())
+                )),
+                &Expr::and(x.clone_tree(), y.clone_tree())
+            ),
+            Some(LeanTheorem::DemorganNotOrNotNot64)
+        );
     }
 
     #[test]
@@ -774,6 +1254,39 @@ mod tests {
         assert_eq!(
             identify_rewrite_theorem_64(&before, &after),
             Some(LeanTheorem::OrSubAndEqXor64)
+        );
+    }
+
+    #[test]
+    fn identifies_and_or_sum_identity() {
+        let x = Expr::variable(0);
+        let y = Expr::variable(1);
+        let before = Expr::add(
+            Expr::and(x.clone_tree(), y.clone_tree()),
+            Expr::or(x.clone_tree(), y.clone_tree()),
+        );
+        let after = Expr::add(x, y);
+        assert_eq!(
+            identify_rewrite_theorem_64(&before, &after),
+            Some(LeanTheorem::AndOrSumEqAdd64)
+        );
+    }
+
+    #[test]
+    fn identifies_xor_lowering_identity() {
+        let x = Expr::variable(0);
+        let y = Expr::variable(1);
+        let before = Expr::xor(x.clone_tree(), y.clone_tree());
+        let after = Expr::add(
+            Expr::add(x.clone_tree(), y.clone_tree()),
+            Expr::neg(Expr::mul(
+                Expr::constant(2),
+                Expr::and(x.clone_tree(), y.clone_tree()),
+            )),
+        );
+        assert_eq!(
+            identify_rewrite_theorem_64(&before, &after),
+            Some(LeanTheorem::XorEqAddSubTwoMulAnd64)
         );
     }
 
@@ -808,6 +1321,30 @@ mod tests {
             *Expr::add(Expr::variable(1), Expr::constant(0))
         );
         assert_eq!(cert.steps[0].theorem, LeanTheorem::AndZero64);
+    }
+
+    #[test]
+    fn single_rewrite_between_finds_nested_site() {
+        let x = Expr::variable(0);
+        let y = Expr::variable(1);
+        let z = Expr::variable(2);
+        let original = Expr::add(
+            Expr::add(
+                Expr::or(x.clone_tree(), y.clone_tree()),
+                Expr::neg(Expr::and(x.clone_tree(), y.clone_tree())),
+            ),
+            z.clone_tree(),
+        );
+        let simplified = Expr::add(Expr::xor(x, y), z);
+        let cert = LeanCertificate::try_single_rewrite_between_64(
+            64,
+            original.clone_tree(),
+            simplified.clone_tree(),
+        )
+        .expect("nested rewrite certificate");
+        assert!(cert.matches_endpoints(64, &original, &simplified));
+        assert_eq!(cert.steps[0].path, ExprPath(vec![0]));
+        assert_eq!(cert.steps[0].theorem, LeanTheorem::OrSubAndEqXor64);
     }
 
     #[test]

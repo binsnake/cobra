@@ -74,11 +74,27 @@ pub fn to_simplify_outcome(
                         )
                     })
                 });
+            let has_matching_signature_certificate = original_expr.is_none()
+                && result
+                    .metadata
+                    .lean_signature_certificate
+                    .as_ref()
+                    .is_some_and(|cert| {
+                        cert.matches_signature(
+                            bitwidth,
+                            real_vars.len() as u32,
+                            &result.metadata.sig_vector,
+                            &cleaned_expr,
+                        )
+                    });
+            let has_matching_lean_evidence =
+                has_matching_lean_certificate || has_matching_signature_certificate;
             outcome.expr = Some(cleaned_expr);
             outcome.real_vars = real_vars;
-            outcome.verified = verification == VerificationState::Verified;
+            outcome.verified =
+                verification == VerificationState::Verified && has_matching_lean_evidence;
             outcome.proof_level =
-                proof_level_for_verification(verification, has_matching_lean_certificate);
+                proof_level_for_verification(verification, has_matching_lean_evidence);
             outcome.sig_vector = result.metadata.sig_vector;
         }
         other => {
@@ -120,15 +136,41 @@ fn certificate_matches_public_output(
     real_vars: &[String],
     original_vars: &[String],
 ) -> bool {
-    if cert.matches_endpoints(bitwidth, original, public_expr) {
-        return true;
-    }
+    let public_candidates = public_output_candidates(public_expr, real_vars, original_vars);
+    public_candidates.iter().any(|candidate| {
+        cert.matches_endpoints(bitwidth, original, candidate)
+            || certificate_matches_cleanup_of_public_output(cert, bitwidth, original, candidate)
+    })
+}
+
+fn public_output_candidates(
+    public_expr: &Expr,
+    real_vars: &[String],
+    original_vars: &[String],
+) -> Vec<Box<Expr>> {
+    let mut candidates = vec![public_expr.clone_tree()];
     let Some(idx_map) = try_build_var_support(original_vars, real_vars) else {
-        return false;
+        return candidates;
     };
     let mut remapped = public_expr.clone_tree();
     remap_var_indices(&mut remapped, &idx_map);
-    cert.matches_endpoints(bitwidth, original, &remapped)
+    if *remapped != *public_expr {
+        candidates.push(remapped);
+    }
+    candidates
+}
+
+fn certificate_matches_cleanup_of_public_output(
+    cert: &cobra_verify::LeanCertificate,
+    bitwidth: u32,
+    original: &Expr,
+    public_expr: &Expr,
+) -> bool {
+    if cert.bitwidth != bitwidth || *cert.original != *original {
+        return false;
+    }
+    let cleaned_cert_endpoint = cleanup_final_expr(cert.simplified.clone_tree(), bitwidth);
+    *cleaned_cert_endpoint == *public_expr
 }
 
 fn proof_level_for_verification(
@@ -196,6 +238,36 @@ mod tests {
 
         let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into()]);
         assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
+        assert!(!outcome.verified);
+    }
+
+    #[test]
+    fn cleanup_of_certified_endpoint_preserves_public_proof_level() {
+        let original = Expr::add(
+            Expr::add(Expr::variable(0), Expr::constant(0)),
+            Expr::constant(0),
+        );
+        let precleaned = Expr::add(Expr::variable(0), Expr::constant(0));
+        let mut metadata = ItemMetadata::default();
+        metadata.lean_certificate = Some(cobra_verify::LeanCertificate::new(
+            64,
+            original.clone_tree(),
+            precleaned.clone_tree(),
+        ));
+        let result = LoopResult {
+            outcome: PassOutcome::success(
+                precleaned,
+                vec!["x".into()],
+                VerificationState::Verified,
+            ),
+            metadata,
+            run_metadata: RunMetadata::default(),
+            telemetry: OrchestratorTelemetry::default(),
+        };
+
+        let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into()]);
+        assert_eq!(outcome.expr, Some(Expr::variable(0)));
+        assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
         assert!(outcome.verified);
     }
 
@@ -226,6 +298,36 @@ mod tests {
 
         let outcome = to_simplify_outcome(result, Some(&expr), 64, &["x".into()]);
         assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
+        assert!(!outcome.verified);
+    }
+
+    #[test]
+    fn signature_certificate_upgrades_signature_only_public_proof_level() {
+        let expr = Expr::variable(0);
+        let mut metadata = ItemMetadata {
+            verification: VerificationState::Verified,
+            lean_signature_certificate: cobra_verify::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                expr.clone_tree(),
+            ),
+            ..ItemMetadata::default()
+        };
+        metadata.sig_vector = vec![0, 1];
+        let result = LoopResult {
+            outcome: PassOutcome::success(
+                expr.clone_tree(),
+                vec!["x".into()],
+                VerificationState::Verified,
+            ),
+            metadata,
+            run_metadata: RunMetadata::default(),
+            telemetry: OrchestratorTelemetry::default(),
+        };
+
+        let outcome = to_simplify_outcome(result, None, 64, &["x".into()]);
+        assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
         assert!(outcome.verified);
     }
 }

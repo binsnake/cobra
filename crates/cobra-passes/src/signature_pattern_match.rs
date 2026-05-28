@@ -84,6 +84,14 @@ pub fn run_signature_pattern_match(
     let cost = compute_cost(&matched).cost;
     let lean_signature_certificate =
         signature_certificate_for_candidate(ctx.bitwidth, sig, &sub.real_vars, &matched);
+    if lean_signature_certificate.is_none() {
+        return Ok(PassResult {
+            decision: PassDecision::NoProgress,
+            disposition: ItemDisposition::RetainCurrent,
+            next: Vec::new(),
+            reason: ReasonDetail::default(),
+        });
+    }
     if let Some(gid) = item.group_id {
         submit_normalized_candidate(
             &mut ctx.competition_groups,
@@ -243,6 +251,16 @@ mod tests {
         let item = mk_sig_item(vec![0, 1, 1, 2], vec!["x".into(), "y".into()], true);
         let pr = run_signature_pattern_match(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::NoProgress);
+    }
+
+    #[test]
+    fn pattern_match_refuses_candidate_without_signature_certificate() {
+        let mut ctx =
+            OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+        let item = mk_sig_item(vec![1, 0, 0, 1], vec!["x".into(), "y".into()], false);
+        let pr = run_signature_pattern_match(&item, &mut ctx).unwrap();
+        assert_eq!(pr.decision, PassDecision::NoProgress);
+        assert!(pr.next.is_empty());
     }
 
     #[test]

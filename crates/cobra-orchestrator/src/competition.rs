@@ -1,5 +1,6 @@
 //! `lib/core/CompetitionGroup.{h,cpp}`.
 
+use cobra_core::evaluate_boolean_signature;
 use cobra_core::expr::Expr;
 use cobra_core::expr_cost::{is_better, ExprCost};
 use cobra_core::pass_contract::{ReasonDetail, VerificationState};
@@ -59,10 +60,69 @@ impl CompetitionGroup {
 /// `HasVerifiedCandidate` but does not take a map — callers pass the
 /// group directly so the fn is trivially testable.
 #[must_use]
-pub fn group_has_verified_candidate(group: &CompetitionGroup, max_weighted_size: u32) -> bool {
+pub fn group_has_verified_candidate(
+    group: &CompetitionGroup,
+    max_weighted_size: u32,
+    bitwidth: u32,
+) -> bool {
     group.best.as_ref().is_some_and(|c| {
-        c.verification == VerificationState::Verified && c.cost.weighted_size <= max_weighted_size
+        c.verification == VerificationState::Verified
+            && c.cost.weighted_size <= max_weighted_size
+            && candidate_has_matching_signature_evidence(c, bitwidth)
     })
+}
+
+#[must_use]
+pub fn candidate_has_matching_lean_evidence(record: &CandidateRecord, bitwidth: u32) -> bool {
+    let endpoint_ok = record.lean_certificate.as_ref().is_some_and(|cert| {
+        endpoint_certificate_matches_candidate_signature(
+            cert,
+            bitwidth,
+            &record.expr,
+            &record.real_vars,
+            &record.sig_vector,
+        )
+    });
+    let signature_ok = record
+        .lean_signature_certificate
+        .as_ref()
+        .is_some_and(|cert| {
+            cert.matches_signature(
+                bitwidth,
+                record.real_vars.len() as u32,
+                &record.sig_vector,
+                &record.expr,
+            )
+        });
+    endpoint_ok || signature_ok
+}
+
+#[must_use]
+pub fn endpoint_certificate_matches_candidate_signature(
+    cert: &LeanCertificate,
+    bitwidth: u32,
+    expr: &Expr,
+    real_vars: &[String],
+    sig_vector: &[u64],
+) -> bool {
+    cert.matches_endpoints(bitwidth, &cert.original, expr)
+        && evaluate_boolean_signature(&cert.original, real_vars.len() as u32, bitwidth)
+            == sig_vector
+}
+
+#[must_use]
+pub fn candidate_has_matching_signature_evidence(record: &CandidateRecord, bitwidth: u32) -> bool {
+    record
+        .lean_signature_certificate
+        .as_ref()
+        .is_some_and(|cert| {
+            cert.matches_signature(
+                bitwidth,
+                record.real_vars.len() as u32,
+                &record.sig_vector,
+                &record.expr,
+            )
+        })
 }
 
 /// `absl::flat_hash_map<GroupId, CompetitionGroup>`. Uses
@@ -92,7 +152,17 @@ pub fn create_group(
 /// - the candidate strictly beats any incumbent `best`.
 ///
 /// `SubmitCandidate`.
-pub fn submit_candidate(groups: &mut GroupMap, group_id: GroupId, record: CandidateRecord) -> bool {
+pub fn submit_candidate(
+    groups: &mut GroupMap,
+    group_id: GroupId,
+    record: CandidateRecord,
+    bitwidth: u32,
+) -> bool {
+    if record.verification == VerificationState::Verified
+        && !candidate_has_matching_lean_evidence(&record, bitwidth)
+    {
+        return false;
+    }
     let Some(group) = groups.get_mut(&group_id) else {
         return false;
     };
@@ -147,10 +217,11 @@ pub fn has_verified_candidate(
     groups: &GroupMap,
     group_id: GroupId,
     max_weighted_size: u32,
+    bitwidth: u32,
 ) -> bool {
     groups
         .get(&group_id)
-        .is_some_and(|g| group_has_verified_candidate(g, max_weighted_size))
+        .is_some_and(|g| group_has_verified_candidate(g, max_weighted_size, bitwidth))
 }
 
 #[cfg(test)]
@@ -158,8 +229,9 @@ mod tests {
     use super::*;
 
     fn mk_record(ws: u32, verified: bool) -> CandidateRecord {
+        let expr = Expr::variable(0);
         CandidateRecord {
-            expr: Expr::variable(0),
+            expr: expr.clone_tree(),
             cost: ExprCost {
                 weighted_size: ws,
                 nonlinear_mul_count: 0,
@@ -173,10 +245,27 @@ mod tests {
             real_vars: vec!["x".into()],
             source_pass: PassId::ClassifyAst,
             needs_original_space_verification: false,
-            sig_vector: Vec::new(),
+            sig_vector: vec![0, 1],
             lean_certificate: None,
-            lean_signature_certificate: None,
+            lean_signature_certificate: verified
+                .then(|| LeanSignatureCertificate::new(64, 1, vec![0, 1], expr))
+                .flatten(),
         }
+    }
+
+    fn mk_record_without_lean_evidence(ws: u32) -> CandidateRecord {
+        let mut record = mk_record(ws, true);
+        record.lean_certificate = None;
+        record.lean_signature_certificate = None;
+        record
+    }
+
+    fn mk_record_with_endpoint_evidence_only(ws: u32) -> CandidateRecord {
+        let expr = Expr::variable(0);
+        let mut record = mk_record(ws, true);
+        record.lean_certificate = Some(LeanCertificate::new(64, expr.clone_tree(), expr));
+        record.lean_signature_certificate = None;
+        record
     }
 
     #[test]
@@ -190,19 +279,33 @@ mod tests {
     #[test]
     fn has_verified_candidate_checks_cost_budget() {
         let mut g = CompetitionGroup::new(None);
-        assert!(!group_has_verified_candidate(&g, u32::MAX));
+        assert!(!group_has_verified_candidate(&g, u32::MAX, 64));
         g.best = Some(mk_record(10, true));
-        assert!(group_has_verified_candidate(&g, 10));
-        assert!(group_has_verified_candidate(&g, 20));
+        assert!(group_has_verified_candidate(&g, 10, 64));
+        assert!(group_has_verified_candidate(&g, 20, 64));
         // Over budget
-        assert!(!group_has_verified_candidate(&g, 5));
+        assert!(!group_has_verified_candidate(&g, 5, 64));
     }
 
     #[test]
     fn has_verified_candidate_requires_verified_state() {
         let mut g = CompetitionGroup::new(None);
         g.best = Some(mk_record(5, false));
-        assert!(!group_has_verified_candidate(&g, 100));
+        assert!(!group_has_verified_candidate(&g, 100, 64));
+    }
+
+    #[test]
+    fn has_verified_candidate_requires_lean_evidence() {
+        let mut g = CompetitionGroup::new(None);
+        g.best = Some(mk_record_without_lean_evidence(5));
+        assert!(!group_has_verified_candidate(&g, 100, 64));
+    }
+
+    #[test]
+    fn has_verified_candidate_requires_signature_evidence() {
+        let mut g = CompetitionGroup::new(None);
+        g.best = Some(mk_record_with_endpoint_evidence_only(5));
+        assert!(!group_has_verified_candidate(&g, 100, 64));
     }
 
     fn empty_group_map() -> GroupMap {
@@ -232,9 +335,9 @@ mod tests {
         };
         let id = create_group(&mut groups, &mut next, Some(baseline));
         // Equal to baseline → rejected
-        assert!(!submit_candidate(&mut groups, id, mk_record(10, false)));
+        assert!(!submit_candidate(&mut groups, id, mk_record(10, false), 64));
         // Strictly better → accepted
-        assert!(submit_candidate(&mut groups, id, mk_record(5, false)));
+        assert!(submit_candidate(&mut groups, id, mk_record(5, false), 64));
         assert_eq!(groups[&id].best.as_ref().unwrap().cost.weighted_size, 5);
     }
 
@@ -243,18 +346,61 @@ mod tests {
         let mut groups = empty_group_map();
         let mut next = 0;
         let id = create_group(&mut groups, &mut next, None);
-        assert!(submit_candidate(&mut groups, id, mk_record(8, false)));
+        assert!(submit_candidate(&mut groups, id, mk_record(8, false), 64));
         // Worse candidate → rejected
-        assert!(!submit_candidate(&mut groups, id, mk_record(12, false)));
+        assert!(!submit_candidate(&mut groups, id, mk_record(12, false), 64));
         // Strictly better → replaces
-        assert!(submit_candidate(&mut groups, id, mk_record(4, false)));
+        assert!(submit_candidate(&mut groups, id, mk_record(4, false), 64));
         assert_eq!(groups[&id].best.as_ref().unwrap().cost.weighted_size, 4);
     }
 
     #[test]
     fn submit_candidate_to_missing_group_is_noop() {
         let mut groups = empty_group_map();
-        assert!(!submit_candidate(&mut groups, 42, mk_record(1, false)));
+        assert!(!submit_candidate(&mut groups, 42, mk_record(1, false), 64));
+    }
+
+    #[test]
+    fn submit_candidate_rejects_verified_without_lean_evidence() {
+        let mut groups = empty_group_map();
+        let mut next = 0;
+        let id = create_group(&mut groups, &mut next, None);
+        assert!(!submit_candidate(
+            &mut groups,
+            id,
+            mk_record_without_lean_evidence(1),
+            64
+        ));
+        assert!(groups[&id].best.is_none());
+    }
+
+    #[test]
+    fn submit_candidate_rejects_verified_with_stale_lean_evidence() {
+        let mut groups = empty_group_map();
+        let mut next = 0;
+        let id = create_group(&mut groups, &mut next, None);
+        let mut record = mk_record_with_endpoint_evidence_only(1);
+        record.lean_certificate = Some(LeanCertificate::new(
+            64,
+            Expr::variable(0),
+            Expr::constant(0),
+        ));
+
+        assert!(!submit_candidate(&mut groups, id, record, 64));
+        assert!(groups[&id].best.is_none());
+    }
+
+    #[test]
+    fn submit_candidate_rejects_endpoint_evidence_for_wrong_source_signature() {
+        let mut groups = empty_group_map();
+        let mut next = 0;
+        let id = create_group(&mut groups, &mut next, None);
+        let mut record = mk_record_with_endpoint_evidence_only(1);
+        record.sig_vector = vec![1, 0];
+
+        assert!(!candidate_has_matching_lean_evidence(&record, 64));
+        assert!(!submit_candidate(&mut groups, id, record, 64));
+        assert!(groups[&id].best.is_none());
     }
 
     #[test]
@@ -287,11 +433,11 @@ mod tests {
         let mut groups = empty_group_map();
         let mut next = 0;
         let id = create_group(&mut groups, &mut next, None);
-        assert!(!has_verified_candidate(&groups, id, u32::MAX));
+        assert!(!has_verified_candidate(&groups, id, u32::MAX, 64));
         groups.get_mut(&id).unwrap().best = Some(mk_record(3, true));
-        assert!(has_verified_candidate(&groups, id, 5));
-        assert!(!has_verified_candidate(&groups, id, 2));
+        assert!(has_verified_candidate(&groups, id, 5, 64));
+        assert!(!has_verified_candidate(&groups, id, 2, 64));
         // Missing group → false.
-        assert!(!has_verified_candidate(&groups, 999, u32::MAX));
+        assert!(!has_verified_candidate(&groups, 999, u32::MAX, 64));
     }
 }

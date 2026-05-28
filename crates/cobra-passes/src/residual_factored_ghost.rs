@@ -122,7 +122,11 @@ pub fn run_residual_factored_ghost(
     item: &WorkItem,
     ctx: &mut OrchestratorContext,
 ) -> Result<PassResult> {
-    run_inner(item, ctx, PassId::ResidualFactoredGhost, 2)
+    let first = run_inner(item, ctx, PassId::ResidualFactoredGhost, 2)?;
+    if first.decision != PassDecision::Blocked {
+        return Ok(first);
+    }
+    run_inner(item, ctx, PassId::ResidualFactoredGhost, 3)
 }
 
 pub fn run_residual_factored_ghost_escalated(

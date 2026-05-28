@@ -4,13 +4,15 @@
 //! pipeline. Each candidate spawns a child solve guarded by a
 //! `HybridComposeCont`. Recursion is gated to depth 0 (single level).
 
+use cobra_core::arith::bitmask;
 use cobra_core::classification::SemanticClass;
+use cobra_core::evaluator::{Evaluator, TraceKind};
 use cobra_core::pass_contract::ReasonDetail;
 use cobra_core::result::Result;
 
 use cobra_orchestrator::{
     acquire_handle, create_group, has_verified_candidate, ContinuationData, EliminationResult,
-    HybridComposeCont, ItemDisposition, OrchestratorContext, PassDecision, PassResult,
+    ExtractOp, HybridComposeCont, ItemDisposition, OrchestratorContext, PassDecision, PassResult,
     SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem,
 };
 
@@ -18,6 +20,25 @@ use crate::hybrid_decomposer::enumerate_hybrid_candidates;
 use crate::mapped_evaluator::build_mapped_evaluator;
 
 const MAX_CANDIDATES: usize = 8;
+
+fn build_residual_evaluator(
+    parent_eval: &Evaluator,
+    var_k: u32,
+    op: ExtractOp,
+    bitwidth: u32,
+) -> Evaluator {
+    let parent = parent_eval.clone();
+    let mask = bitmask(bitwidth);
+    Evaluator::from_closure(move |values: &[u64]| {
+        let parent_value = parent.eval(values) & mask;
+        let var_value = values.get(var_k as usize).copied().unwrap_or(0) & mask;
+        match op {
+            ExtractOp::Xor => parent_value ^ var_value,
+            ExtractOp::Add => parent_value.wrapping_sub(var_value) & mask,
+        }
+    })
+    .with_trace(TraceKind::MappedOverride)
+}
 
 fn verified_candidate_decomposition_cost_bound(num_vars: u32) -> u32 {
     2 * num_vars + 1
@@ -52,6 +73,7 @@ fn should_skip_decomposition(
         &ctx.competition_groups,
         group_id,
         verified_candidate_decomposition_cost_bound(sub_ctx.real_vars.len() as u32),
+        ctx.bitwidth,
     )
 }
 
@@ -100,14 +122,14 @@ pub fn run_signature_hybrid_decompose(
     }
 
     let parent_eval = build_mapped_evaluator(ctx, sub_ctx, item);
-    if parent_eval.is_none() {
+    let Some(parent_eval_for_children) = parent_eval.clone() else {
         return Ok(PassResult {
             decision: PassDecision::NoProgress,
             disposition: ItemDisposition::RetainCurrent,
             next: Vec::new(),
             reason: ReasonDetail::default(),
         });
-    }
+    };
 
     let mut candidates = enumerate_hybrid_candidates(sig, num_vars);
     if candidates.is_empty() {
@@ -176,10 +198,13 @@ pub fn run_signature_hybrid_decompose(
         child.attempted_mask = 0;
         child.signature_recursion_depth = item.signature_recursion_depth + 1;
         child.group_id = Some(child_group_id);
-        child
-            .evaluator_override
-            .clone_from(&item.evaluator_override);
-        child.evaluator_override_arity = item.evaluator_override_arity;
+        child.evaluator_override = Some(build_residual_evaluator(
+            &parent_eval_for_children,
+            cand.var_k,
+            cand.op,
+            ctx.bitwidth,
+        ));
+        child.evaluator_override_arity = num_vars;
         child.history.clone_from(&item.history);
 
         next.push(child);
@@ -209,7 +234,7 @@ mod tests {
     use cobra_core::simplify_outcome::Options;
     use cobra_orchestrator::{
         create_group as orch_create_group, submit_candidate as orch_submit_candidate,
-        CandidateRecord, EliminationResult, PassId,
+        CandidateRecord, EliminationResult, LeanSignatureCertificate, PassId,
     };
 
     fn mk_sig_item(sig: &[u64], vars: Vec<String>, ctx: &mut OrchestratorContext) -> WorkItem {
@@ -296,8 +321,14 @@ mod tests {
                 needs_original_space_verification: false,
                 sig_vector: vec![0, 1, 1, 0],
                 lean_certificate: None,
-                lean_signature_certificate: None,
+                lean_signature_certificate: LeanSignatureCertificate::new(
+                    64,
+                    2,
+                    vec![0, 1, 1, 0],
+                    Expr::xor(Expr::variable(0), Expr::variable(1)),
+                ),
             },
+            64,
         );
 
         let pr = run_signature_hybrid_decompose(&item, &mut ctx).unwrap();

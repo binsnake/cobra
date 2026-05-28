@@ -118,18 +118,15 @@ pub enum PassId {
     // recognise the seed tree as a cost-improving rewrite and promote
     // it if the downstream pipeline can't terminate.
     PatternSubtreeRewrite,
-    // Pseudo-pass / history marker for the upcoming `AtomIdentityRewrite`
-    // pass that applies closed-form bitwise identities over arbitrary
-    // atoms (e.g. `(A|B) - (A&B) -> A^B`). Included here so the
-    // exhaustion-path fallback gate can accept it; the runtime pass
-    // will land with Phase 2.
+    // Runtime pass that applies closed-form bitwise identities over
+    // arbitrary atoms (e.g. `(A|B) - (A&B) -> A^B`).
     AtomIdentityRewrite,
 }
 
 impl PassId {
     /// Number of `PassId` variants. Kept separate from `std::mem::variant_count`
     /// (which is still nightly) so this stays on stable.
-    pub const COUNT: u8 = 36;
+    pub const COUNT: u8 = 38;
 
     /// Cast to `u8` — used as the bit position in `attempted_mask`.
     #[inline]
@@ -181,7 +178,7 @@ mod tests {
     fn pass_id_fits_in_bitmask_budget() {
         // `attempted_mask: u64` — we have headroom up to 64 variants.
         const _: () = assert!(PassId::COUNT <= 64);
-        assert_eq!(PassId::PrepareLiftedOuterSolve.as_u8(), PassId::COUNT - 1);
+        assert_eq!(PassId::AtomIdentityRewrite.as_u8(), PassId::COUNT - 1);
     }
 
     #[test]

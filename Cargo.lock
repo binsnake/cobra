@@ -234,6 +234,7 @@ dependencies = [
  "cobra-ir",
  "cobra-orchestrator",
  "cobra-parser",
+ "cobra-verify",
 ]
 
 [[package]]

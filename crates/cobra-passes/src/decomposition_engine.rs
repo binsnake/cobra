@@ -155,33 +155,39 @@ pub fn run_extractor(
                         &active_vars,
                         &core.expr,
                     );
-                    let mut next = item.clone();
-                    next.payload = StateData::Candidate(Box::new(CandidatePayload {
-                        expr: core.expr,
-                        real_vars: active_vars.clone(),
-                        cost,
-                        producing_pass: source_pass(core.kind, core.degree_used),
-                        needs_original_space_verification: false,
-                    }));
-                    next.metadata.verification =
-                        cobra_core::pass_contract::VerificationState::Verified;
-                    next.metadata.sig_vector = sig;
-                    next.metadata.lean_certificate = None;
-                    next.metadata.lean_signature_certificate = lean_signature_certificate;
-                    next.metadata.decomposition_meta =
-                        Some(cobra_core::pass_contract::DecompositionMeta {
-                            extractor_kind: core.kind as u8,
-                            solver_kind: 0,
-                            has_solver: false,
-                            core_degree: core.degree_used,
-                        });
+                    if lean_signature_certificate.is_none() {
+                        if !accept_core(eval, &core.expr, num_vars, ctx.bitwidth) {
+                            return Ok(blocked(ReasonDetail::default()));
+                        }
+                    } else {
+                        let mut next = item.clone();
+                        next.payload = StateData::Candidate(Box::new(CandidatePayload {
+                            expr: core.expr,
+                            real_vars: active_vars.clone(),
+                            cost,
+                            producing_pass: source_pass(core.kind, core.degree_used),
+                            needs_original_space_verification: false,
+                        }));
+                        next.metadata.verification =
+                            cobra_core::pass_contract::VerificationState::Verified;
+                        next.metadata.sig_vector = sig;
+                        next.metadata.lean_certificate = None;
+                        next.metadata.lean_signature_certificate = lean_signature_certificate;
+                        next.metadata.decomposition_meta =
+                            Some(cobra_core::pass_contract::DecompositionMeta {
+                                extractor_kind: core.kind as u8,
+                                solver_kind: 0,
+                                has_solver: false,
+                                core_degree: core.degree_used,
+                            });
 
-                    return Ok(PassResult {
-                        decision: PassDecision::SolvedCandidate,
-                        disposition: ItemDisposition::RetainCurrent,
-                        next: vec![next],
-                        reason: ReasonDetail::default(),
-                    });
+                        return Ok(PassResult {
+                            decision: PassDecision::SolvedCandidate,
+                            disposition: ItemDisposition::RetainCurrent,
+                            next: vec![next],
+                            reason: ReasonDetail::default(),
+                        });
+                    }
                 }
 
                 if !accept_core(eval, &core.expr, num_vars, ctx.bitwidth) {

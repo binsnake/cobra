@@ -10,10 +10,12 @@
 //!   Layer 3: `target = G1(A, G2(B, R))`           (G1, G2 invertible)
 //!   Layer 4: `target = G1(A, Unary(G2(B, R)))`    (G1 invertible)
 //!
-//! All candidates are full-width verified through the evaluator before
-//! being accepted. Atoms are deduplicated by a fingerprint of their
-//! 16-probe value vector; collisions are statistically negligible at
-//! these pool sizes.
+//! Candidates are filtered through the evaluator before being returned
+//! to the pass layer. Formal proof metadata is attached by the pass layer
+//! when it emits a candidate or by downstream recomposition; this search
+//! module does not itself produce Lean evidence. Atoms are deduplicated
+//! by a fingerprint of their 16-probe value vector; collisions are
+//! statistically negligible at these pool sizes.
 
 #![allow(
     clippy::needless_range_loop,
@@ -30,7 +32,6 @@ use cobra_core::expr::Expr;
 use cobra_core::expr_cost::{compute_cost, is_better, ExprCost};
 use cobra_core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
-    VerificationState,
 };
 
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
@@ -49,7 +50,6 @@ mod subcode {
 pub struct TemplateResult {
     pub expr: Box<Expr>,
     pub cost: ExprCost,
-    pub verification: VerificationState,
 }
 
 #[derive(Copy, Clone)]
@@ -466,7 +466,6 @@ fn try_update(
     *best = Some(TemplateResult {
         expr: candidate,
         cost: info.cost,
-        verification: VerificationState::Verified,
     });
     true
 }
@@ -725,7 +724,6 @@ fn layer3(
                     return Some(TemplateResult {
                         expr: candidate,
                         cost: info.cost,
-                        verification: VerificationState::Verified,
                     });
                 }
             }
@@ -979,7 +977,6 @@ pub fn try_template_decomposition(
         return SolverResult::Success(TemplateResult {
             expr: e,
             cost: info.cost,
-            verification: VerificationState::Verified,
         });
     }
 
@@ -1005,7 +1002,6 @@ pub fn try_template_decomposition(
                 return SolverResult::Success(TemplateResult {
                     expr: e,
                     cost: info.cost,
-                    verification: VerificationState::Verified,
                 });
             }
         }
@@ -1065,7 +1061,6 @@ pub fn try_template_decomposition(
             Some(TemplateResult {
                 expr: wrapped,
                 cost: info.cost,
-                verification: VerificationState::Verified,
             })
         };
 

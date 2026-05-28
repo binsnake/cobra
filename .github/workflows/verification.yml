@@ -47,7 +47,12 @@ jobs:
 
       - name: Build Lean verification layer
         working-directory: formal/lean
-        run: lake build
+        run: lake -R build
+
+      - name: Replay generated Lean certificates from real pass outputs
+        env:
+          COBRA_LEAN_REPLAY: "1"
+        run: cargo test -p cobra-passes --test generated_lean_replay
 
       - name: Reject unchecked Lean placeholders
         shell: bash

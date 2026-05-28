@@ -89,6 +89,8 @@ pub fn run_build_signature_state(
     sig_seed.payload = StateData::Signature(Box::new(seed));
     sig_seed.metadata.lean_certificate = None;
     sig_seed.metadata.lean_signature_certificate = None;
+    sig_seed.evaluator_override = active_eval;
+    sig_seed.evaluator_override_arity = num_vars;
     let group_id = if let Some(gid) = item.group_id {
         acquire_handle(&mut ctx.competition_groups, gid);
         gid
@@ -214,8 +216,35 @@ mod tests {
         assert_eq!(pr.next[0].group_id, Some(0));
         assert!(pr.next[0].metadata.lean_certificate.is_none());
         assert!(pr.next[0].metadata.lean_signature_certificate.is_none());
+        assert!(pr.next[0].evaluator_override.is_none());
+        assert_eq!(pr.next[0].evaluator_override_arity, 2);
         assert_eq!(ctx.next_group_id, 1);
         assert_eq!(ctx.competition_groups[&0].open_handles, 1);
+    }
+
+    #[test]
+    fn build_signature_state_preserves_solve_ctx_evaluator_override() {
+        let outer = Expr::and(Expr::variable(2), Expr::variable(0));
+        let solve_ctx = cobra_orchestrator::AstSolveContext {
+            vars: vec!["x".into(), "y".into(), "v0".into()],
+            evaluator: Some(Evaluator::from_expr(&outer, 64)),
+            input_sig: vec![],
+        };
+        let mut item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+            expr: outer,
+            classification: None,
+            provenance: Provenance::Rewritten,
+            solve_ctx: Some(solve_ctx),
+        })));
+        item.features.provenance = Provenance::Rewritten;
+        let mut ctx =
+            OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+
+        let pr = run_build_signature_state(&item, &mut ctx).unwrap();
+
+        assert_eq!(pr.decision, PassDecision::Advance);
+        assert!(pr.next[0].evaluator_override.is_some());
+        assert_eq!(pr.next[0].evaluator_override_arity, 3);
     }
 
     #[test]

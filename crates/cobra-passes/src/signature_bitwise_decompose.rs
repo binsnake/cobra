@@ -61,6 +61,7 @@ fn should_skip_decomposition(
         &ctx.competition_groups,
         group_id,
         verified_candidate_decomposition_cost_bound(sub_ctx.real_vars.len() as u32),
+        ctx.bitwidth,
     )
 }
 
@@ -177,12 +178,14 @@ pub fn run_signature_bitwise_decompose(
                 }
             }
             let cost = cobra_core::expr_cost::compute_cost(&composed).cost;
-            let lean_signature_certificate = signature_certificate_for_candidate(
+            let Some(lean_signature_certificate) = signature_certificate_for_candidate(
                 ctx.bitwidth,
                 &sub_ctx.elimination.reduced_sig,
                 &sub_ctx.real_vars,
                 &composed,
-            );
+            ) else {
+                continue;
+            };
             submit_normalized_candidate(
                 &mut ctx.competition_groups,
                 parent_group_id,
@@ -195,7 +198,7 @@ pub fn run_signature_bitwise_decompose(
                     needs_original_space_verification: sub_ctx.needs_original_space_verification,
                     sig_vector: sub_ctx.elimination.reduced_sig.clone(),
                     lean_certificate: None,
-                    lean_signature_certificate,
+                    lean_signature_certificate: Some(lean_signature_certificate),
                 },
                 ctx.bitwidth,
             );
@@ -287,7 +290,7 @@ mod tests {
     use cobra_core::simplify_outcome::Options;
     use cobra_orchestrator::{
         create_group as orch_create_group, submit_candidate as orch_submit_candidate,
-        EliminationResult,
+        EliminationResult, LeanSignatureCertificate,
     };
 
     fn mk_sig_item(sig: &[u64], vars: Vec<String>, ctx: &mut OrchestratorContext) -> WorkItem {
@@ -378,8 +381,14 @@ mod tests {
                 needs_original_space_verification: false,
                 sig_vector: vec![0, 1, 1, 0],
                 lean_certificate: None,
-                lean_signature_certificate: None,
+                lean_signature_certificate: LeanSignatureCertificate::new(
+                    64,
+                    2,
+                    vec![0, 1, 1, 0],
+                    Expr::xor(Expr::variable(0), Expr::variable(1)),
+                ),
             },
+            64,
         );
 
         let pr = run_signature_bitwise_decompose(&item, &mut ctx).unwrap();

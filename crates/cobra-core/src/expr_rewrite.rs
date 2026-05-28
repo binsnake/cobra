@@ -84,7 +84,9 @@ pub fn has_nonleaf_bitwise(expr: &Expr) -> bool {
 }
 
 /// Replace `AND(var-dep, var-dep)` with `MUL` wherever both sides are pure
-/// `Variable`/`And`/`Mul` compositions. This corrects the product-shadow
+/// `Variable`/`And`/`Mul` compositions. This is not semantics-preserving for
+/// unrestricted bit-vector variables; callers must guard it with the relevant
+/// signature/full-width verification for their candidate family.
 #[must_use]
 pub fn repair_product_shadow(mut expr: Box<Expr>) -> Box<Expr> {
     let mut new_children = expr
@@ -480,6 +482,14 @@ mod tests {
         let e = Expr::and(Expr::variable(0), Expr::variable(1));
         let repaired = repair_product_shadow(e);
         assert!(matches!(repaired.kind, Kind::Mul));
+    }
+
+    #[test]
+    fn repair_product_shadow_is_not_general_semantic_rewrite() {
+        let e = Expr::and(Expr::variable(0), Expr::variable(1));
+        let repaired = repair_product_shadow(e.clone_tree());
+
+        assert_ne!(eval_at(&e, &[2, 3], 64), eval_at(&repaired, &[2, 3], 64));
     }
 
     #[test]

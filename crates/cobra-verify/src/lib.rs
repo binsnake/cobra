@@ -21,7 +21,7 @@ pub use crate::lean_cert::{
 pub use crate::lean_emit::{
     emit_bv_decide_certificate, emit_certificate_header, emit_constant_signature_certificate,
     emit_context, emit_context_comment, emit_expr, emit_signature_certificate,
-    emit_signature_certificate_model,
+    emit_signature_certificate_model, emit_step_chain_certificate,
 };
 pub use crate::null::NullVerifier;
 #[cfg(feature = "z3")]

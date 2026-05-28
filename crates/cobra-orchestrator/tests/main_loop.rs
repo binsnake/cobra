@@ -13,8 +13,8 @@ use cobra_core::result::Result;
 use cobra_core::simplify_outcome::{Options, ProofLevel, SimplifyOutcomeKind};
 use cobra_orchestrator::{
     create_group, simplify_from_worklist, AstPayload, CandidatePayload, ItemDisposition,
-    OrchestratorContext, OrchestratorPolicy, PassDecision, PassDescriptor, PassId, PassResult,
-    PassTag, Provenance, StateData, StateKind, Worklist,
+    LeanSignatureCertificate, OrchestratorContext, OrchestratorPolicy, PassDecision,
+    PassDescriptor, PassId, PassResult, PassTag, Provenance, StateData, StateKind, Worklist,
 };
 
 fn mk_candidate(verified: bool) -> CandidatePayload {
@@ -39,7 +39,7 @@ fn mk_candidate_item(verified: bool) -> cobra_orchestrator::WorkItem {
 }
 
 #[test]
-fn verified_candidate_returned_immediately() {
+fn verified_candidate_without_public_certificate_returned_but_not_publicly_verified() {
     let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
     let mut worklist = Worklist::new();
     worklist.push(mk_candidate_item(true));
@@ -49,7 +49,8 @@ fn verified_candidate_returned_immediately() {
             .unwrap();
 
     assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    assert!(outcome.verified);
+    assert!(!outcome.verified);
+    assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
     assert_eq!(outcome.real_vars, vec!["x".to_owned(), "y".to_owned()]);
     let expr = outcome.expr.expect("simplified expr");
     assert!(matches!(expr.kind, Kind::Add));
@@ -58,7 +59,7 @@ fn verified_candidate_returned_immediately() {
 }
 
 #[test]
-fn verified_original_space_candidate_gets_generated_endpoint_certificate() {
+fn verified_original_space_candidate_without_endpoint_certificate_is_not_publicly_verified() {
     let original = Expr::add(Expr::variable(0), Expr::variable(1));
     let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
     ctx.original_expr = Some(original.clone_tree());
@@ -75,12 +76,12 @@ fn verified_original_space_candidate_gets_generated_endpoint_certificate() {
     .unwrap();
 
     assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    assert!(outcome.verified);
-    assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
+    assert!(!outcome.verified);
+    assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
 }
 
 #[test]
-fn verified_reduced_space_candidate_gets_remapped_endpoint_certificate() {
+fn verified_reduced_space_candidate_without_endpoint_certificate_is_not_publicly_verified() {
     let original = Expr::variable(1);
     let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
     ctx.original_expr = Some(original.clone_tree());
@@ -104,9 +105,9 @@ fn verified_reduced_space_candidate_gets_remapped_endpoint_certificate() {
     .unwrap();
 
     assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    assert!(outcome.verified);
+    assert!(!outcome.verified);
     assert_eq!(outcome.real_vars, vec!["y".to_owned()]);
-    assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
+    assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
 }
 
 #[test]
@@ -215,7 +216,8 @@ fn stubbed_verify_candidate_pass_returns_success() {
     .unwrap();
 
     assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    assert!(outcome.verified);
+    assert!(!outcome.verified);
+    assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
     assert_eq!(outcome.telemetry.candidates_verified, 1);
     // Two pops: the original item (runs VerifyCandidate), then the
     // re-emitted verified candidate which returns immediately.
@@ -271,7 +273,7 @@ fn expansion_budget_cuts_off_the_loop() {
 }
 
 #[test]
-fn grouped_candidate_submits_and_resolves() {
+fn grouped_candidate_without_lean_evidence_submits_as_unverified() {
     // A verified candidate that owns a group handle should submit into
     // the group and trigger resolution (handle → 0). That resolution
     // emits a CompetitionResolved work item; without a registered
@@ -296,9 +298,37 @@ fn grouped_candidate_submits_and_resolves() {
         .get(&gid)
         .expect("group still present after resolution");
     let best = group.best.as_ref().expect("candidate submitted");
-    assert_eq!(best.verification, VerificationState::Verified);
+    assert_eq!(best.verification, VerificationState::Unverified);
     // Handle count went from 1 → 0 via `release_handle`.
     assert_eq!(group.open_handles, 0);
+}
+
+#[test]
+fn grouped_candidate_with_matching_lean_evidence_stays_verified() {
+    let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+    let gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
+
+    let mut item = mk_candidate_item(true);
+    let sig = vec![0, 1, 1, 2];
+    item.metadata.sig_vector = sig.clone();
+    item.metadata.lean_signature_certificate =
+        LeanSignatureCertificate::new(64, 2, sig, Expr::add(Expr::variable(0), Expr::variable(1)));
+    item.group_id = Some(gid);
+
+    let mut worklist = Worklist::new();
+    worklist.push(item);
+
+    let outcome =
+        simplify_from_worklist(&mut ctx, worklist, OrchestratorPolicy::default(), &[], None)
+            .unwrap();
+
+    assert_eq!(outcome.kind, SimplifyOutcomeKind::UnchangedUnsupported);
+    let best = ctx.competition_groups[&gid]
+        .best
+        .as_ref()
+        .expect("candidate submitted");
+    assert_eq!(best.verification, VerificationState::Verified);
+    assert!(best.lean_signature_certificate.is_some());
 }
 
 #[test]
@@ -357,10 +387,10 @@ fn failing_pass_records_last_failure_into_best_unsupported() {
 }
 
 #[test]
-fn exhaustion_promotes_pic_rewrite_to_verified_candidate() {
+fn exhaustion_promotes_pic_rewrite_without_lean_certificate_as_unverified_candidate() {
     // Seed a FoldedAst carrying a cheaper PIC-produced rewrite that the
     // pipeline abandons (empty registry → no pass fires). The main
-    // loop's exhaustion-path fallback must: (1) verify the rewrite
+    // loop's exhaustion-path fallback must: (1) spot-check the rewrite
     // against the original evaluator, (2) promote it to a Success
     // outcome, and (3) stamp `reason_code = BestRewritePromoted`.
 
@@ -408,7 +438,8 @@ fn exhaustion_promotes_pic_rewrite_to_verified_candidate() {
     .unwrap();
 
     assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    assert!(outcome.verified);
+    assert!(!outcome.verified);
+    assert_eq!(outcome.proof_level, ProofLevel::Unverified);
     let out_expr = outcome.expr.expect("promoted rewrite present");
     // Structurally `x * y`.
     assert!(matches!(out_expr.kind, Kind::Mul));
@@ -440,6 +471,43 @@ fn exhaustion_preserves_lean_certificate_on_promoted_best_rewrite() {
         cobra_orchestrator::ExprPath::default(),
         rewrite,
     );
+
+    let mut worklist = Worklist::new();
+    worklist.push(item);
+
+    let outcome = simplify_from_worklist(
+        &mut ctx,
+        worklist,
+        OrchestratorPolicy::default(),
+        &[],
+        Some(&original),
+    )
+    .unwrap();
+
+    assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
+    assert!(outcome.verified);
+    assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
+}
+
+#[test]
+fn exhaustion_generates_nested_lean_certificate_on_promoted_best_rewrite() {
+    let original = Expr::mul(
+        Expr::and(Expr::variable(0), Expr::constant(u64::MAX)),
+        Expr::variable(1),
+    );
+    let rewrite = Expr::mul(Expr::variable(0), Expr::variable(1));
+
+    let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
+    ctx.evaluator = Some(Evaluator::from_expr(&original, 64));
+
+    let mut item = cobra_orchestrator::WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+        expr: rewrite,
+        classification: None,
+        provenance: Provenance::Rewritten,
+        solve_ctx: None,
+    })));
+    item.rewrite_gen = 1;
+    item.history.push(PassId::AtomIdentityRewrite);
 
     let mut worklist = Worklist::new();
     worklist.push(item);

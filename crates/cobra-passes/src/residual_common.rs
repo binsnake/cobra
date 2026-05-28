@@ -78,7 +78,7 @@ pub fn try_recombine_and_emit(
         &residual.source_sig,
         &target_vars,
         &combined,
-    );
+    )?;
     let mut cand_item = parent.clone();
     cand_item.payload = StateData::Candidate(Box::new(CandidatePayload {
         expr: combined,
@@ -93,7 +93,7 @@ pub fn try_recombine_and_emit(
         .sig_vector
         .clone_from(&residual.source_sig);
     cand_item.metadata.lean_certificate = None;
-    cand_item.metadata.lean_signature_certificate = lean_signature_certificate;
+    cand_item.metadata.lean_signature_certificate = Some(lean_signature_certificate);
     cand_item.metadata.decomposition_meta = Some(DecompositionMeta {
         extractor_kind: project_extractor_kind(residual.origin) as u8,
         solver_kind: solver_kind as u8,
