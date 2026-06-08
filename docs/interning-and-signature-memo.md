@@ -144,10 +144,61 @@ Interning dedups construction → would cut that dominant cost, with the signatu
 memo as a near-free side effect once nodes carry stable ids. That is the deep
 (factory-plumbing) refactor in "Implementation challenge" above.
 
-**Next measurement to size the interning prize:** construction-dedup rate — what
-fraction of the ~10.5k node constructions per solve are structural duplicates.
-Harder to instrument cleanly (clone/`make_mut` bypass the factories), so it likely
-needs a small prototype rather than a passive probe. Until that number exists,
-full interning is a well-motivated bet (driven by the 94% signature proxy) but
-not a measured one.
+### Prototype: actual interning, measured (obfuscatorx, 2026-06-08)
+
+Built a working per-solve interner: factories + `clone_tree` route through a
+thread-local `HashMap<(kind, child-ptrs), Arc<Expr>>`, returning the canonical
+node on a hit (no alloc). `Arc::make_mut` COW copies are not interned (a lower
+bound). Toggle for on/off A-B timing.
+
+**Construction-dedup rate: 84–88%** (case1: 7,113 hits / 968 misses — the search
+builds only ~968 structurally-unique nodes but constructs ~8,081). Confirms the
+redundancy hypothesis.
+
+**Correctness: clean.** Full suite **781/781 real tests pass** with interning on
+(incl. the 234-test `generated_lean_replay` and all integration suites); the only
+failure is the Win-#1 structural test asserting `clone_tree` returns a fresh
+pointer (now correctly the canonical one). The `*const Expr` pointer-keyed caches
+(`join.rs`, `semilinear_normalizer.rs`) did **not** break — interning is sound
+*because* Win #1 routes every mutation through `Arc::make_mut` (COW). Parity
+sweep over 5,007 cases with interning on: **unsafe=0, byte-identical parity**
+(mba_flatten 2067/3000, unchanged).
+
+**Live evidence for the persistent-cache eviction requirement:** that sweep does
+*not* reset the table per case, so it ran the **persistent** variant (Section B)
+with no eviction — and mba_flatten went **88s → 145s (+65%)** as the table grew
+unbounded across 3,000 cases (slower probes + memory pressure). Persistent
+interning without a bound is a *de-optimization*; the LFU/usage-sorted eviction
+is mandatory, not optional.
+
+**Wall-time: NEUTRAL — the prize isn't there.** On-vs-off delta per case ranged
+−2.6% … +4.5%, all inside the ±3% Windows noise floor; interning-on (case1
+9.93ms) is no faster (slightly slower) than the committed baseline (9.3ms). Why
+an 88% dedup buys nothing:
+- Node allocation is only ~6% of the solve after Wins #1–#2; interning replaces
+  each saved `Arc::new` (~70ns) with a hash+table-probe of similar cost.
+- Deduped nodes that are later mutated just move the allocation to the
+  `make_mut` COW site.
+- The dominant cost is the **search work itself** (the orchestrator exploring
+  candidates), which interning does not reduce.
+
+**Verdict: full interning is NOT worth the deep refactor for this workload.** The
+dedup rate is high but it's measuring the wrong thing — allocation stopped being
+the bottleneck after Wins #1–#2. A production interner (faster hasher, no
+`RefCell`) might net low-single-digit % on the heaviest cases, not the 20–40% the
+dedup rate superficially suggests.
+
+**What this does *not* rule out / when to revisit:**
+- **Persistent cross-solve interning (Section B)** for the *memory*/throughput
+  angle under real multi-expression load — it wouldn't speed a single solve but
+  could cut peak RSS and allocator pressure across millions of expressions. Still
+  speculative; needs a real-binary corpus + the LFU-eviction design above.
+- **Id-based `Eq`/`Hash`/fingerprinting** — the prototype deduped *construction*
+  but left the orchestrator's structural `Eq`/`Hash` as-is. If profiling shows
+  Expr hashing/comparison (fingerprints, attempt-cache, competition) is hot,
+  switching those to O(1) interned-id comparison is a *separate* lever this
+  prototype didn't measure — and the only remaining place interning could pay
+  off. Measure that hotness before pursuing.
+- The real next frontier is **the search work**, not allocation — reducing
+  candidates explored / passes run, which is algorithmic, not representational.
 
