@@ -132,32 +132,27 @@ pub fn cleanup_final_expr(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
 
 // ---------- private cleanup helpers ----------
 
-fn flatten_add(node: Box<Expr>, terms: &mut Vec<Box<Expr>>) {
-    if matches!(node.kind, Kind::Add) {
-        let mut node = node;
+/// Flatten a left/right-associated binary chain of `op` nodes into its
+/// leaf operands. Non-`op` nodes are pushed as-is.
+fn flatten_assoc(mut node: Box<Expr>, op: &Kind, out: &mut Vec<Box<Expr>>) {
+    if node.kind == *op {
         let mut it = node.children.drain(..);
         let lhs = it.next().unwrap();
         let rhs = it.next().unwrap();
         drop(it);
-        flatten_add(lhs, terms);
-        flatten_add(rhs, terms);
+        flatten_assoc(lhs, op, out);
+        flatten_assoc(rhs, op, out);
     } else {
-        terms.push(node);
+        out.push(node);
     }
 }
 
+fn flatten_add(node: Box<Expr>, terms: &mut Vec<Box<Expr>>) {
+    flatten_assoc(node, &Kind::Add, terms);
+}
+
 fn flatten_mul(node: Box<Expr>, factors: &mut Vec<Box<Expr>>) {
-    if matches!(node.kind, Kind::Mul) {
-        let mut node = node;
-        let mut it = node.children.drain(..);
-        let lhs = it.next().unwrap();
-        let rhs = it.next().unwrap();
-        drop(it);
-        flatten_mul(lhs, factors);
-        flatten_mul(rhs, factors);
-    } else {
-        factors.push(node);
-    }
+    flatten_assoc(node, &Kind::Mul, factors);
 }
 
 fn rebuild_mul(factors: Vec<Box<Expr>>) -> Box<Expr> {

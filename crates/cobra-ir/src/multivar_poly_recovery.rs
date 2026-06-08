@@ -24,7 +24,7 @@ use cobra_core::{compile, eval as eval_compiled};
 
 use ahash::RandomState;
 
-use crate::math_utils::{mod_inverse_odd, odd_part_factorial, twos_in_factorial};
+use crate::math_utils::{mod_inverse_odd, odd_part_factorial, precision_bits, twos_in_factorial};
 use crate::mono::{MonomialKey, MAX_POLY_VARS};
 use crate::poly::{CoeffMap, NormalizedPoly};
 use crate::poly_expr_builder::build_poly_expr;
@@ -160,9 +160,9 @@ pub fn recover_multivar_poly(
             tmp /= base;
         }
 
-        if q >= bitwidth {
+        let Some(prec_bits) = precision_bits(q, bitwidth) else {
             continue;
-        }
+        };
 
         if q > 0 {
             let low_bits = alpha & ((1u64 << q) - 1);
@@ -175,12 +175,7 @@ pub fn recover_multivar_poly(
             }
         }
 
-        let prec_bits = bitwidth - q;
-        let prec_mask = if prec_bits >= 64 {
-            u64::MAX
-        } else {
-            (1u64 << prec_bits) - 1
-        };
+        let prec_mask = bitmask(prec_bits);
 
         let mut odd_product: u64 = 1;
         for &sv in support_vars {

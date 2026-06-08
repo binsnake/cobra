@@ -16,43 +16,35 @@ use crate::poly::NormalizedPoly;
 
 fn build_power_expr(var_index: u32, exponent: u8) -> Box<Expr> {
     debug_assert!(exponent >= 2);
-    let mut factors: Vec<Box<Expr>> = (0..exponent).map(|_| Expr::variable(var_index)).collect();
-    while factors.len() > 1 {
-        let mut next: Vec<Box<Expr>> = Vec::with_capacity(factors.len().div_ceil(2));
-        let mut i = 0;
-        while i < factors.len() {
-            if i + 1 < factors.len() {
-                let a = factors[i].clone_tree();
-                let b = factors[i + 1].clone_tree();
-                next.push(Expr::mul(a, b));
-            } else {
-                next.push(factors[i].clone_tree());
-            }
-            i += 2;
-        }
-        factors = next;
-    }
-    factors.pop().expect("factors non-empty")
+    let factors: Vec<Box<Expr>> = (0..exponent).map(|_| Expr::variable(var_index)).collect();
+    reduce_pairwise(factors, Expr::mul).expect("factors non-empty")
 }
 
 #[allow(clippy::vec_box)]
-fn reduce_add_tree(mut terms: Vec<Box<Expr>>) -> Box<Expr> {
-    while terms.len() > 1 {
-        let mut next: Vec<Box<Expr>> = Vec::with_capacity(terms.len().div_ceil(2));
-        let mut i = 0;
-        while i < terms.len() {
-            if i + 1 < terms.len() {
-                let a = terms[i].clone_tree();
-                let b = terms[i + 1].clone_tree();
-                next.push(Expr::add(a, b));
-            } else {
-                next.push(terms[i].clone_tree());
+fn reduce_add_tree(terms: Vec<Box<Expr>>) -> Box<Expr> {
+    reduce_pairwise(terms, Expr::add).expect("at least one term")
+}
+
+/// Balanced pairwise reduction of `items` under `combine`. Operands are
+/// moved (never cloned): each level consumes its vec via `into_iter`,
+/// pairing adjacent elements and carrying any odd tail forward.
+#[allow(clippy::vec_box)]
+fn reduce_pairwise(
+    mut items: Vec<Box<Expr>>,
+    combine: fn(Box<Expr>, Box<Expr>) -> Box<Expr>,
+) -> Option<Box<Expr>> {
+    while items.len() > 1 {
+        let mut next: Vec<Box<Expr>> = Vec::with_capacity(items.len().div_ceil(2));
+        let mut it = items.into_iter();
+        while let Some(a) = it.next() {
+            match it.next() {
+                Some(b) => next.push(combine(a, b)),
+                None => next.push(a),
             }
-            i += 2;
         }
-        terms = next;
+        items = next;
     }
-    terms.pop().expect("at least one term")
+    items.pop()
 }
 
 /// Build an `Expr` from a `NormalizedPoly`. Returns `Ok(Constant(0))`

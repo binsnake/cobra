@@ -12,6 +12,21 @@ pub const fn twos_in_factorial(k: u32) -> u32 {
     k - k.count_ones()
 }
 
+/// Valid precision band for a factorial-basis coefficient whose 2-adic
+/// factorial weight is `q`: the coefficient is meaningful modulo
+/// `2^(bitwidth - q)`. Returns `None` when `q >= bitwidth` — the monomial
+/// lies in the null space and its coefficient is dropped. Pair with
+/// [`cobra_core::arith::bitmask`] to obtain the saturating reduction mask.
+#[inline]
+#[must_use]
+pub const fn precision_bits(weight: u32, bitwidth: u32) -> Option<u32> {
+    if weight >= bitwidth {
+        None
+    } else {
+        Some(bitwidth - weight)
+    }
+}
+
 /// Smallest `d` such that `twos_in_factorial(d) >= bitwidth`.
 /// Concrete values: `8 → 10`, `16 → 18`, `32 → 34`, `64 → 66`.
 #[must_use]

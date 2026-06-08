@@ -24,29 +24,14 @@
 use cobra_core::arith::bitmask;
 use cobra_core::evaluator::Evaluator;
 
-/// `x^{-1} mod 2^{w-1}` for odd `x`. Hensel lifting, doubling correct
-/// bits per iteration starting from the 3-bit base case
-/// `x² ≡ 1 (mod 8)`.
+/// `x^{-1} mod 2^{w-1}` for odd `x`. Thin wrapper over
+/// [`crate::math_utils::mod_inverse_odd`] at `w - 1` bits — same Hensel
+/// lifting — kept as a named entry point for the half-width (`w-1`)
+/// modulus used by the coefficient splitter.
 #[must_use]
 pub fn mod_inverse_odd_half(x: u64, w: u32) -> u64 {
     assert!(w >= 2, "w must be >= 2");
-    assert!(x & 1 == 1, "x must be odd");
-
-    let target_bits = w - 1;
-    let mod_mask: u64 = if target_bits >= 64 {
-        u64::MAX
-    } else {
-        (1u64 << target_bits) - 1
-    };
-
-    let mut inv = x & mod_mask;
-    let mut bits: u32 = 3;
-    while bits < target_bits {
-        let two_minus_xi = 2u64.wrapping_sub(x.wrapping_mul(inv));
-        inv = inv.wrapping_mul(two_minus_xi) & mod_mask;
-        bits = bits.wrapping_mul(2);
-    }
-    inv & mod_mask
+    crate::math_utils::mod_inverse_odd(x, w - 1)
 }
 
 pub struct SplitResult {

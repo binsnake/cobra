@@ -27,7 +27,6 @@ pub mod result;
 pub mod signature_eval;
 pub mod signature_eval_stats;
 pub mod signature_simplifier;
-pub mod signature_vector;
 pub mod simplify_outcome;
 pub mod spot_check;
 pub mod trace;
@@ -64,7 +63,6 @@ pub use crate::signature_eval_stats::{
     sig_stats_record_eval, sig_stats_record_expr, sig_stats_reset, sig_stats_snapshot, SigEvalStats,
 };
 pub use crate::signature_simplifier::{is_boolean_valued, SignatureContext, SignaturePayload};
-pub use crate::signature_vector::SignatureVector;
 pub use crate::simplify_outcome::{
     Diagnostic, Options, ProofLevel, SimplifyOutcome, SimplifyOutcomeKind, SimplifyTelemetry,
 };

@@ -5,7 +5,10 @@
 //! Coefficients whose 2-adic weight exceeds the bitwidth drop out
 //! (the monomial is in the null space).
 
+use cobra_core::arith::bitmask;
+
 use crate::basis_transform::to_factorial_basis;
+use crate::math_utils::precision_bits;
 use crate::poly::{NormalizedPoly, PolyIR};
 
 /// Normalise a [`PolyIR`] into a [`NormalizedPoly`]. The output
@@ -19,13 +22,10 @@ pub fn normalize_polynomial(poly: &PolyIR) -> NormalizedPoly {
 
     current.retain(|key, coeff| {
         let q = key.v2_factorial_weight(n);
-        if q >= w {
+        let Some(bound_bits) = precision_bits(q, w) else {
             return false;
-        }
-        let bound_bits = w - q;
-        if bound_bits < 64 {
-            *coeff &= (1u64 << bound_bits) - 1;
-        }
+        };
+        *coeff &= bitmask(bound_bits);
         *coeff != 0
     });
 
