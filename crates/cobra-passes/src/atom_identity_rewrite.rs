@@ -32,6 +32,7 @@ use cobra_orchestrator::{
     OrchestratorContext, PassDecision, PassResult, Provenance, StateData, WorkItem,
 };
 
+use crate::candidate_normalize::merge_certificate;
 use crate::classifier::classify_structural;
 
 // ---------- entry point ----------
@@ -206,16 +207,6 @@ fn rewrite_at_site(
         .history
         .push(cobra_orchestrator::PassId::AtomIdentityRewrite);
     rewritten
-}
-
-fn merge_certificate(
-    previous: Option<LeanCertificate>,
-    next: LeanCertificate,
-) -> Option<LeanCertificate> {
-    match previous {
-        Some(prev) => prev.merge_step_chain(next),
-        None => Some(next),
-    }
 }
 
 // ---------- identity matchers ----------

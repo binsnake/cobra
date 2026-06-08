@@ -46,40 +46,9 @@ fn detect_live_mask(sig: &[u64], num_vars: u32) -> u64 {
     live
 }
 
-/// Compact a signature vector by dropping dimensions whose bit is
-/// cleared in `live_mask`. Entries collapse to the indices where the
-/// cleared bits are zero (they all share the same value).
-fn compact_sig(sig: &[u64], live_mask: u64, num_vars: u32) -> Vec<u64> {
-    // `count_ones()` gives the new arity; the new signature has length
-    // `2^real_count`. For each assignment `i` in `0..2^num_vars`, keep
-    // only those where every cleared bit in `live_mask` is zero (so we
-    // don't double-count collapsed entries).
-    let len = 1usize << num_vars;
-    let dead_mask = !live_mask & ((1u64 << num_vars).wrapping_sub(1));
-    let mut out = Vec::with_capacity(1usize << live_mask.count_ones());
-    for i in 0..len {
-        if (i as u64) & dead_mask != 0 {
-            continue;
-        }
-        // Pack live bits of `i` down into a contiguous index.
-        let mut packed: u64 = 0;
-        let mut bit_out: u32 = 0;
-        for v in 0..num_vars {
-            if live_mask & (1u64 << v) != 0 {
-                if (i as u64) & (1u64 << v) != 0 {
-                    packed |= 1u64 << bit_out;
-                }
-                bit_out += 1;
-            }
-        }
-        out.push(sig[packed_source_index(packed, live_mask, num_vars) as usize]);
-    }
-    out
-}
-
 /// Given a `packed` index over live bits only, expand it back to the
 /// full index space using `live_mask`. Inverse of the bit-packing
-/// used in [`compact_sig`].
+/// used in [`extract_live_entries`].
 fn packed_source_index(packed: u64, live_mask: u64, num_vars: u32) -> u64 {
     let mut src: u64 = 0;
     let mut bit_in: u32 = 0;
@@ -229,7 +198,6 @@ fn extract_live_entries(sig: &[u64], live_mask: u64, num_vars: u32) -> Vec<u64> 
         let src = packed_source_index(packed as u64, live_mask, num_vars) as usize;
         out.push(sig[src]);
     }
-    let _ = compact_sig; // keep `compact_sig` available; currently unused.
     out
 }
 

@@ -28,6 +28,8 @@ use cobra_orchestrator::{
     SignatureSubproblemContext, StateData, WorkItem,
 };
 
+use crate::lifting::active_ast_vars;
+
 struct OperandSite<'a> {
     mul: &'a Expr,
     mul_hash: u64,
@@ -58,15 +60,6 @@ fn find_first_operand_site(root: &Expr) -> Option<OperandSite<'_>> {
         }
     }
     None
-}
-
-fn active_ast_vars(item: &WorkItem, ctx: &OrchestratorContext) -> Vec<String> {
-    if let StateData::FoldedAst(ast) = &item.payload {
-        if let Some(sc) = &ast.solve_ctx {
-            return sc.vars.clone();
-        }
-    }
-    ctx.original_vars.clone()
 }
 
 #[allow(clippy::unnecessary_wraps, clippy::too_many_lines)]

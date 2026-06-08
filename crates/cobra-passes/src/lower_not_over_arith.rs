@@ -20,6 +20,7 @@ use cobra_orchestrator::{
     PassResult, Provenance, StateData, WorkItem,
 };
 
+use crate::candidate_normalize::merge_certificate;
 use crate::not_over_arith::{has_not_over_arith, is_purely_arithmetic, lower_not_over_arith};
 
 #[allow(clippy::unnecessary_wraps)]
@@ -116,16 +117,6 @@ fn lower_not_over_arith_certified(
     }
 
     (current, chain)
-}
-
-fn merge_certificate(
-    previous: Option<LeanCertificate>,
-    next: LeanCertificate,
-) -> Option<LeanCertificate> {
-    match previous {
-        Some(prev) => prev.merge_step_chain(next),
-        None => Some(next),
-    }
 }
 
 fn find_first_lowering_site(root: &Expr, bitwidth: u32) -> Option<(ExprPath, Box<Expr>)> {

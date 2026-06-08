@@ -15,31 +15,11 @@ use cobra_orchestrator::{
 };
 
 use crate::lifting::{
-    allocate_fresh_virtual_names, baseline_cost, boolean_signature, collect_non_leaf_subtrees,
-    count_nodes, is_ancestor_of, make_binding, replace_repeats_with_virtual, DeduplicatedAtom,
-    RepeatEntry, MAX_LIFTABLE_NODES, MIN_REPEAT_SIZE,
+    active_ast_evaluator, active_ast_vars, allocate_fresh_virtual_names, baseline_cost,
+    boolean_signature, collect_non_leaf_subtrees, count_nodes, is_ancestor_of, make_binding,
+    replace_repeats_with_virtual, DeduplicatedAtom, RepeatEntry, MAX_LIFTABLE_NODES,
+    MIN_REPEAT_SIZE,
 };
-
-fn active_ast_vars(item: &WorkItem, ctx: &OrchestratorContext) -> Vec<String> {
-    if let StateData::FoldedAst(ast) = &item.payload {
-        if let Some(sc) = &ast.solve_ctx {
-            return sc.vars.clone();
-        }
-    }
-    ctx.original_vars.clone()
-}
-
-fn active_ast_evaluator(
-    item: &WorkItem,
-    ctx: &OrchestratorContext,
-) -> Option<cobra_core::evaluator::Evaluator> {
-    if let StateData::FoldedAst(ast) = &item.payload {
-        if let Some(sc) = &ast.solve_ctx {
-            return sc.evaluator.clone();
-        }
-    }
-    ctx.evaluator.clone()
-}
 
 #[allow(clippy::unnecessary_wraps, clippy::too_many_lines)]
 pub fn run_lift_repeated_subexpressions(

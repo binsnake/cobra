@@ -10,9 +10,65 @@
 use std::sync::Arc;
 
 use cobra_core::arith::bitmask;
+use cobra_core::classification::SemanticClass;
 use cobra_core::compile;
 use cobra_core::evaluator::{Evaluator, TraceKind};
 use cobra_core::expr::{Expr, Kind};
+
+use cobra_orchestrator::{
+    has_verified_candidate, OrchestratorContext, SignatureSubproblemContext, WorkItem,
+};
+
+/// Maximum number of single-variable decomposition candidates a fan-out
+/// pass enumerates before truncating. Shared by the bitwise and hybrid
+/// decomposition passes.
+pub const MAX_CANDIDATES: usize = 8;
+
+/// Cost ceiling below which an already-verified candidate makes further
+/// decomposition redundant: a fully linear solution costs `2*num_vars + 1`.
+#[must_use]
+pub fn verified_candidate_decomposition_cost_bound(num_vars: u32) -> u32 {
+    2 * num_vars + 1
+}
+
+/// `true` if decomposition should be skipped because the competition
+/// group already holds a verified candidate at or below the linear cost
+/// bound (or the item isn't a linear/semilinear root with the required
+/// evaluator). Shared by `SignatureBitwiseDecompose` and
+/// `SignatureHybridDecompose`.
+#[must_use]
+pub fn should_skip_decomposition(
+    item: &WorkItem,
+    ctx: &OrchestratorContext,
+    sub_ctx: &SignatureSubproblemContext,
+    require_root_depth: bool,
+    require_global_evaluator: bool,
+) -> bool {
+    let Some(group_id) = item.group_id else {
+        return false;
+    };
+    let Some(classification) = item.features.classification else {
+        return false;
+    };
+    if !matches!(
+        classification.semantic,
+        SemanticClass::Linear | SemanticClass::Semilinear
+    ) {
+        return false;
+    }
+    if require_root_depth && item.signature_recursion_depth != 0 {
+        return false;
+    }
+    if require_global_evaluator && ctx.evaluator.is_none() {
+        return false;
+    }
+    has_verified_candidate(
+        &ctx.competition_groups,
+        group_id,
+        verified_candidate_decomposition_cost_bound(sub_ctx.real_vars.len() as u32),
+        ctx.bitwidth,
+    )
+}
 
 /// `true` if `e` is `Mul(non-const, non-const)`.
 #[must_use]
@@ -33,15 +89,14 @@ pub fn is_scaled_var_product(e: &Expr) -> bool {
     if !matches!(e.kind, Kind::Mul) || e.children.len() != 2 {
         return false;
     }
-    let (c, other) = match (
+    let other = match (
         matches!(e.children[0].kind, Kind::Constant(_)),
         matches!(e.children[1].kind, Kind::Constant(_)),
     ) {
-        (true, false) => (&e.children[0], &e.children[1]),
-        (false, true) => (&e.children[1], &e.children[0]),
+        (true, false) => &e.children[1],
+        (false, true) => &e.children[0],
         _ => return false,
     };
-    let _ = c;
     is_var_product(other)
 }
 

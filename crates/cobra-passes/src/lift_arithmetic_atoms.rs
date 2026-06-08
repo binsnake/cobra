@@ -16,8 +16,9 @@ use cobra_orchestrator::{
 };
 
 use crate::lifting::{
-    allocate_fresh_virtual_names, baseline_cost, boolean_signature, collect_liftable_atoms,
-    deduplicate_atoms, is_bitwise_kind, make_binding, replace_atoms_with_virtual,
+    active_ast_evaluator, active_ast_vars, allocate_fresh_virtual_names, baseline_cost,
+    boolean_signature, collect_liftable_atoms, deduplicate_atoms, is_bitwise_kind, make_binding,
+    replace_atoms_with_virtual,
 };
 
 fn resource_limit(msg: String) -> ReasonDetail {
@@ -33,27 +34,6 @@ fn resource_limit(msg: String) -> ReasonDetail {
         },
         causes: Vec::new(),
     }
-}
-
-fn active_ast_vars(item: &WorkItem, ctx: &OrchestratorContext) -> Vec<String> {
-    if let StateData::FoldedAst(ast) = &item.payload {
-        if let Some(sc) = &ast.solve_ctx {
-            return sc.vars.clone();
-        }
-    }
-    ctx.original_vars.clone()
-}
-
-fn active_ast_evaluator(
-    item: &WorkItem,
-    ctx: &OrchestratorContext,
-) -> Option<cobra_core::evaluator::Evaluator> {
-    if let StateData::FoldedAst(ast) = &item.payload {
-        if let Some(sc) = &ast.solve_ctx {
-            return sc.evaluator.clone();
-        }
-    }
-    ctx.evaluator.clone()
 }
 
 #[allow(clippy::unnecessary_wraps)]

@@ -163,12 +163,6 @@ fn active_input_sig<'a>(item: &'a WorkItem, ctx: &'a OrchestratorContext) -> Opt
     }
 }
 
-// Silence unused-`Evaluator` import warning — the active-eval flag
-// checks only `is_some()`, but keeping the type imported makes the
-// signature documentation above self-referential.
-#[allow(dead_code)]
-fn _reference_evaluator_type(_e: &Evaluator) {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

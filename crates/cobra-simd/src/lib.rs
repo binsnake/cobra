@@ -29,17 +29,26 @@ pub enum Gate {
 // to silence dead-code warnings when the `simd` feature supplies the
 // public API.
 
+/// Apply a gate to a single `u64` lane. The one place the per-gate
+/// scalar arithmetic is written; [`gate_apply_scalar`] and
+/// [`probe0_matches`] both route through here.
+#[inline]
+#[must_use]
+fn gate_apply_lane(a: u64, b: u64, g: Gate, mask: u64) -> u64 {
+    match g {
+        Gate::And => a & b,
+        Gate::Or => a | b,
+        Gate::Xor => a ^ b,
+        Gate::Add => a.wrapping_add(b) & mask,
+        Gate::Mul => a.wrapping_mul(b) & mask,
+    }
+}
+
 #[allow(dead_code)]
 fn gate_apply_scalar(a: &ProbeVals, b: &ProbeVals, g: Gate, mask: u64) -> ProbeVals {
     let mut r: ProbeVals = [0; N_PROBES];
     for i in 0..N_PROBES {
-        r[i] = match g {
-            Gate::And => a[i] & b[i],
-            Gate::Or => a[i] | b[i],
-            Gate::Xor => a[i] ^ b[i],
-            Gate::Add => a[i].wrapping_add(b[i]) & mask,
-            Gate::Mul => a[i].wrapping_mul(b[i]) & mask,
-        };
+        r[i] = gate_apply_lane(a[i], b[i], g, mask);
     }
     r
 }
@@ -52,13 +61,7 @@ fn gate_matches_scalar(
     g: Gate,
     mask: u64,
 ) -> bool {
-    // Accumulate `result_i XOR target_i` into `acc` via OR. `acc == 0` iff
-    let applied = gate_apply_scalar(a, b, g, mask);
-    let mut acc: u64 = 0;
-    for i in 0..N_PROBES {
-        acc |= applied[i] ^ target[i];
-    }
-    acc == 0
+    gate_apply_scalar(a, b, g, mask) == *target
 }
 
 fn gate_residual_scalar(target: &ProbeVals, a: &ProbeVals, g: Gate, mask: u64) -> ProbeVals {
@@ -163,13 +166,7 @@ pub fn gate_apply(a: &ProbeVals, b: &ProbeVals, g: Gate, mask: u64) -> ProbeVals
 #[inline]
 #[must_use]
 pub fn probe0_matches(a0: u64, b0: u64, t0: u64, g: Gate, mask: u64) -> bool {
-    match g {
-        Gate::And => (a0 & b0) == t0,
-        Gate::Or => (a0 | b0) == t0,
-        Gate::Xor => (a0 ^ b0) == t0,
-        Gate::Add => (a0.wrapping_add(b0) & mask) == t0,
-        Gate::Mul => (a0.wrapping_mul(b0) & mask) == t0,
-    }
+    gate_apply_lane(a0, b0, g, mask) == t0
 }
 
 /// Check `g(a, b) == target` across all 16 probes.

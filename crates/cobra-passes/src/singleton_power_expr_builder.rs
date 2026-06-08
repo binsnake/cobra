@@ -91,7 +91,7 @@ pub fn build_singleton_power_expr(powers: &SingletonPowerResult) -> Option<Box<E
 
         let mut degree_exprs: Vec<Box<Expr>> = Vec::new();
         let mut power: Option<Box<Expr>> = None;
-        for (j, &coeff) in mono.iter().enumerate().skip(1) {
+        for &coeff in mono.iter().skip(1) {
             let var_expr = Expr::variable(i as u32);
             power = Some(match power {
                 None => var_expr,
@@ -101,7 +101,6 @@ pub fn build_singleton_power_expr(powers: &SingletonPowerResult) -> Option<Box<E
                 let p = power.as_ref().expect("set above").clone_tree();
                 degree_exprs.push(apply_coefficient(p, coeff, w));
             }
-            let _ = j;
         }
         if degree_exprs.is_empty() {
             continue;

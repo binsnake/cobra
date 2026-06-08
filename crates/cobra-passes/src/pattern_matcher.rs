@@ -16,9 +16,11 @@ use cobra_core::expr::{Expr, Kind};
 use cobra_core::expr_cost::{compute_cost, is_better, ExprCost};
 use cobra_core::expr_rewrite::apply_coefficient;
 use cobra_core::expr_utils::{collect_vars, remap_var_indices};
+use cobra_core::is_boolean_valued;
 use cobra_orchestrator::{ExprPath, LeanCertificate};
 
 use crate::atom_simplifier::simplify_atom;
+use crate::candidate_normalize::merge_certificate;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 use crate::weighted_poly_fit::solve_2adic_fixed;
 
@@ -26,12 +28,6 @@ use crate::weighted_poly_fit::solve_2adic_fixed;
 #[must_use]
 pub fn all_equal(sig: &[u64]) -> bool {
     sig.windows(2).all(|w| w[0] == w[1])
-}
-
-/// True when every entry of `sig` is `0` or `1`.
-#[must_use]
-pub fn is_boolean_sig(sig: &[u64]) -> bool {
-    sig.iter().all(|&v| v <= 1)
 }
 
 /// Pack a Boolean signature into the integer key used by the lookup
@@ -628,14 +624,14 @@ pub fn match_pattern(sig: &[u64], num_vars: u32, bitwidth: u32) -> Option<Box<Ex
     }
     match num_vars {
         1 => return match_1var(sig, bitwidth),
-        2 if is_boolean_sig(sig) => return match_2var_boolean(pack_bool_sig(sig) as u8),
-        3 if is_boolean_sig(sig) => return match_3var_boolean(pack_bool_sig(sig) as u8),
-        4 if is_boolean_sig(sig) => return match_4var_npn(pack_bool_sig(sig) as u16),
-        5 if is_boolean_sig(sig) => return match_5var_boolean(pack_bool_sig(sig)),
-        6 if is_boolean_sig(sig) => return match_6var_boolean(pack_bool_sig_64(sig)),
+        2 if is_boolean_valued(sig) => return match_2var_boolean(pack_bool_sig(sig) as u8),
+        3 if is_boolean_valued(sig) => return match_3var_boolean(pack_bool_sig(sig) as u8),
+        4 if is_boolean_valued(sig) => return match_4var_npn(pack_bool_sig(sig) as u16),
+        5 if is_boolean_valued(sig) => return match_5var_boolean(pack_bool_sig(sig)),
+        6 if is_boolean_valued(sig) => return match_6var_boolean(pack_bool_sig_64(sig)),
         _ => {}
     }
-    if !is_boolean_sig(sig) {
+    if !is_boolean_valued(sig) {
         return match_scaled_boolean(sig, num_vars, bitwidth);
     }
     None
@@ -1066,16 +1062,6 @@ pub fn simplify_pattern_subtrees_certified(
         )
     } else {
         (expected, None)
-    }
-}
-
-fn merge_certificate(
-    previous: Option<LeanCertificate>,
-    next: LeanCertificate,
-) -> Option<LeanCertificate> {
-    match previous {
-        Some(prev) => prev.merge_step_chain(next),
-        None => Some(next),
     }
 }
 

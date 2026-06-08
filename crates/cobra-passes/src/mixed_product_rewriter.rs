@@ -95,16 +95,7 @@ pub fn count_rewriteable_sites(expr: &Expr) -> u32 {
     count_sites_impl(expr, RewriteContext::default())
 }
 
-#[must_use]
-pub fn node_count(expr: &Expr) -> u32 {
-    let mut n = 1u32;
-    for c in &expr.children {
-        n += node_count(c);
-    }
-    n
-}
-
-/// Single-pass fusion of `count_rewriteable_sites` + `node_count`.
+/// Single-pass fusion of `count_rewriteable_sites` + node counting.
 /// Returns `(sites, nodes)` in one traversal, saving a walk per rewrite round.
 fn count_sites_and_nodes_impl(expr: &Expr, ctx: RewriteContext) -> (u32, u32) {
     let child_ctx = child_context(expr, ctx);

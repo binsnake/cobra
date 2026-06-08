@@ -15,7 +15,36 @@ use cobra_core::expr::{render, Expr, Kind};
 use cobra_core::expr_cost::compute_cost;
 use cobra_core::expr_utils::has_var_dep;
 
-use cobra_orchestrator::{expr_identity_hash, LiftedBinding, LiftedValueKind};
+use cobra_orchestrator::{
+    expr_identity_hash, LiftedBinding, LiftedValueKind, OrchestratorContext, StateData, WorkItem,
+};
+
+/// Active variable names for an item: the solve-context-local `vars`
+/// when the `FoldedAst` carries a solve context, else `ctx.original_vars`.
+#[must_use]
+pub fn active_ast_vars(item: &WorkItem, ctx: &OrchestratorContext) -> Vec<String> {
+    if let StateData::FoldedAst(ast) = &item.payload {
+        if let Some(sc) = &ast.solve_ctx {
+            return sc.vars.clone();
+        }
+    }
+    ctx.original_vars.clone()
+}
+
+/// Active evaluator for an item: the solve-context-local evaluator when
+/// the `FoldedAst` carries a solve context, else `ctx.evaluator`.
+#[must_use]
+pub fn active_ast_evaluator(
+    item: &WorkItem,
+    ctx: &OrchestratorContext,
+) -> Option<cobra_core::evaluator::Evaluator> {
+    if let StateData::FoldedAst(ast) = &item.payload {
+        if let Some(sc) = &ast.solve_ctx {
+            return sc.evaluator.clone();
+        }
+    }
+    ctx.evaluator.clone()
+}
 
 #[must_use]
 pub fn is_bitwise_kind(k: &Kind) -> bool {
