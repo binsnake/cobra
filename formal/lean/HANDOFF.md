@@ -82,7 +82,7 @@ Before this handoff, these gates were reported passing in the prior sweep:
 - `cargo test -p cobra-passes --test generated_lean_replay -- --nocapture`
 - `COBRA_LEAN_REPLAY=1 cargo test -p cobra-passes --test generated_lean_replay -- --nocapture`
 - `lake build` from `formal/lean`
-- placeholder scan for `sorry`/`admit`
+- placeholder scan for incomplete-proof markers
 
 After wiring `Const3And1_64` into the atom simplifier path, these additional focused gates passed:
 
@@ -108,7 +108,7 @@ After wiring `DemorganNotOrNotNot64` into the pattern matcher path, these additi
 - `cargo fmt --all -- --check`
 - `cargo check --workspace --all-targets`
 - `lake build`
-- placeholder scan for `sorry`/`admit` in Lean/Rust sources
+- placeholder scan for incomplete-proof markers in Lean/Rust sources
 
 After wiring `DemorganNotAndNotNot64` into the pattern matcher path, these additional focused gates passed:
 
@@ -122,7 +122,7 @@ After wiring `DemorganNotAndNotNot64` into the pattern matcher path, these addit
 - `cargo fmt --all -- --check`
 - `cargo check --workspace --all-targets`
 - `lake build`
-- placeholder scan for `sorry`/`admit` in Lean/Rust sources
+- placeholder scan for incomplete-proof markers in Lean/Rust sources
 
 Rerun the full gate set before committing.
 
