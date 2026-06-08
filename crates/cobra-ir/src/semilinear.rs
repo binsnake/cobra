@@ -376,7 +376,11 @@ mod tests {
             bitwidth: 16,
             ..Default::default()
         };
-        let id = create_atom(&mut ir, Expr::zext(Expr::variable(0), 16), OperatorFamily::Mixed);
+        let id = create_atom(
+            &mut ir,
+            Expr::zext(Expr::variable(0), 16),
+            OperatorFamily::Mixed,
+        );
         assert!(ir.atom_table[id as usize].key.truth_table.is_empty());
     }
 

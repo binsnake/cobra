@@ -461,7 +461,13 @@ mod tests {
     #[test]
     fn candidate_stops_when_verification_budget_exhausted() {
         let item = mk_candidate();
-        let p = select_next_pass(&item, &policy(), policy().max_candidates, &empty_cache(), 64);
+        let p = select_next_pass(
+            &item,
+            &policy(),
+            policy().max_candidates,
+            &empty_cache(),
+            64,
+        );
         assert_eq!(p, None);
     }
 
@@ -497,7 +503,10 @@ mod tests {
     #[test]
     fn original_ast_without_classification_returns_none() {
         let item = mk_folded(Expr::variable(0), Provenance::Original, None);
-        assert_eq!(select_next_pass(&item, &policy(), 0, &empty_cache(), 64), None);
+        assert_eq!(
+            select_next_pass(&item, &policy(), 0, &empty_cache(), 64),
+            None
+        );
     }
 
     #[test]
@@ -627,7 +636,10 @@ mod tests {
             flags: StructuralFlag::HAS_UNKNOWN_SHAPE,
         };
         let item = mk_folded(Expr::variable(0), Provenance::Rewritten, Some(cls));
-        assert_eq!(select_next_pass(&item, &policy(), 0, &empty_cache(), 64), None);
+        assert_eq!(
+            select_next_pass(&item, &policy(), 0, &empty_cache(), 64),
+            None
+        );
     }
 
     /// Regression: the scheduler's cache lookup must use the SAME

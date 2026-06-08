@@ -30,7 +30,13 @@ pub fn width_of(expr: &Expr, var_widths: &[u32], default_w: u32) -> u32 {
                 + width_of(&expr.children[1], var_widths, default_w)
         }
         // Same-width ops: inherit the (first) child's width.
-        Kind::Not | Kind::Neg | Kind::Shr(_) | Kind::Add | Kind::Mul | Kind::And | Kind::Or
+        Kind::Not
+        | Kind::Neg
+        | Kind::Shr(_)
+        | Kind::Add
+        | Kind::Mul
+        | Kind::And
+        | Kind::Or
         | Kind::Xor => width_of(&expr.children[0], var_widths, default_w),
     }
 }
@@ -43,7 +49,13 @@ pub fn is_uniform_width(expr: &Expr, var_widths: &[u32], w: u32) -> bool {
         Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => false,
         Kind::Constant(_) => true,
         Kind::Variable(i) => var_widths.get(*i as usize).copied().unwrap_or(w) == w,
-        Kind::Not | Kind::Neg | Kind::Shr(_) | Kind::Add | Kind::Mul | Kind::And | Kind::Or
+        Kind::Not
+        | Kind::Neg
+        | Kind::Shr(_)
+        | Kind::Add
+        | Kind::Mul
+        | Kind::And
+        | Kind::Or
         | Kind::Xor => expr
             .children
             .iter()

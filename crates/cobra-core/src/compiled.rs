@@ -173,12 +173,7 @@ pub fn compile(expr: &Expr, bitwidth: u32) -> CompiledExpr {
             | Opcode::ZExt
             | Opcode::SExt
             | Opcode::Trunc => {}
-            Opcode::Add
-            | Opcode::Mul
-            | Opcode::And
-            | Opcode::Or
-            | Opcode::Xor
-            | Opcode::Concat => {
+            Opcode::Add | Opcode::Mul | Opcode::And | Opcode::Or | Opcode::Xor | Opcode::Concat => {
                 depth -= 1;
             }
         }

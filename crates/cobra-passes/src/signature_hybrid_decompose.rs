@@ -10,9 +10,9 @@ use cobra_core::pass_contract::ReasonDetail;
 use cobra_core::result::Result;
 
 use cobra_orchestrator::{
-    acquire_handle, create_group, ContinuationData, EliminationResult, ExtractOp, HybridComposeCont,
-    ItemDisposition, OrchestratorContext, PassDecision, PassResult, SignatureStatePayload,
-    SignatureSubproblemContext, StateData, WorkItem,
+    acquire_handle, create_group, ContinuationData, EliminationResult, ExtractOp,
+    HybridComposeCont, ItemDisposition, OrchestratorContext, PassDecision, PassResult,
+    SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem,
 };
 
 use crate::decomposition_helpers::{should_skip_decomposition, MAX_CANDIDATES};

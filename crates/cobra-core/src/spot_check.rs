@@ -584,7 +584,10 @@ mod tests {
             Expr::mul(Expr::zext(Expr::variable(0), 16), Expr::constant(256)),
             Expr::zext(Expr::variable(1), 16),
         );
-        assert_eq!(eval_expr(&lhs, &[0x80, 0x01], 8), eval_expr(&rhs, &[0x80, 0x01], 16));
+        assert_eq!(
+            eval_expr(&lhs, &[0x80, 0x01], 8),
+            eval_expr(&rhs, &[0x80, 0x01], 16)
+        );
     }
 
     #[test]

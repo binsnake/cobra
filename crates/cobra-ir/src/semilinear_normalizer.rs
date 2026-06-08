@@ -165,11 +165,7 @@ fn eval_constant_arith(expr: &Expr, mask: u64, bitwidth: u32) -> u64 {
         }
         Kind::And | Kind::Or | Kind::Xor | Kind::Not => eval_constant_bitwise(expr, mask),
         // Opaque (mixed-width or variable): not a recognised constant term.
-        Kind::Variable(_)
-        | Kind::ZExt(_)
-        | Kind::SExt(_)
-        | Kind::Trunc(_)
-        | Kind::Concat => 0,
+        Kind::Variable(_) | Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => 0,
     }
 }
 

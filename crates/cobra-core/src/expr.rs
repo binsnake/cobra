@@ -42,7 +42,11 @@ impl Kind {
     pub const fn arity(&self) -> usize {
         match self {
             Self::Constant(_) | Self::Variable(_) => 0,
-            Self::Not | Self::Neg | Self::Shr(_) | Self::ZExt(_) | Self::SExt(_)
+            Self::Not
+            | Self::Neg
+            | Self::Shr(_)
+            | Self::ZExt(_)
+            | Self::SExt(_)
             | Self::Trunc(_) => 1,
             Self::Add | Self::Mul | Self::And | Self::Or | Self::Xor | Self::Concat => 2,
         }
