@@ -14,6 +14,10 @@ use crate::token::{Token, TokenType};
 pub struct AstResult {
     pub expr: Box<Expr>,
     pub vars: Vec<String>,
+    /// Per-variable bit widths, one entry per name in `vars`. Default-filled
+    /// to the run's global `bitwidth`; plumbing for downstream Z3/orchestrator
+    /// mixed-width support.
+    pub var_widths: Vec<u32>,
 }
 
 pub const MAX_VARIABLES: usize = 20;
@@ -46,7 +50,12 @@ pub fn parse_to_ast(input: &str, bitwidth: u32) -> Result<AstResult> {
     let postfix = to_postfix(&tokens)?;
     validate_shifts_and_exponents(&postfix, bitwidth)?;
     let expr = build_ast(&postfix, &vars, bitwidth)?;
-    Ok(AstResult { expr, vars })
+    let var_widths = vec![bitwidth; vars.len()];
+    Ok(AstResult {
+        expr,
+        vars,
+        var_widths,
+    })
 }
 
 /// Reconstruct an `Expr` tree from a postfix token sequence. `var_names` is
@@ -294,5 +303,12 @@ mod tests {
         let r = parse_to_ast("(x&y)+(x|y)", 64).unwrap();
         assert_eq!(r.vars, vec!["x".to_owned(), "y".to_owned()]);
         assert!(matches!(r.expr.kind, Kind::Add));
+    }
+
+    #[test]
+    fn parse_var_widths_default_to_bitwidth() {
+        let r = parse_to_ast("c + a + b", 8).unwrap();
+        assert_eq!(r.var_widths.len(), r.vars.len());
+        assert!(r.var_widths.iter().all(|&w| w == 8));
     }
 }
