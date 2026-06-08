@@ -3,8 +3,9 @@
 //! tree-bearing `Kind` so that a compiled instruction doesn't carry redundant
 //! payload inside its variant.
 
-use crate::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr};
+use crate::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr, sext, trunc, zext};
 use crate::expr::{Expr, Kind};
+use crate::width::width_of;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -19,6 +20,10 @@ pub enum Opcode {
     Not,
     Neg,
     Shr,
+    ZExt,
+    SExt,
+    Trunc,
+    Concat,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -27,6 +32,9 @@ pub struct EvalInstr {
     /// `Constant` → value (pre-masked to `bitwidth`);
     /// `Variable` → index into the var-values vector;
     /// `Shr` → shift amount;
+    /// `ZExt`/`Trunc` → target width `w`;
+    /// `SExt` → source width in the low 32 bits, target width in the high 32;
+    /// `Concat` → low-child width in the low 32 bits, output width in the high 32;
     /// all others → 0 (unused).
     pub operand: u64,
 }
@@ -44,6 +52,36 @@ pub struct CompiledExpr {
 /// Compile an `Expr` tree into flat bytecode.
 ///
 /// exactly so the emitted instruction sequence is identical.
+/// Map a node to its emit-time `(opcode, operand)`. Casts/`Concat` pack their
+/// per-node widths into `operand`; everything else matches the C++ encoding.
+fn emit_op(node: &Expr, bitwidth: u32) -> (Opcode, u64) {
+    match &node.kind {
+        Kind::Constant(v) => (Opcode::Constant, *v),
+        Kind::Variable(i) => (Opcode::Variable, u64::from(*i)),
+        Kind::Shr(k) => (Opcode::Shr, u64::from(*k)),
+        Kind::Not => (Opcode::Not, 0),
+        Kind::Neg => (Opcode::Neg, 0),
+        Kind::Add => (Opcode::Add, 0),
+        Kind::Mul => (Opcode::Mul, 0),
+        Kind::And => (Opcode::And, 0),
+        Kind::Or => (Opcode::Or, 0),
+        Kind::Xor => (Opcode::Xor, 0),
+        Kind::ZExt(w) => (Opcode::ZExt, u64::from(*w)),
+        Kind::Trunc(w) => (Opcode::Trunc, u64::from(*w)),
+        Kind::SExt(w) => {
+            // Pack the child's source width (low 32) and target (high 32).
+            let from = width_of(&node.children[0], &[], bitwidth);
+            (Opcode::SExt, pack_widths(from, *w))
+        }
+        Kind::Concat => {
+            // Pack the low child's width (low 32) and the output (high 32).
+            let low_w = width_of(&node.children[1], &[], bitwidth);
+            let out_w = width_of(node, &[], bitwidth);
+            (Opcode::Concat, pack_widths(low_w, out_w))
+        }
+    }
+}
+
 #[must_use]
 pub fn compile(expr: &Expr, bitwidth: u32) -> CompiledExpr {
     struct Frame<'a> {
@@ -71,18 +109,7 @@ pub fn compile(expr: &Expr, bitwidth: u32) -> CompiledExpr {
 
         if frame.emit {
             // Re-enter: we've already walked the children. Emit the op.
-            let (op, operand) = match &node.kind {
-                Kind::Constant(v) => (Opcode::Constant, *v),
-                Kind::Variable(i) => (Opcode::Variable, u64::from(*i)),
-                Kind::Shr(k) => (Opcode::Shr, u64::from(*k)),
-                Kind::Not => (Opcode::Not, 0),
-                Kind::Neg => (Opcode::Neg, 0),
-                Kind::Add => (Opcode::Add, 0),
-                Kind::Mul => (Opcode::Mul, 0),
-                Kind::And => (Opcode::And, 0),
-                Kind::Or => (Opcode::Or, 0),
-                Kind::Xor => (Opcode::Xor, 0),
-            };
+            let (op, operand) = emit_op(node, bitwidth);
             compiled.program.push(EvalInstr { op, operand });
             continue;
         }
@@ -101,14 +128,19 @@ pub fn compile(expr: &Expr, bitwidth: u32) -> CompiledExpr {
                     operand: u64::from(*i),
                 });
             }
-            Kind::Not | Kind::Neg | Kind::Shr(_) => {
+            Kind::Not
+            | Kind::Neg
+            | Kind::Shr(_)
+            | Kind::ZExt(_)
+            | Kind::SExt(_)
+            | Kind::Trunc(_) => {
                 frames.push(Frame { node, emit: true });
                 frames.push(Frame {
                     node: &node.children[0],
                     emit: false,
                 });
             }
-            Kind::Add | Kind::Mul | Kind::And | Kind::Or | Kind::Xor => {
+            Kind::Add | Kind::Mul | Kind::And | Kind::Or | Kind::Xor | Kind::Concat => {
                 frames.push(Frame { node, emit: true });
                 // Push RHS first so LHS is popped (and thus emitted) first — this
                 // preserves the same left-to-right ordering as the C++ version.
@@ -135,8 +167,18 @@ pub fn compile(expr: &Expr, bitwidth: u32) -> CompiledExpr {
                     max_depth = depth;
                 }
             }
-            Opcode::Not | Opcode::Neg | Opcode::Shr => {}
-            Opcode::Add | Opcode::Mul | Opcode::And | Opcode::Or | Opcode::Xor => {
+            Opcode::Not
+            | Opcode::Neg
+            | Opcode::Shr
+            | Opcode::ZExt
+            | Opcode::SExt
+            | Opcode::Trunc => {}
+            Opcode::Add
+            | Opcode::Mul
+            | Opcode::And
+            | Opcode::Or
+            | Opcode::Xor
+            | Opcode::Concat => {
                 depth -= 1;
             }
         }
@@ -196,10 +238,41 @@ pub fn eval(compiled: &CompiledExpr, var_values: &[u64], stack: &mut Vec<u64>) -
                 stack[sp - 2] = (stack[sp - 2] ^ stack[sp - 1]) & mask;
                 sp -= 1;
             }
+            Opcode::ZExt => {
+                // Local width from the operand; ignores the global mask.
+                stack[sp - 1] = zext(stack[sp - 1], instr.operand as u32);
+            }
+            Opcode::Trunc => {
+                stack[sp - 1] = trunc(stack[sp - 1], instr.operand as u32);
+            }
+            Opcode::SExt => {
+                let (from, to) = unpack_widths(instr.operand);
+                stack[sp - 1] = sext(stack[sp - 1], from, to);
+            }
+            Opcode::Concat => {
+                let (low_w, out_w) = unpack_widths(instr.operand);
+                let high = stack[sp - 2];
+                let low = stack[sp - 1] & bitmask(low_w);
+                stack[sp - 2] = (high.wrapping_shl(low_w) | low) & bitmask(out_w);
+                sp -= 1;
+            }
         }
     }
 
     stack[sp - 1]
+}
+
+/// Pack two widths into a single `u64` operand: `lo` in the low 32 bits,
+/// `hi` in the high 32 bits.
+#[inline]
+const fn pack_widths(lo: u32, hi: u32) -> u64 {
+    (lo as u64) | ((hi as u64) << 32)
+}
+
+/// Inverse of [`pack_widths`].
+#[inline]
+const fn unpack_widths(packed: u64) -> (u32, u32) {
+    (packed as u32, (packed >> 32) as u32)
 }
 
 #[cfg(test)]
@@ -250,6 +323,38 @@ mod tests {
         assert_eq!(run(&Expr::not(Expr::variable(0)), 8, &[0xF0]), 0x0F);
         assert_eq!(run(&Expr::neg(Expr::variable(0)), 8, &[1]), 0xFF);
         assert_eq!(run(&Expr::shr(Expr::variable(0), 4), 8, &[0xF0]), 0x0F);
+    }
+
+    #[test]
+    fn cast_and_concat_ops() {
+        // zext(a, 16) at global bw 8: a=0xAB masks to 0xAB then zext keeps 0x00AB.
+        assert_eq!(run(&Expr::zext(Expr::variable(0), 16), 8, &[0xAB]), 0x00AB);
+        // sext(a, 16) where a is an 8-bit var = 0xFF (-1) -> 0xFFFF.
+        assert_eq!(run(&Expr::sext(Expr::variable(0), 16), 8, &[0xFF]), 0xFFFF);
+        // sext positive stays positive.
+        assert_eq!(run(&Expr::sext(Expr::variable(0), 16), 8, &[0x7F]), 0x007F);
+        // trunc(a, 8) of a 16-bit var 0xABCD -> 0xCD.
+        assert_eq!(run(&Expr::trunc(Expr::variable(0), 8), 16, &[0xABCD]), 0xCD);
+        // concat(a:u8, b:u8) -> u16: high a=0x12, low b=0x34 -> 0x1234.
+        // Global bw 8 here; the concat opcode uses its own per-node widths.
+        let e = Expr::concat(Expr::variable(0), Expr::variable(1));
+        assert_eq!(run(&e, 8, &[0x12, 0x34]), 0x1234);
+    }
+
+    #[test]
+    fn concat_of_zext_matches_arithmetic() {
+        // concat(a:u8, b:u8) == zext(a,16)*256 + zext(b,16) for u8 a,b.
+        let lhs = Expr::concat(Expr::variable(0), Expr::variable(1));
+        let rhs = Expr::add(
+            Expr::mul(Expr::zext(Expr::variable(0), 16), Expr::constant(256)),
+            Expr::zext(Expr::variable(1), 16),
+        );
+        let cl = compile(&lhs, 8);
+        let cr = compile(&rhs, 16);
+        let mut s = Vec::new();
+        for (a, b) in [(0u64, 0), (0x12, 0x34), (0xFF, 0xFF), (0x80, 0x01)] {
+            assert_eq!(eval(&cl, &[a, b], &mut s), eval(&cr, &[a, b], &mut s));
+        }
     }
 
     #[test]

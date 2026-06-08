@@ -31,9 +31,11 @@ pub mod signature_vector;
 pub mod simplify_outcome;
 pub mod spot_check;
 pub mod trace;
+pub mod width;
 
 pub use crate::arith::{
-    bitmask, is_valid_bitwidth, mod_add, mod_mul, mod_neg, mod_not, mod_shr, mod_sub, sign_bit_mask,
+    bitmask, is_valid_bitwidth, mod_add, mod_mul, mod_neg, mod_not, mod_shr, mod_sub, sext,
+    sign_bit_mask, trunc, zext,
 };
 pub use crate::classification::{
     is_folded_ast_exploration_candidate, needs_structural_recovery, Classification, SemanticClass,
@@ -70,3 +72,4 @@ pub use crate::spot_check::{
     eval_expr, full_width_check, full_width_check_eval, signature_check, verify_in_original_space,
     CheckResult, DEFAULT_NUM_SAMPLES, RESIDUAL_GATE_NUM_SAMPLES,
 };
+pub use crate::width::{is_uniform_width, validate_widths, width_of};

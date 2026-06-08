@@ -24,6 +24,15 @@ pub enum Kind {
     Neg,
     /// Logical shift right. The shift amount is pinned here; `>= 64` yields 0
     Shr(u32),
+    /// Zero-extend the child to `w` bits. Result width = `w` (the payload).
+    ZExt(u32),
+    /// Sign-extend the child to `w` bits. Result width = `w` (the payload).
+    SExt(u32),
+    /// Truncate the child to `w` low bits. Result width = `w` (the payload).
+    Trunc(u32),
+    /// Bit concatenation. Result width = `w(child0) + w(child1)`; child0 is
+    /// the high part, child1 the low part.
+    Concat,
 }
 
 impl Kind {
@@ -33,8 +42,9 @@ impl Kind {
     pub const fn arity(&self) -> usize {
         match self {
             Self::Constant(_) | Self::Variable(_) => 0,
-            Self::Not | Self::Neg | Self::Shr(_) => 1,
-            Self::Add | Self::Mul | Self::And | Self::Or | Self::Xor => 2,
+            Self::Not | Self::Neg | Self::Shr(_) | Self::ZExt(_) | Self::SExt(_)
+            | Self::Trunc(_) => 1,
+            Self::Add | Self::Mul | Self::And | Self::Or | Self::Xor | Self::Concat => 2,
         }
     }
 
@@ -46,13 +56,17 @@ impl Kind {
     #[must_use]
     const fn precedence(&self) -> i32 {
         match self {
-            Self::Not | Self::Neg => 1,
+            // Casts render in function-call form (`zext(x, w)`), so the child
+            // is always parenthesised by the call syntax — treat as unary (1).
+            Self::Not | Self::Neg | Self::ZExt(_) | Self::SExt(_) | Self::Trunc(_) => 1,
             Self::Mul => 2,
             Self::Add => 3,
             Self::Shr(_) => 4,
             Self::And => 5,
             Self::Xor => 6,
             Self::Or => 7,
+            // `++` is the loosest binder of all.
+            Self::Concat => 8,
             Self::Constant(_) | Self::Variable(_) => 0,
         }
     }
@@ -136,6 +150,35 @@ impl Expr {
         Self::unary(Kind::Shr(amt), operand)
     }
 
+    /// Zero-extend `child` to width `w`. Result width is `w`.
+    #[inline]
+    #[must_use]
+    pub fn zext(child: Box<Self>, w: u32) -> Box<Self> {
+        Self::unary(Kind::ZExt(w), child)
+    }
+
+    /// Sign-extend `child` to width `w`. Result width is `w`.
+    #[inline]
+    #[must_use]
+    pub fn sext(child: Box<Self>, w: u32) -> Box<Self> {
+        Self::unary(Kind::SExt(w), child)
+    }
+
+    /// Truncate `child` to its low `w` bits. Result width is `w`.
+    #[inline]
+    #[must_use]
+    pub fn trunc(child: Box<Self>, w: u32) -> Box<Self> {
+        Self::unary(Kind::Trunc(w), child)
+    }
+
+    /// Concatenate `lhs` (high part) with `rhs` (low part). Result width is
+    /// the sum of the two child widths.
+    #[inline]
+    #[must_use]
+    pub fn concat(lhs: Box<Self>, rhs: Box<Self>) -> Box<Self> {
+        Self::binary(Kind::Concat, lhs, rhs)
+    }
+
     fn unary(kind: Kind, child: Box<Self>) -> Box<Self> {
         let mut children: SmallVec<[Box<Self>; 2]> = SmallVec::new();
         children.push(child);
@@ -206,6 +249,31 @@ fn render_impl(
             }
             render_impl(out, &expr.children[0], var_names, bitwidth, prec);
             let _ = write!(out, " >> {amt}");
+            if needs_parens {
+                out.push(')');
+            }
+        }
+        Kind::ZExt(w) | Kind::SExt(w) | Kind::Trunc(w) => {
+            let name = match &expr.kind {
+                Kind::ZExt(_) => "zext",
+                Kind::SExt(_) => "sext",
+                _ => "trunc",
+            };
+            out.push_str(name);
+            out.push('(');
+            // The call parentheses isolate the child; render it as a fresh top.
+            render_impl(out, &expr.children[0], var_names, bitwidth, 0);
+            let _ = write!(out, ", {w})");
+        }
+        Kind::Concat => {
+            let prec = expr.kind.precedence();
+            let needs_parens = prec > parent_prec && parent_prec > 0;
+            if needs_parens {
+                out.push('(');
+            }
+            render_impl(out, &expr.children[0], var_names, bitwidth, prec);
+            out.push_str(" ++ ");
+            render_impl(out, &expr.children[1], var_names, bitwidth, prec);
             if needs_parens {
                 out.push(')');
             }
@@ -350,6 +418,42 @@ mod tests {
         // needs parens.
         let expr = Expr::mul(Expr::shr(v(0), 1), Expr::variable(0));
         assert_eq!(render(&expr, &vars, 64), "(a >> 1) * a");
+    }
+
+    #[test]
+    fn arity_of_casts_and_concat() {
+        assert_eq!(Expr::zext(v(0), 16).kind.arity(), 1);
+        assert_eq!(Expr::sext(v(0), 16).kind.arity(), 1);
+        assert_eq!(Expr::trunc(v(0), 8).kind.arity(), 1);
+        assert_eq!(Expr::concat(v(0), v(1)).kind.arity(), 2);
+
+        for e in [
+            Expr::zext(v(0), 16),
+            Expr::sext(v(0), 16),
+            Expr::trunc(v(0), 8),
+            Expr::concat(v(0), v(1)),
+        ] {
+            assert_eq!(e.kind.arity(), e.children.len());
+        }
+    }
+
+    #[test]
+    fn render_casts_and_concat() {
+        let vars = names(2);
+        assert_eq!(render(&Expr::zext(v(0), 16), &vars, 8), "zext(a, 16)");
+        assert_eq!(render(&Expr::sext(v(0), 32), &vars, 8), "sext(a, 32)");
+        assert_eq!(render(&Expr::trunc(v(0), 8), &vars, 16), "trunc(a, 8)");
+        assert_eq!(render(&Expr::concat(v(0), v(1)), &vars, 8), "a ++ b");
+
+        // A cast over a compound child: the call parens isolate it.
+        let e = Expr::zext(Expr::add(v(0), v(1)), 16);
+        assert_eq!(render(&e, &vars, 8), "zext(a + b, 16)");
+
+        // Concat is the loosest binder; an add child needs no parens, but a
+        // concat nested under a tighter parent (mul) would. Here add as a
+        // concat child stays bare since add (3) binds tighter than concat (8).
+        let e = Expr::concat(Expr::add(v(0), v(1)), v(0));
+        assert_eq!(render(&e, &vars, 8), "a + b ++ a");
     }
 
     #[test]
