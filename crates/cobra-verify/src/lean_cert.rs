@@ -7,6 +7,7 @@
 
 use cobra_core::expr::Expr;
 use cobra_core::expr::Kind;
+use cobra_core::width::is_uniform_width;
 
 /// Theorem identifiers exported by `formal/lean/Cobra/Core.lean`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -931,7 +932,15 @@ impl LeanCertificate {
         path: ExprPath,
         after: Box<Expr>,
     ) -> Option<Self> {
+        // The Lean theorem pack is 64-bit only; reject any other width.
         if bitwidth != 64 {
+            return None;
+        }
+        // Soundness wall: the pack has no width-parametric theorems, so any
+        // cast/Concat (a non-uniform-width node) must not yield a certificate.
+        // With an empty `var_widths`, every variable defaults to width 64 to
+        // match the gate above.
+        if !is_uniform_width(&original, &[], 64) || !is_uniform_width(&after, &[], 64) {
             return None;
         }
         let (context, before) = context_from_path(&original, &path)?;
@@ -954,7 +963,14 @@ impl LeanCertificate {
         original: Box<Expr>,
         simplified: Box<Expr>,
     ) -> Option<Self> {
+        // The Lean theorem pack is 64-bit only; reject any other width.
         if bitwidth != 64 {
+            return None;
+        }
+        // Soundness wall: never emit a certificate for a mixed-width tree
+        // (any cast/Concat node makes `is_uniform_width` false). Empty
+        // `var_widths` defaults every variable to width 64 to match the gate.
+        if !is_uniform_width(&original, &[], 64) || !is_uniform_width(&simplified, &[], 64) {
             return None;
         }
 
@@ -1345,6 +1361,27 @@ mod tests {
         assert!(cert.matches_endpoints(64, &original, &simplified));
         assert_eq!(cert.steps[0].path, ExprPath(vec![0]));
         assert_eq!(cert.steps[0].theorem, LeanTheorem::OrSubAndEqXor64);
+    }
+
+    #[test]
+    fn mixed_width_expr_yields_no_certificate() {
+        // Soundness wall: a tree containing a cast/Concat is not uniform-width,
+        // so neither single-rewrite entry point may emit a Lean certificate
+        // even when the local shape would otherwise match a 64-bit theorem.
+        let widened = Expr::add(Expr::zext(Expr::variable(0), 64), Expr::constant(0));
+        assert!(LeanCertificate::try_single_rewrite_64(
+            64,
+            widened.clone_tree(),
+            ExprPath(vec![]),
+            widened.clone_tree(),
+        )
+        .is_none());
+        assert!(LeanCertificate::try_single_rewrite_between_64(
+            64,
+            widened.clone_tree(),
+            Expr::zext(Expr::variable(0), 64),
+        )
+        .is_none());
     }
 
     #[test]

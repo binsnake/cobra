@@ -23,6 +23,13 @@ pub fn emit_expr(expr: &Expr) -> String {
         Kind::Not => format!("Cobra.Expr.bnot ({})", emit_expr(&expr.children[0])),
         Kind::Neg => format!("Cobra.Expr.neg ({})", emit_expr(&expr.children[0])),
         Kind::Shr(amount) => format!("Cobra.Expr.shr ({}) {amount}", emit_expr(&expr.children[0])),
+        // Width-changing nodes have no recognized rewrite theorem; the Lean
+        // certificate paths gate them out (64-bit + uniform-width only), so
+        // these terms only ever appear inside emitted comments/sub-terms.
+        Kind::ZExt(w) => format!("Cobra.Expr.zext ({}) {w}", emit_expr(&expr.children[0])),
+        Kind::SExt(w) => format!("Cobra.Expr.sext ({}) {w}", emit_expr(&expr.children[0])),
+        Kind::Trunc(w) => format!("Cobra.Expr.trunc ({}) {w}", emit_expr(&expr.children[0])),
+        Kind::Concat => emit_binary("concat", &expr.children[0], &expr.children[1]),
     }
 }
 

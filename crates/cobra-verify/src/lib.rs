@@ -57,10 +57,19 @@ impl VerifyOutcome {
 }
 
 /// `timeout_ms = 500` from `Z3Verifier.h`.
-#[derive(Copy, Clone, Debug)]
+///
+/// `var_widths[i]` is the bit width of variable `i`. An empty `var_widths`
+/// (the default) means "every variable is `bitwidth` wide" — backends
+/// default-fill missing entries to `bitwidth`, so existing same-width callers
+/// need not populate it. Carrying a `Vec` means this type is no longer `Copy`;
+/// it is still `Clone`.
+#[derive(Clone, Debug)]
 pub struct VerifyOpts {
     pub bitwidth: u32,
     pub timeout_ms: u32,
+    /// Per-variable bit widths, indexed by variable id. Empty = uniform
+    /// `bitwidth` for all variables.
+    pub var_widths: Vec<u32>,
 }
 
 impl Default for VerifyOpts {
@@ -68,6 +77,7 @@ impl Default for VerifyOpts {
         Self {
             bitwidth: 64,
             timeout_ms: 500,
+            var_widths: Vec::new(),
         }
     }
 }
