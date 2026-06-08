@@ -187,6 +187,12 @@ const SIGNATURE_COEFF_PASSES: &[PassId] = &[
 // ---------- scheduler ----------
 
 /// Pick the next applicable pass for `item`, or `None` if the item is
+///
+/// `bitwidth` must be the run's `ctx.bitwidth`: the global pass-attempt
+/// cache is keyed on the whole `StateFingerprint` (which folds in
+/// `bitwidth`), so the fingerprint computed here for cache *lookup* must
+/// use the same width the main loop uses to *record* the attempt
+/// (`main_loop.rs`), or cross-item dedup silently no-ops off-64.
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn select_next_pass(
@@ -194,9 +200,10 @@ pub fn select_next_pass(
     policy: &OrchestratorPolicy,
     verifications_used: u32,
     cache: &PassAttemptCache,
+    bitwidth: u32,
 ) -> Option<PassId> {
     let kind = item.payload.kind();
-    let fp = item.fingerprint(64);
+    let fp = item.fingerprint(bitwidth);
 
     // 1. Candidate → VerifyCandidate (budgeted)
     if kind == StateKind::CandidateExpr {
@@ -447,14 +454,14 @@ mod tests {
     #[test]
     fn candidate_picks_verify_candidate() {
         let item = mk_candidate();
-        let p = select_next_pass(&item, &policy(), 0, &empty_cache());
+        let p = select_next_pass(&item, &policy(), 0, &empty_cache(), 64);
         assert_eq!(p, Some(PassId::VerifyCandidate));
     }
 
     #[test]
     fn candidate_stops_when_verification_budget_exhausted() {
         let item = mk_candidate();
-        let p = select_next_pass(&item, &policy(), policy().max_candidates, &empty_cache());
+        let p = select_next_pass(&item, &policy(), policy().max_candidates, &empty_cache(), 64);
         assert_eq!(p, None);
     }
 
@@ -462,35 +469,35 @@ mod tests {
     fn candidate_skips_when_already_attempted() {
         let mut item = mk_candidate();
         item.record_attempt(PassId::VerifyCandidate);
-        let p = select_next_pass(&item, &policy(), 0, &empty_cache());
+        let p = select_next_pass(&item, &policy(), 0, &empty_cache(), 64);
         assert_eq!(p, None);
     }
 
     #[test]
     fn remainder_direct_boolean_null_routes_ghost_first() {
         let item = mk_remainder(RemainderOrigin::DirectBooleanNull, true);
-        let p = select_next_pass(&item, &policy(), 0, &empty_cache());
+        let p = select_next_pass(&item, &policy(), 0, &empty_cache(), 64);
         assert_eq!(p, Some(PassId::ResidualGhost));
     }
 
     #[test]
     fn remainder_core_boolean_null_routes_poly_first() {
         let item = mk_remainder(RemainderOrigin::ProductCore, true);
-        let p = select_next_pass(&item, &policy(), 0, &empty_cache());
+        let p = select_next_pass(&item, &policy(), 0, &empty_cache(), 64);
         assert_eq!(p, Some(PassId::ResidualPolyRecovery));
     }
 
     #[test]
     fn remainder_core_standard_routes_supported_first() {
         let item = mk_remainder(RemainderOrigin::ProductCore, false);
-        let p = select_next_pass(&item, &policy(), 0, &empty_cache());
+        let p = select_next_pass(&item, &policy(), 0, &empty_cache(), 64);
         assert_eq!(p, Some(PassId::ResidualSupported));
     }
 
     #[test]
     fn original_ast_without_classification_returns_none() {
         let item = mk_folded(Expr::variable(0), Provenance::Original, None);
-        assert_eq!(select_next_pass(&item, &policy(), 0, &empty_cache()), None);
+        assert_eq!(select_next_pass(&item, &policy(), 0, &empty_cache(), 64), None);
     }
 
     #[test]
@@ -500,7 +507,7 @@ mod tests {
             flags: StructuralFlag::NONE,
         };
         let item = mk_folded(Expr::variable(0), Provenance::Original, Some(cls));
-        let p = select_next_pass(&item, &policy(), 0, &empty_cache());
+        let p = select_next_pass(&item, &policy(), 0, &empty_cache(), 64);
         assert_eq!(p, Some(PassId::SemilinearNormalize));
     }
 
@@ -512,7 +519,7 @@ mod tests {
             flags: StructuralFlag::HAS_ARITHMETIC,
         };
         let item = mk_folded(Expr::variable(0), Provenance::Rewritten, Some(cls));
-        let p = select_next_pass(&item, &policy(), 0, &empty_cache());
+        let p = select_next_pass(&item, &policy(), 0, &empty_cache(), 64);
         assert_eq!(p, Some(PassId::BuildSignatureState));
     }
 
@@ -525,7 +532,7 @@ mod tests {
             flags: StructuralFlag::HAS_MIXED_PRODUCT,
         };
         let item = mk_folded(Expr::variable(0), Provenance::Rewritten, Some(cls));
-        let p = select_next_pass(&item, &policy(), 0, &empty_cache());
+        let p = select_next_pass(&item, &policy(), 0, &empty_cache(), 64);
         assert_eq!(p, Some(PassId::BuildSignatureState));
     }
 
@@ -555,7 +562,7 @@ mod tests {
         ] {
             item.record_attempt(p);
         }
-        let p = select_next_pass(&item, &policy(), 0, &empty_cache());
+        let p = select_next_pass(&item, &policy(), 0, &empty_cache(), 64);
         assert_eq!(p, Some(PassId::ExtractProductCore));
     }
 
@@ -581,7 +588,7 @@ mod tests {
         ] {
             item.record_attempt(p);
         }
-        let p = select_next_pass(&item, &policy(), 0, &empty_cache());
+        let p = select_next_pass(&item, &policy(), 0, &empty_cache(), 64);
         assert_eq!(p, Some(PassId::OperandSimplify));
     }
 
@@ -609,7 +616,7 @@ mod tests {
         ] {
             item.record_attempt(p);
         }
-        let p = select_next_pass(&item, &policy(), 0, &empty_cache());
+        let p = select_next_pass(&item, &policy(), 0, &empty_cache(), 64);
         assert_eq!(p, None);
     }
 
@@ -620,6 +627,37 @@ mod tests {
             flags: StructuralFlag::HAS_UNKNOWN_SHAPE,
         };
         let item = mk_folded(Expr::variable(0), Provenance::Rewritten, Some(cls));
-        assert_eq!(select_next_pass(&item, &policy(), 0, &empty_cache()), None);
+        assert_eq!(select_next_pass(&item, &policy(), 0, &empty_cache(), 64), None);
+    }
+
+    /// Regression: the scheduler's cache lookup must use the SAME
+    /// `bitwidth` the main loop uses to record an attempt, or cross-item
+    /// dedup silently no-ops on non-64-bit runs. Previously the scheduler
+    /// hard-coded `fingerprint(64)` while the main loop records at
+    /// `ctx.bitwidth`; since `bitwidth` is folded into `StateFingerprint`,
+    /// the lookup key never matched the record key off-64.
+    #[test]
+    fn scheduler_lookup_width_matches_main_loop_record_width() {
+        const BW: u32 = 32; // any non-64 width
+        let item = mk_candidate();
+
+        // Simulate the main loop's record path (main_loop.rs records the
+        // attempt against `item.fingerprint(ctx.bitwidth)`).
+        let mut cache = empty_cache();
+        let recorded_fp = item.fingerprint(BW).into_owned();
+        cache.record(recorded_fp.clone(), PassId::VerifyCandidate);
+
+        // The scheduler, now threaded with the same width, must observe
+        // the recorded attempt and decline to re-issue the pass (dedup
+        // engaged).
+        assert_eq!(select_next_pass(&item, &policy(), 0, &cache, BW), None);
+
+        // Sanity: the record key really is width-specific. The old
+        // hard-coded width-64 lookup would have MISSED this entry, so
+        // dedup would have (wrongly) re-issued the pass.
+        let stale_fp = item.fingerprint(64).into_owned();
+        assert_ne!(recorded_fp, stale_fp);
+        assert!(!cache.has_attempted(&stale_fp, PassId::VerifyCandidate));
+        assert!(cache.has_attempted(&recorded_fp, PassId::VerifyCandidate));
     }
 }

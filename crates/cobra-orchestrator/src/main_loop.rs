@@ -27,7 +27,7 @@ use crate::competition::{
 };
 use crate::context::{OrchestratorContext, OrchestratorPolicy, OrchestratorTelemetry, RunMetadata};
 use crate::enums::{ItemDisposition, PassDecision, PassId};
-use crate::ranker::unsupported_rank_better;
+use crate::ranker::{terminal_rank, unsupported_rank_better};
 use crate::registry::{build_pass_index, PassDescriptor};
 use crate::scheduler::select_next_pass;
 use crate::state::StateData;
@@ -201,7 +201,7 @@ pub fn run_main_loop(
         }
 
         // Scheduler: pick a pass.
-        let pass_id = select_next_pass(&item, policy, verifications, &cache);
+        let pass_id = select_next_pass(&item, policy, verifications, &cache, ctx.bitwidth);
         let Some(pass_id) = pass_id else {
             // No eligible pass — release the group handle if we own one.
             if let Some(gid) = item.group_id {
@@ -286,14 +286,6 @@ fn make_unsupported_candidate(work: &WorkItem) -> UnsupportedCandidate {
         history_size: work.history.len() as u32,
         last_pass: work.history.last().copied(),
         is_candidate_state: matches!(work.payload, StateData::Candidate(_)),
-    }
-}
-
-fn terminal_rank(c: ReasonCategory) -> u8 {
-    match c {
-        ReasonCategory::VerifyFailed => 2,
-        ReasonCategory::RepresentationGap => 1,
-        _ => 0,
     }
 }
 
