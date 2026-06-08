@@ -785,11 +785,24 @@ fn resolve_lifted_substitute(
     item: &WorkItem,
     ctx: &mut OrchestratorContext,
 ) -> PassResult {
+    // On any early/blocked exit we must still release the parent handle we
+    // acquired in PrepareLiftedOuterSolve, otherwise the parent (group-A)
+    // group never reaches zero handles and can never resolve.
+    let release_parent = |next: &mut Vec<WorkItem>, ctx: &mut OrchestratorContext| {
+        if let Some(pid) = cont.parent_group_id {
+            if let Some(resolved) = release_handle(&mut ctx.competition_groups, pid) {
+                next.push(resolved);
+            }
+        }
+    };
+
     let Some(winner) = group.best.as_ref() else {
+        let mut next = Vec::new();
+        release_parent(&mut next, ctx);
         return PassResult {
             decision: PassDecision::Blocked,
             disposition: ItemDisposition::ConsumeCurrent,
-            next: Vec::new(),
+            next,
             reason: aggregate_failure(group, "Lifted substitute: no winner in group"),
         };
     };
@@ -806,10 +819,12 @@ fn resolve_lifted_substitute(
     let substituted = substitute_bindings(&remapped, &cont.bindings, cont.original_var_count);
 
     let Some(eval) = cont.original_eval.as_ref() else {
+        let mut next = Vec::new();
+        release_parent(&mut next, ctx);
         return PassResult {
             decision: PassDecision::Blocked,
             disposition: ItemDisposition::ConsumeCurrent,
-            next: Vec::new(),
+            next,
             reason: ast_reason(
                 ReasonCategory::GuardFailed,
                 "Lifted substitute requires original evaluator for full-width verification",
@@ -826,10 +841,12 @@ fn resolve_lifted_substitute(
         DEFAULT_NUM_SAMPLES,
     );
     if !chk.passed {
+        let mut next = Vec::new();
+        release_parent(&mut next, ctx);
         return PassResult {
             decision: PassDecision::Blocked,
             disposition: ItemDisposition::ConsumeCurrent,
-            next: Vec::new(),
+            next,
             reason: ast_reason(
                 ReasonCategory::VerifyFailed,
                 "Lifted substitute failed full-width verification",
@@ -845,16 +862,50 @@ fn resolve_lifted_substitute(
         &substituted,
     );
     let Some(substituted_signature_certificate) = substituted_signature_certificate else {
+        let mut next = Vec::new();
+        release_parent(&mut next, ctx);
         return PassResult {
             decision: PassDecision::Blocked,
             disposition: ItemDisposition::ConsumeCurrent,
-            next: Vec::new(),
+            next,
             reason: ast_reason(
                 ReasonCategory::VerifyFailed,
                 "Lifted substitute has no matching Lean signature certificate",
             ),
         };
     };
+    // If this lift was spawned by a parent (group-A) competition group,
+    // submit the recovered candidate back into that parent and release our
+    // handle, so the parent's own LiftedSubstitute can run and resolve its
+    // remaining bindings. Otherwise emit a free SolvedCandidate as before.
+    if let Some(parent_gid) = cont.parent_group_id {
+        let record = CandidateRecord {
+            expr: substituted,
+            cost,
+            verification: VerificationState::Verified,
+            real_vars: cont.original_vars.clone(),
+            source_pass: winner.source_pass,
+            needs_original_space_verification: false,
+            sig_vector: cont.source_sig.clone(),
+            lean_certificate: None,
+            lean_signature_certificate: Some(substituted_signature_certificate),
+        };
+        submit_normalized_candidate(
+            &mut ctx.competition_groups,
+            parent_gid,
+            record,
+            ctx.bitwidth,
+        );
+        let mut next = Vec::new();
+        release_parent(&mut next, ctx);
+        return PassResult {
+            decision: PassDecision::Advance,
+            disposition: ItemDisposition::ConsumeCurrent,
+            next,
+            reason: ReasonDetail::default(),
+        };
+    }
+
     let mut cand_item = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
         expr: substituted,
         real_vars: cont.original_vars.clone(),
@@ -1256,6 +1307,7 @@ mod tests {
             original_eval: Some(original_eval),
             original_vars: vec!["x".into()],
             source_sig: vec![0, 1],
+            parent_group_id: None,
         }));
 
         let gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);

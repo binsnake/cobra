@@ -120,6 +120,9 @@ pub fn run_lift_arithmetic_atoms(
     skel_item.metadata.lean_signature_certificate = None;
     skel_item.depth = item.depth;
     skel_item.rewrite_gen = item.rewrite_gen;
+    // Carry the source item's competition group so a nested lift chains back
+    // to it (see `prepare_lifted_outer_solve` / `resolve_lifted_substitute`).
+    skel_item.group_id = item.group_id;
     skel_item.history.clone_from(&item.history);
 
     Ok(PassResult {

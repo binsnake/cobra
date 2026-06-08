@@ -4,7 +4,7 @@
 //! a small known-good batch. For the full sweep, use the
 //! `cobra-sweep` binary.
 
-use cobra_testkit::{parse_dataset, run_case, CaseKind, Report};
+use cobra_testkit::{parse_dataset, run_case, Case, CaseKind, Report};
 
 const SAMPLE: &str = r"# Minimal dataset sample — one case per shape.
 # Simple XOR identity.
@@ -52,4 +52,51 @@ fn pipeline_verifies_minimal_sample() {
     assert_eq!(report.total, 4);
     assert_eq!(report.unsafe_changes, 0);
     assert_eq!(report.errored, 0);
+}
+
+/// Regression for the nested-lift ghost-variable leak: an inner lift binds
+/// `r0` (group A) and an outer lift binds `v0` (nested group B); when group B
+/// resolved it used to emit a free candidate that bypassed group A, leaving
+/// `r0` (a lifted var with index >= the 2 input vars b,e) in the final expr.
+/// That previously PANICKED in `expr::render` and tripped the harness'
+/// "simplified vars are not a subset of input vars" check.
+///
+/// This case has only two input variables (`b`, `e`), so any var index >= 2 in
+/// the output is a leak. `run_case` rejects such an output as `Errored`
+/// (its `remap_to_input_space` returns `None`), so asserting `errored == 0`
+/// and `unsafe_changes == 0` proves the output's vars are a subset of input
+/// (max var index < 2) and that it is never an unsafe rewrite.
+#[test]
+fn nested_lift_does_not_leak_ghost_variable() {
+    let case = Case {
+        line_number: 1,
+        input: "~ (~ ((((~ b | e) + b) + 1) - 1) - (~ ((((~ b | e) + b) + 1) \
+                - 1) & ((b ^ b) + ((b & b) + (b & b))))) + 1"
+            .into(),
+        // Ground truth is irrelevant here — we only assert the safety/subset
+        // invariants, so echo the input as the "expected" column.
+        expected: "~ (~ ((((~ b | e) + b) + 1) - 1) - (~ ((((~ b | e) + b) + 1) \
+                   - 1) & ((b ^ b) + ((b & b) + (b & b))))) + 1"
+            .into(),
+    };
+
+    let report = run_case(&case, 64);
+
+    // No leaked lifted/aux variable: a var index >= 2 (only b,e are inputs)
+    // would make `run_case` return `Errored`.
+    assert_ne!(
+        report.kind,
+        CaseKind::Errored,
+        "nested-lift leak: output references a variable not in the input \
+         (error: {:?})",
+        report.error
+    );
+    // Whether the pipeline simplifies it or leaves it unchanged, the result
+    // must never be an unsafe (non-input-equivalent) rewrite.
+    if report.kind == CaseKind::Simplified {
+        assert!(
+            report.equivalent_to_input,
+            "nested-lift case produced an output that diverges from the input"
+        );
+    }
 }

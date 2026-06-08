@@ -153,6 +153,12 @@ pub struct LiftedSubstituteCont {
     pub original_eval: Option<Evaluator>,
     pub original_vars: Vec<String>,
     pub source_sig: Vec<u64>,
+    /// Group that spawned this lifted solve (the inner/group-A solve in a
+    /// nested-lift chain). When `Some`, the recovered candidate is
+    /// submitted back to this parent group (and its handle released) so
+    /// the parent's own `LiftedSubstitute` runs and resolves its bindings,
+    /// instead of escaping as a free candidate that bypasses the parent.
+    pub parent_group_id: Option<GroupId>,
 }
 
 // ----- Umbrella enum -----

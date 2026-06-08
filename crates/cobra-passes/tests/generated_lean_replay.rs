@@ -3050,6 +3050,7 @@ fn replay_lifted_substitute_direct_case(
                 original_eval: Some(Evaluator::from_expr(&original_expr, 64)),
                 original_vars,
                 source_sig,
+                parent_group_id: None,
             },
         )));
     }

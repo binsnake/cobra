@@ -151,6 +151,12 @@ pub fn run_lift_repeated_subexpressions(
     skel_item.metadata.lean_signature_certificate = None;
     skel_item.depth = item.depth;
     skel_item.rewrite_gen = item.rewrite_gen;
+    // Carry the source item's competition group so a nested lift chains back
+    // to it (see `prepare_lifted_outer_solve` / `resolve_lifted_substitute`):
+    // when this lift fires while solving inside a parent (group-A) group, the
+    // outer solve's recovered candidate must be returned to that group so its
+    // own LiftedSubstitute resolves, instead of leaking an unsubstituted var.
+    skel_item.group_id = item.group_id;
     skel_item.history.clone_from(&item.history);
 
     Ok(PassResult {

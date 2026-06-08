@@ -14,8 +14,9 @@ use cobra_core::pass_contract::ReasonDetail;
 use cobra_core::result::Result;
 
 use cobra_orchestrator::{
-    create_group, AstPayload, ContinuationData, ItemDisposition, LiftedSubstituteCont,
-    OrchestratorContext, PassDecision, PassResult, Provenance, StateData, WorkItem,
+    acquire_handle, create_group, AstPayload, ContinuationData, ItemDisposition,
+    LiftedSubstituteCont, OrchestratorContext, PassDecision, PassResult, Provenance, StateData,
+    WorkItem,
 };
 
 use crate::classifier::classify_structural;
@@ -52,6 +53,15 @@ pub fn run_prepare_lifted_outer_solve(
         skel.original_ctx.vars.clone()
     };
 
+    // If this lift was itself spawned from a parent (group-A) competition
+    // group, chain back to it: acquire a handle so the parent stays alive
+    // until our recovered candidate is submitted, letting the parent's own
+    // LiftedSubstitute resolve its bindings (fixes nested-lift var leaks).
+    let parent_group_id = item.group_id;
+    if let Some(pid) = parent_group_id {
+        acquire_handle(&mut ctx.competition_groups, pid);
+    }
+
     let cont = LiftedSubstituteCont {
         bindings: skel.bindings.clone(),
         outer_vars: skel.outer_ctx.vars.clone(),
@@ -59,6 +69,7 @@ pub fn run_prepare_lifted_outer_solve(
         original_eval,
         original_vars,
         source_sig: skel.source_sig.clone(),
+        parent_group_id,
     };
     ctx.competition_groups
         .get_mut(&group_id)
