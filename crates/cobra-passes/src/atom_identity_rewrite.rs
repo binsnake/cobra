@@ -26,12 +26,14 @@ use cobra_core::expr_cost::{compute_cost, is_better};
 use cobra_core::pass_contract::ReasonDetail;
 use cobra_core::result::Result;
 use cobra_core::spot_check::full_width_check_eval;
+use std::sync::Arc;
 
 use cobra_orchestrator::{
     expr_identity_hash, replace_by_hash, AstPayload, ExprPath, ItemDisposition, LeanCertificate,
     OrchestratorContext, PassDecision, PassResult, Provenance, StateData, WorkItem,
 };
 
+use crate::candidate_normalize::merge_certificate;
 use crate::classifier::classify_structural;
 
 // ---------- entry point ----------
@@ -47,10 +49,13 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 /// runs on exploration-candidate items. Returns a rewritten tree;
 /// callers detect changes by comparing against the input.
 #[must_use]
-pub fn apply_atom_identities(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
-    let children: Vec<Box<Expr>> = expr.children.drain(..).collect();
-    for child in children {
-        expr.children.push(apply_atom_identities(child, bitwidth));
+pub fn apply_atom_identities(mut expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
+    {
+        let node = Arc::make_mut(&mut expr);
+        let children: Vec<Arc<Expr>> = node.children.drain(..).collect();
+        for child in children {
+            node.children.push(apply_atom_identities(child, bitwidth));
+        }
     }
     // Loop at this node: after a rewrite, re-attempt matchers at the
     // replacement root only. Children of any replacement are either
@@ -119,7 +124,7 @@ struct RewriteSite {
     /// Hash of the node whose subtree is replaced.
     target_hash: u64,
     path: ExprPath,
-    candidate: Box<Expr>,
+    candidate: Arc<Expr>,
 }
 
 // Bottom-up walk: find the deepest node whose subtree matches one of
@@ -208,16 +213,6 @@ fn rewrite_at_site(
     rewritten
 }
 
-fn merge_certificate(
-    previous: Option<LeanCertificate>,
-    next: LeanCertificate,
-) -> Option<LeanCertificate> {
-    match previous {
-        Some(prev) => prev.merge_step_chain(next),
-        None => Some(next),
-    }
-}
-
 // ---------- identity matchers ----------
 
 /// Collect all plausible candidate rewrites for `node`. The caller
@@ -228,7 +223,7 @@ fn merge_certificate(
 /// addends. The spot check has false-positive rate ≈ 2^-256 × 256 ≈
 /// 2^-248 per try, so it's safe to be loose here.
 #[allow(clippy::vec_box)] // Candidate expressions are owned boxed trees throughout the pass.
-fn try_match_all(node: &Expr, bitwidth: u32) -> Vec<Box<Expr>> {
+fn try_match_all(node: &Expr, bitwidth: u32) -> Vec<Arc<Expr>> {
     let mut out = Vec::new();
     if let Some(c) = match_xor_via_or_minus_and(node) {
         out.push(c);
@@ -255,7 +250,7 @@ fn try_match_all(node: &Expr, bitwidth: u32) -> Vec<Box<Expr>> {
 }
 
 /// `(A | B) - (A & B)  →  A ^ B`
-fn match_xor_via_or_minus_and(node: &Expr) -> Option<Box<Expr>> {
+fn match_xor_via_or_minus_and(node: &Expr) -> Option<Arc<Expr>> {
     let (lhs, rhs_neg) = match_binary_add_with_neg(node)?;
     // One side is an Or, the other (after peeling Neg) is an And with
     // the same two operands (either order).
@@ -269,7 +264,7 @@ fn match_xor_via_or_minus_and(node: &Expr) -> Option<Box<Expr>> {
 }
 
 /// `(~A | B) - ~A  →  A & B`
-fn match_and_via_not_or_minus_not(node: &Expr) -> Option<Box<Expr>> {
+fn match_and_via_not_or_minus_not(node: &Expr) -> Option<Arc<Expr>> {
     let (lhs, rhs_neg) = match_binary_add_with_neg(node)?;
     // Identify the Or side and the Not side after peeling Neg.
     let or_side = pick_kind(lhs, rhs_neg, &Kind::Or)?;
@@ -296,7 +291,7 @@ fn match_and_via_not_or_minus_not(node: &Expr) -> Option<Box<Expr>> {
 fn match_and_via_not_or_plus_a_plus_one(
     addends: &[Addend<'_>],
     bitwidth: u32,
-) -> Option<Box<Expr>> {
+) -> Option<Arc<Expr>> {
     let mask = bitmask(bitwidth);
     // Three terms, all positive: one `Or(Not(A), X)`, one `A`, and one
     // `Constant(1)` (mod mask).
@@ -336,7 +331,7 @@ fn match_and_via_not_or_plus_a_plus_one(
 }
 
 /// `A - B - 2*(A | ~B) - 2  →  A ^ B`
-fn match_xor_via_ornot_flat(addends: &[Addend<'_>], bitwidth: u32) -> Option<Box<Expr>> {
+fn match_xor_via_ornot_flat(addends: &[Addend<'_>], bitwidth: u32) -> Option<Arc<Expr>> {
     let mask = bitmask(bitwidth);
     // Expect exactly 4 addends: +A, -B, -2*(A|~B), -2. Matchers below
     // are commutative across the addend list.
@@ -416,7 +411,7 @@ fn match_xor_via_ornot_flat(addends: &[Addend<'_>], bitwidth: u32) -> Option<Box
 /// lets us catch shapes like `(~X|Y) + A + 2` where constant folding
 /// has reshuffled the 3-term form.
 #[allow(clippy::vec_box)] // Shares the candidate buffer shape used by `try_match_all`.
-fn match_and_via_ornot_lax(node: &Expr, addends: &[Addend<'_>], out: &mut Vec<Box<Expr>>) {
+fn match_and_via_ornot_lax(node: &Expr, addends: &[Addend<'_>], out: &mut Vec<Arc<Expr>>) {
     if !matches!(node.kind, Kind::Add) {
         return;
     }
@@ -432,7 +427,7 @@ fn match_and_via_ornot_lax(node: &Expr, addends: &[Addend<'_>], out: &mut Vec<Bo
             continue;
         }
         let (ol, or_r) = (&a.expr.children[0], &a.expr.children[1]);
-        let try_emit = |inner: &Expr, other: &Expr, out: &mut Vec<Box<Expr>>| {
+        let try_emit = |inner: &Expr, other: &Expr, out: &mut Vec<Arc<Expr>>| {
             let cand = Expr::and(inner.clone_tree(), other.clone_tree());
             let hash = expr_identity_hash(&cand);
             out.push(cand);
@@ -458,7 +453,7 @@ fn match_and_via_ornot_lax(node: &Expr, addends: &[Addend<'_>], out: &mut Vec<Bo
 /// pattern simplifier leave behind. The full-width check in the caller
 /// gates correctness.
 #[allow(clippy::vec_box)] // Shares the candidate buffer shape used by `try_match_all`.
-fn match_xor_via_ornot_lax(node: &Expr, addends: &[Addend<'_>], out: &mut Vec<Box<Expr>>) {
+fn match_xor_via_ornot_lax(node: &Expr, addends: &[Addend<'_>], out: &mut Vec<Arc<Expr>>) {
     if !matches!(node.kind, Kind::Add) {
         return;
     }

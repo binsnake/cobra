@@ -8,6 +8,7 @@
 use cobra_core::expr::Expr;
 use cobra_core::pass_contract::ReasonDetail;
 use cobra_core::result::Result;
+use std::sync::Arc;
 
 use cobra_orchestrator::{
     AstPayload, LeanCertificate, OrchestratorContext, PassDecision, PassId, Provenance, StateData,
@@ -43,7 +44,7 @@ pub fn seed_with_ast(
     // Pre-simplify small subexpressions via pattern-table lookup.
     // Peels off MBA obfuscation layers (e.g., (X+Y+1)+(~X|~Y) → X|Y)
     let (pattern_rewritten, pattern_cert) =
-        simplify_pattern_subtrees_certified(Box::new(input_expr.clone()), ctx.bitwidth);
+        simplify_pattern_subtrees_certified(Arc::new(input_expr.clone()), ctx.bitwidth);
     // Apply atom-level bitwise identities (e.g. `(A|B)-(A&B) -> A^B`)
     // bottom-up. These hold over arbitrary integer atoms and need to
     // fire at seed time so Linear-classified inputs benefit — the

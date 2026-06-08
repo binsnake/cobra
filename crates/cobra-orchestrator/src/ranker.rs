@@ -59,8 +59,10 @@ fn as_u8_opt(p: Option<crate::enums::PassId>) -> u8 {
     }
 }
 
+/// Severity rank of a transform-terminal category. Higher wins.
+/// Shared with the main loop's strongest-terminal tracker.
 #[inline]
-fn terminal_rank(c: ReasonCategory) -> u8 {
+pub(crate) fn terminal_rank(c: ReasonCategory) -> u8 {
     match c {
         ReasonCategory::VerifyFailed => 2,
         ReasonCategory::RepresentationGap => 1,

@@ -27,13 +27,14 @@ pub mod result;
 pub mod signature_eval;
 pub mod signature_eval_stats;
 pub mod signature_simplifier;
-pub mod signature_vector;
 pub mod simplify_outcome;
 pub mod spot_check;
 pub mod trace;
+pub mod width;
 
 pub use crate::arith::{
-    bitmask, is_valid_bitwidth, mod_add, mod_mul, mod_neg, mod_not, mod_shr, mod_sub, sign_bit_mask,
+    bitmask, is_valid_bitwidth, mod_add, mod_mul, mod_neg, mod_not, mod_shr, mod_sub, sext,
+    sign_bit_mask, trunc, zext,
 };
 pub use crate::classification::{
     is_folded_ast_exploration_candidate, needs_structural_recovery, Classification, SemanticClass,
@@ -62,7 +63,6 @@ pub use crate::signature_eval_stats::{
     sig_stats_record_eval, sig_stats_record_expr, sig_stats_reset, sig_stats_snapshot, SigEvalStats,
 };
 pub use crate::signature_simplifier::{is_boolean_valued, SignatureContext, SignaturePayload};
-pub use crate::signature_vector::SignatureVector;
 pub use crate::simplify_outcome::{
     Diagnostic, Options, ProofLevel, SimplifyOutcome, SimplifyOutcomeKind, SimplifyTelemetry,
 };
@@ -70,3 +70,4 @@ pub use crate::spot_check::{
     eval_expr, full_width_check, full_width_check_eval, signature_check, verify_in_original_space,
     CheckResult, DEFAULT_NUM_SAMPLES, RESIDUAL_GATE_NUM_SAMPLES,
 };
+pub use crate::width::{is_uniform_width, validate_widths, width_of};

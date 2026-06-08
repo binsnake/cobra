@@ -8,12 +8,13 @@
 
 use cobra_core::arith::bitmask;
 use cobra_core::expr::Expr;
+use std::sync::Arc;
 
 /// Evaluate the primitive at the given argument vector.
 pub type GhostEval = fn(&[u64], u32) -> u64;
 /// Build an Expr tree for the primitive given the original-space
 /// variable indices its operands map to.
-pub type GhostBuilder = fn(&[u32]) -> Box<Expr>;
+pub type GhostBuilder = fn(&[u32]) -> Arc<Expr>;
 
 #[derive(Copy, Clone)]
 pub struct GhostPrimitive {
@@ -32,7 +33,7 @@ fn eval_mul_sub_and(args: &[u64], bw: u32) -> u64 {
         & mask
 }
 
-fn build_mul_sub_and(vars: &[u32]) -> Box<Expr> {
+fn build_mul_sub_and(vars: &[u32]) -> Arc<Expr> {
     Expr::add(
         Expr::mul(Expr::variable(vars[0]), Expr::variable(vars[1])),
         Expr::neg(Expr::and(Expr::variable(vars[0]), Expr::variable(vars[1]))),
@@ -46,7 +47,7 @@ fn eval_mul3_sub_and3(args: &[u64], bw: u32) -> u64 {
     prod.wrapping_sub(and3) & mask
 }
 
-fn build_mul3_sub_and3(vars: &[u32]) -> Box<Expr> {
+fn build_mul3_sub_and3(vars: &[u32]) -> Arc<Expr> {
     Expr::add(
         Expr::mul(
             Expr::mul(Expr::variable(vars[0]), Expr::variable(vars[1])),

@@ -9,6 +9,10 @@ use cobra_core::expr::{Expr, Kind};
 use crate::lean_cert::{
     CertStep, ContextFrame, ExprContext, LeanCertificate, LeanSignatureCertificate, LeanTheorem,
 };
+use crate::lean_match::{
+    add_with_neg_operands, not_or_add_self_add_one_operands, not_or_minus_not_operands,
+    same_or_and_operands, scaled_and_or_sum_operands, xor_via_or_not_operands,
+};
 
 #[must_use]
 pub fn emit_expr(expr: &Expr) -> String {
@@ -23,6 +27,13 @@ pub fn emit_expr(expr: &Expr) -> String {
         Kind::Not => format!("Cobra.Expr.bnot ({})", emit_expr(&expr.children[0])),
         Kind::Neg => format!("Cobra.Expr.neg ({})", emit_expr(&expr.children[0])),
         Kind::Shr(amount) => format!("Cobra.Expr.shr ({}) {amount}", emit_expr(&expr.children[0])),
+        // Width-changing nodes have no recognized rewrite theorem; the Lean
+        // certificate paths gate them out (64-bit + uniform-width only), so
+        // these terms only ever appear inside emitted comments/sub-terms.
+        Kind::ZExt(w) => format!("Cobra.Expr.zext ({}) {w}", emit_expr(&expr.children[0])),
+        Kind::SExt(w) => format!("Cobra.Expr.sext ({}) {w}", emit_expr(&expr.children[0])),
+        Kind::Trunc(w) => format!("Cobra.Expr.trunc ({}) {w}", emit_expr(&expr.children[0])),
+        Kind::Concat => emit_binary("concat", &expr.children[0], &expr.children[1]),
     }
 }
 
@@ -257,14 +268,14 @@ fn binary_child(expr: &Expr, kind: KindTag, index: usize) -> Option<&Expr> {
     if expr.children.len() != 2 || !matches_kind(expr, kind) {
         return None;
     }
-    expr.children.get(index).map(Box::as_ref)
+    expr.children.get(index).map(|c| &**c)
 }
 
 fn unary_child(expr: &Expr, kind: KindTag) -> Option<&Expr> {
     if expr.children.len() != 1 || !matches_kind(expr, kind) {
         return None;
     }
-    expr.children.first().map(Box::as_ref)
+    expr.children.first().map(|c| &**c)
 }
 
 fn matches_kind(expr: &Expr, kind: KindTag) -> bool {
@@ -279,178 +290,6 @@ fn matches_kind(expr: &Expr, kind: KindTag) -> bool {
             | (Kind::Neg, KindTag::Neg)
             | (Kind::Shr(_), KindTag::Shr)
     )
-}
-
-fn add_with_neg_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
-    let lhs = binary_child(expr, KindTag::Add, 0)?;
-    let rhs = binary_child(expr, KindTag::Add, 1)?;
-    if matches_kind(rhs, KindTag::Neg) {
-        Some((lhs, unary_child(rhs, KindTag::Neg)?))
-    } else if matches_kind(lhs, KindTag::Neg) {
-        Some((rhs, unary_child(lhs, KindTag::Neg)?))
-    } else {
-        None
-    }
-}
-
-fn same_or_and_operands<'a>(or_node: &'a Expr, and_node: &'a Expr) -> Option<(&'a Expr, &'a Expr)> {
-    let or_lhs = binary_child(or_node, KindTag::Or, 0)?;
-    let or_rhs = binary_child(or_node, KindTag::Or, 1)?;
-    let and_lhs = binary_child(and_node, KindTag::And, 0)?;
-    let and_rhs = binary_child(and_node, KindTag::And, 1)?;
-    if unordered_pair_eq(or_lhs, or_rhs, and_lhs, and_rhs) {
-        Some((or_lhs, or_rhs))
-    } else {
-        None
-    }
-}
-
-fn scaled_and_or_sum_operands<'a>(
-    lhs: &'a Expr,
-    rhs: &'a Expr,
-    coeff: u64,
-) -> Option<(&'a Expr, &'a Expr)> {
-    let lhs = scaled_child(lhs, coeff)?;
-    let rhs = scaled_child(rhs, coeff)?;
-    same_or_and_operands(lhs, rhs).or_else(|| same_or_and_operands(rhs, lhs))
-}
-
-fn scaled_child(expr: &Expr, coeff: u64) -> Option<&Expr> {
-    let lhs = binary_child(expr, KindTag::Mul, 0)?;
-    let rhs = binary_child(expr, KindTag::Mul, 1)?;
-    if is_const_value(lhs, coeff) {
-        Some(rhs)
-    } else if is_const_value(rhs, coeff) {
-        Some(lhs)
-    } else {
-        None
-    }
-}
-
-fn not_or_minus_not_operands<'a>(
-    or_node: &'a Expr,
-    not_node: &'a Expr,
-) -> Option<(&'a Expr, &'a Expr)> {
-    let a = unary_child(not_node, KindTag::Not)?;
-    let lhs = binary_child(or_node, KindTag::Or, 0)?;
-    let rhs = binary_child(or_node, KindTag::Or, 1)?;
-    if is_not_of(lhs, a) {
-        Some((a, rhs))
-    } else if is_not_of(rhs, a) {
-        Some((a, lhs))
-    } else {
-        None
-    }
-}
-
-struct SignedAddend<'a> {
-    expr: &'a Expr,
-    negated: bool,
-}
-
-fn flatten_signed_addends<'a>(expr: &'a Expr, negated: bool, out: &mut Vec<SignedAddend<'a>>) {
-    match expr.kind {
-        Kind::Add if expr.children.len() == 2 => {
-            flatten_signed_addends(&expr.children[0], negated, out);
-            flatten_signed_addends(&expr.children[1], negated, out);
-        }
-        Kind::Neg if expr.children.len() == 1 => {
-            flatten_signed_addends(&expr.children[0], !negated, out);
-        }
-        _ => out.push(SignedAddend { expr, negated }),
-    }
-}
-
-fn not_or_add_self_add_one_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
-    let mut addends = Vec::new();
-    flatten_signed_addends(expr, false, &mut addends);
-    if addends.len() != 3 || addends.iter().any(|a| a.negated) {
-        return None;
-    }
-
-    let one_idx = addends.iter().position(|a| is_const_value(a.expr, 1))?;
-    let or_idx = addends
-        .iter()
-        .enumerate()
-        .find(|(idx, a)| *idx != one_idx && matches_kind(a.expr, KindTag::Or))
-        .map(|(idx, _)| idx)?;
-    let a_idx = (0..3).find(|idx| *idx != one_idx && *idx != or_idx)?;
-
-    let a = addends[a_idx].expr;
-    let lhs = binary_child(addends[or_idx].expr, KindTag::Or, 0)?;
-    let rhs = binary_child(addends[or_idx].expr, KindTag::Or, 1)?;
-    if is_not_of(lhs, a) {
-        Some((a, rhs))
-    } else if is_not_of(rhs, a) {
-        Some((a, lhs))
-    } else {
-        None
-    }
-}
-
-fn xor_via_or_not_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
-    let mut addends = Vec::new();
-    flatten_signed_addends(expr, false, &mut addends);
-    if addends.len() != 4 {
-        return None;
-    }
-
-    let neg_two_idx = addends
-        .iter()
-        .position(|a| a.negated && is_const_value(a.expr, 2))?;
-    let (mul_idx, or_node) = addends.iter().enumerate().find_map(|(idx, a)| {
-        if idx == neg_two_idx || !a.negated || !matches_kind(a.expr, KindTag::Mul) {
-            return None;
-        }
-        let lhs = binary_child(a.expr, KindTag::Mul, 0)?;
-        let rhs = binary_child(a.expr, KindTag::Mul, 1)?;
-        if is_const_value(lhs, 2) && matches_kind(rhs, KindTag::Or) {
-            Some((idx, rhs))
-        } else if is_const_value(rhs, 2) && matches_kind(lhs, KindTag::Or) {
-            Some((idx, lhs))
-        } else {
-            None
-        }
-    })?;
-
-    let remaining: Vec<_> = (0..4)
-        .filter(|idx| *idx != neg_two_idx && *idx != mul_idx)
-        .collect();
-    if remaining.len() != 2 {
-        return None;
-    }
-    let (a_idx, b_idx) = match (addends[remaining[0]].negated, addends[remaining[1]].negated) {
-        (false, true) => (remaining[0], remaining[1]),
-        (true, false) => (remaining[1], remaining[0]),
-        _ => return None,
-    };
-    let a = addends[a_idx].expr;
-    let b = addends[b_idx].expr;
-    let lhs = binary_child(or_node, KindTag::Or, 0)?;
-    let rhs = binary_child(or_node, KindTag::Or, 1)?;
-    if (expr_eq(lhs, a) && is_not_of(rhs, b)) || (expr_eq(rhs, a) && is_not_of(lhs, b)) {
-        Some((a, b))
-    } else {
-        None
-    }
-}
-
-fn is_not_of(expr: &Expr, inner: &Expr) -> bool {
-    matches_kind(expr, KindTag::Not)
-        && expr.children.len() == 1
-        && expr_eq(&expr.children[0], inner)
-}
-
-fn unordered_pair_eq(a: &Expr, b: &Expr, x: &Expr, y: &Expr) -> bool {
-    (expr_eq(a, x) && expr_eq(b, y)) || (expr_eq(a, y) && expr_eq(b, x))
-}
-
-fn expr_eq(lhs: &Expr, rhs: &Expr) -> bool {
-    lhs == rhs
-}
-
-fn is_const_value(expr: &Expr, value: u64) -> bool {
-    matches!(expr.kind, Kind::Constant(v) if v == value)
 }
 
 #[must_use]

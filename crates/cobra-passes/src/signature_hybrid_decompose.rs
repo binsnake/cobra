@@ -5,21 +5,19 @@
 //! `HybridComposeCont`. Recursion is gated to depth 0 (single level).
 
 use cobra_core::arith::bitmask;
-use cobra_core::classification::SemanticClass;
 use cobra_core::evaluator::{Evaluator, TraceKind};
 use cobra_core::pass_contract::ReasonDetail;
 use cobra_core::result::Result;
 
 use cobra_orchestrator::{
-    acquire_handle, create_group, has_verified_candidate, ContinuationData, EliminationResult,
-    ExtractOp, HybridComposeCont, ItemDisposition, OrchestratorContext, PassDecision, PassResult,
+    acquire_handle, create_group, ContinuationData, EliminationResult, ExtractOp,
+    HybridComposeCont, ItemDisposition, OrchestratorContext, PassDecision, PassResult,
     SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem,
 };
 
+use crate::decomposition_helpers::{should_skip_decomposition, MAX_CANDIDATES};
 use crate::hybrid_decomposer::enumerate_hybrid_candidates;
 use crate::mapped_evaluator::build_mapped_evaluator;
-
-const MAX_CANDIDATES: usize = 8;
 
 fn build_residual_evaluator(
     parent_eval: &Evaluator,
@@ -38,43 +36,6 @@ fn build_residual_evaluator(
         }
     })
     .with_trace(TraceKind::MappedOverride)
-}
-
-fn verified_candidate_decomposition_cost_bound(num_vars: u32) -> u32 {
-    2 * num_vars + 1
-}
-
-fn should_skip_decomposition(
-    item: &WorkItem,
-    ctx: &OrchestratorContext,
-    sub_ctx: &SignatureSubproblemContext,
-    require_root_depth: bool,
-    require_global_evaluator: bool,
-) -> bool {
-    let Some(group_id) = item.group_id else {
-        return false;
-    };
-    let Some(classification) = item.features.classification else {
-        return false;
-    };
-    if !matches!(
-        classification.semantic,
-        SemanticClass::Linear | SemanticClass::Semilinear
-    ) {
-        return false;
-    }
-    if require_root_depth && item.signature_recursion_depth != 0 {
-        return false;
-    }
-    if require_global_evaluator && ctx.evaluator.is_none() {
-        return false;
-    }
-    has_verified_candidate(
-        &ctx.competition_groups,
-        group_id,
-        verified_candidate_decomposition_cost_bound(sub_ctx.real_vars.len() as u32),
-        ctx.bitwidth,
-    )
 }
 
 #[allow(clippy::unnecessary_wraps, clippy::too_many_lines)]
@@ -226,7 +187,7 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::classification::{Classification, StructuralFlag};
+    use cobra_core::classification::{Classification, SemanticClass, StructuralFlag};
     use cobra_core::evaluator::Evaluator;
     use cobra_core::expr::Expr;
     use cobra_core::expr_cost::ExprCost;

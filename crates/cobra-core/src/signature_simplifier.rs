@@ -7,10 +7,11 @@ use crate::evaluator::Evaluator;
 use crate::expr::Expr;
 use crate::expr_cost::ExprCost;
 use crate::pass_contract::VerificationState;
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct SignaturePayload {
-    pub expr: Box<Expr>,
+    pub expr: Arc<Expr>,
     pub cost: ExprCost,
     pub verification: VerificationState,
     pub real_vars: Vec<String>,
@@ -18,7 +19,7 @@ pub struct SignaturePayload {
 
 impl SignaturePayload {
     #[must_use]
-    pub fn new(expr: Box<Expr>, cost: ExprCost, real_vars: Vec<String>) -> Self {
+    pub fn new(expr: Arc<Expr>, cost: ExprCost, real_vars: Vec<String>) -> Self {
         Self {
             expr,
             cost,

@@ -15,31 +15,11 @@ use cobra_orchestrator::{
 };
 
 use crate::lifting::{
-    allocate_fresh_virtual_names, baseline_cost, boolean_signature, collect_non_leaf_subtrees,
-    count_nodes, is_ancestor_of, make_binding, replace_repeats_with_virtual, DeduplicatedAtom,
-    RepeatEntry, MAX_LIFTABLE_NODES, MIN_REPEAT_SIZE,
+    active_ast_evaluator, active_ast_vars, allocate_fresh_virtual_names, baseline_cost,
+    boolean_signature, collect_non_leaf_subtrees, count_nodes, is_ancestor_of, make_binding,
+    replace_repeats_with_virtual, DeduplicatedAtom, RepeatEntry, MAX_LIFTABLE_NODES,
+    MIN_REPEAT_SIZE,
 };
-
-fn active_ast_vars(item: &WorkItem, ctx: &OrchestratorContext) -> Vec<String> {
-    if let StateData::FoldedAst(ast) = &item.payload {
-        if let Some(sc) = &ast.solve_ctx {
-            return sc.vars.clone();
-        }
-    }
-    ctx.original_vars.clone()
-}
-
-fn active_ast_evaluator(
-    item: &WorkItem,
-    ctx: &OrchestratorContext,
-) -> Option<cobra_core::evaluator::Evaluator> {
-    if let StateData::FoldedAst(ast) = &item.payload {
-        if let Some(sc) = &ast.solve_ctx {
-            return sc.evaluator.clone();
-        }
-    }
-    ctx.evaluator.clone()
-}
 
 #[allow(clippy::unnecessary_wraps, clippy::too_many_lines)]
 pub fn run_lift_repeated_subexpressions(
@@ -171,6 +151,12 @@ pub fn run_lift_repeated_subexpressions(
     skel_item.metadata.lean_signature_certificate = None;
     skel_item.depth = item.depth;
     skel_item.rewrite_gen = item.rewrite_gen;
+    // Carry the source item's competition group so a nested lift chains back
+    // to it (see `prepare_lifted_outer_solve` / `resolve_lifted_substitute`):
+    // when this lift fires while solving inside a parent (group-A) group, the
+    // outer solve's recovered candidate must be returned to that group so its
+    // own LiftedSubstitute resolves, instead of leaking an unsubstituted var.
+    skel_item.group_id = item.group_id;
     skel_item.history.clone_from(&item.history);
 
     Ok(PassResult {
@@ -188,12 +174,14 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use cobra_core::expr::Expr;
     use cobra_core::simplify_outcome::Options;
     use cobra_orchestrator::{AstPayload, Provenance};
 
-    fn mk_ast_item(expr: Box<Expr>) -> WorkItem {
+    fn mk_ast_item(expr: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
             expr,
             classification: None,

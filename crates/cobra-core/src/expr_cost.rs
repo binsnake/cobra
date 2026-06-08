@@ -41,7 +41,7 @@ pub fn compute_cost(expr: &Expr) -> CostInfo {
             },
             has_var_dep: true,
         },
-        Kind::Not | Kind::Neg | Kind::Shr(_) => {
+        Kind::Not | Kind::Neg | Kind::Shr(_) | Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) => {
             let child = compute_cost(&expr.children[0]);
             CostInfo {
                 cost: ExprCost {
@@ -52,7 +52,7 @@ pub fn compute_cost(expr: &Expr) -> CostInfo {
                 has_var_dep: child.has_var_dep,
             }
         }
-        Kind::Add | Kind::And | Kind::Or | Kind::Xor => {
+        Kind::Add | Kind::And | Kind::Or | Kind::Xor | Kind::Concat => {
             let lhs = compute_cost(&expr.children[0]);
             let rhs = compute_cost(&expr.children[1]);
             CostInfo {

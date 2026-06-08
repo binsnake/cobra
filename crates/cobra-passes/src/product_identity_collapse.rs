@@ -22,6 +22,8 @@ use cobra_orchestrator::{
     SignatureSubproblemContext, StateData, WorkItem,
 };
 
+use crate::lifting::active_ast_vars;
+
 const MAX_ASSIGNMENTS: usize = 4;
 
 struct ProductSite<'a> {
@@ -120,16 +122,6 @@ fn enumerate_valid_assignments(
         }
     }
     out
-}
-
-/// `(a & m) * (a & n)` → `a` when both AND-terms share a factor.
-fn active_ast_vars(item: &WorkItem, ctx: &OrchestratorContext) -> Vec<String> {
-    if let StateData::FoldedAst(ast) = &item.payload {
-        if let Some(sc) = &ast.solve_ctx {
-            return sc.vars.clone();
-        }
-    }
-    ctx.original_vars.clone()
 }
 
 #[allow(clippy::unnecessary_wraps, clippy::too_many_lines)]
@@ -267,11 +259,13 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use cobra_core::simplify_outcome::Options;
     use cobra_orchestrator::{AstPayload, Provenance};
 
-    fn mk_ast_item(expr: Box<Expr>) -> WorkItem {
+    fn mk_ast_item(expr: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
             expr,
             classification: None,

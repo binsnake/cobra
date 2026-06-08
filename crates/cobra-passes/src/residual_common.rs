@@ -1,10 +1,10 @@
 //! Shared helper: combine a solved residual expression with the
 //! remainder's prefix, verify at full width, and emit a candidate.
 
-use cobra_core::classification::Classification;
 use cobra_core::expr::Expr;
 use cobra_core::expr_cost::compute_cost;
 use cobra_core::pass_contract::{DecompositionMeta, VerificationState};
+use std::sync::Arc;
 
 use cobra_orchestrator::{
     project_extractor_kind, CandidatePayload, ItemDisposition, OrchestratorContext, PassDecision,
@@ -17,9 +17,10 @@ use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 /// Emit a candidate by combining `residual.prefix_expr` with the
 /// caller's `solved_expr`. Returns `None` when the full-width check
+/// fails or the signature certificate cannot be built.
 pub fn try_recombine_and_emit(
     residual: &RemainderStatePayload,
-    mut solved_expr: Box<Expr>,
+    mut solved_expr: Arc<Expr>,
     solved_expr_vars: &[String],
     parent: &WorkItem,
     ctx: &OrchestratorContext,
@@ -107,13 +108,6 @@ pub fn try_recombine_and_emit(
         next: vec![cand_item],
         reason: cobra_core::pass_contract::ReasonDetail::default(),
     })
-}
-
-/// are compiled.
-#[doc(hidden)]
-#[must_use]
-pub fn _classification_anchor() -> Classification {
-    Classification::default()
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@
 use cobra_core::evaluator::Evaluator;
 use cobra_core::expr::Expr;
 use cobra_core::expr_cost::ExprCost;
+use std::sync::Arc;
 
 use crate::enums::RemainderOrigin;
 use crate::stubs::{ExtractOp, GateKind};
@@ -85,7 +86,7 @@ impl Default for HybridComposeCont {
 
 #[derive(Clone, Debug)]
 pub struct RemainderRecombineCont {
-    pub prefix_expr: Box<Expr>,
+    pub prefix_expr: Arc<Expr>,
     pub origin: RemainderOrigin,
     pub remainder_eval: Evaluator,
     pub source_sig: Vec<u64>,
@@ -140,7 +141,7 @@ pub enum LiftedValueKind {
 pub struct LiftedBinding {
     pub kind: LiftedValueKind,
     pub outer_var_index: u32,
-    pub subtree: Box<Expr>,
+    pub subtree: Arc<Expr>,
     pub structural_hash: u64,
     pub original_support: Vec<u32>,
 }
@@ -153,6 +154,12 @@ pub struct LiftedSubstituteCont {
     pub original_eval: Option<Evaluator>,
     pub original_vars: Vec<String>,
     pub source_sig: Vec<u64>,
+    /// Group that spawned this lifted solve (the inner/group-A solve in a
+    /// nested-lift chain). When `Some`, the recovered candidate is
+    /// submitted back to this parent group (and its handle released) so
+    /// the parent's own `LiftedSubstitute` runs and resolves its bindings,
+    /// instead of escaping as a free candidate that bypasses the parent.
+    pub parent_group_id: Option<GroupId>,
 }
 
 // ----- Umbrella enum -----

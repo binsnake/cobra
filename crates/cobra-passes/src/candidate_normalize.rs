@@ -5,10 +5,24 @@ use cobra_core::expr::Expr;
 use cobra_core::expr_cost::compute_cost;
 use cobra_core::pass_contract::VerificationState;
 use cobra_orchestrator::{
-    submit_candidate, CandidateRecord, GroupId, GroupMap, LeanSignatureCertificate,
+    submit_candidate, CandidateRecord, GroupId, GroupMap, LeanCertificate, LeanSignatureCertificate,
 };
 
 use crate::pattern_matcher::normalize_late_candidate_expr;
+
+/// Append `next` onto an optional Lean certificate chain, seeding the
+/// chain when it is empty. Wraps [`LeanCertificate::merge_step_chain`]
+/// so the rewrite passes share one definition.
+#[must_use]
+pub fn merge_certificate(
+    previous: Option<LeanCertificate>,
+    next: LeanCertificate,
+) -> Option<LeanCertificate> {
+    match previous {
+        Some(prev) => prev.merge_step_chain(next),
+        None => Some(next),
+    }
+}
 
 #[must_use]
 pub fn normalize_candidate_record(mut record: CandidateRecord, bitwidth: u32) -> CandidateRecord {

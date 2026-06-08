@@ -4,12 +4,13 @@
 //! expression-derived constants, two-variable constant combinations, and a
 //! deterministic random sample.
 
-use crate::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr};
+use crate::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr, sext, trunc, zext};
 use crate::compiled::{compile, eval as eval_compiled, CompiledExpr};
 use crate::evaluator::{Evaluator, Workspace};
 use crate::expr::{Expr, Kind};
 use crate::expr_utils::remap_var_indices;
 use crate::signature_eval::evaluate_boolean_signature;
+use crate::width::width_of;
 
 /// inputs that produced a disagreement (when `passed == false`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -212,6 +213,18 @@ pub fn eval_expr(expr: &Expr, var_values: &[u64], bitwidth: u32) -> u64 {
             u64::from(*amount),
             bitwidth,
         ),
+        Kind::ZExt(w) => zext(eval_expr(&expr.children[0], var_values, bitwidth), *w),
+        Kind::SExt(w) => {
+            let from = width_of(&expr.children[0], &[], bitwidth);
+            sext(eval_expr(&expr.children[0], var_values, bitwidth), from, *w)
+        }
+        Kind::Trunc(w) => trunc(eval_expr(&expr.children[0], var_values, bitwidth), *w),
+        Kind::Concat => {
+            let low_w = width_of(&expr.children[1], &[], bitwidth);
+            let high = eval_expr(&expr.children[0], var_values, bitwidth);
+            let low = eval_expr(&expr.children[1], var_values, bitwidth) & bitmask(low_w);
+            (high.wrapping_shl(low_w) | low) & bitmask(width_of(expr, &[], bitwidth))
+        }
     }
 }
 
@@ -545,6 +558,36 @@ mod tests {
             Expr::shr(Expr::constant(0xF0), 4),
         );
         assert_eq!(eval_expr(&expr, &[0x0F], 8), 0xFF);
+    }
+
+    #[test]
+    fn eval_expr_casts_and_concat() {
+        // zext(a, 16) with an 8-bit var a=0xAB -> 0x00AB.
+        let e = Expr::zext(Expr::variable(0), 16);
+        assert_eq!(eval_expr(&e, &[0xAB], 8), 0x00AB);
+
+        // sext(a, 16) with a=0xFF (8-bit -1) -> 0xFFFF.
+        let e = Expr::sext(Expr::variable(0), 16);
+        assert_eq!(eval_expr(&e, &[0xFF], 8), 0xFFFF);
+
+        // trunc(a, 8) with a 16-bit var 0xABCD -> 0xCD.
+        let e = Expr::trunc(Expr::variable(0), 8);
+        assert_eq!(eval_expr(&e, &[0xABCD], 16), 0xCD);
+
+        // concat(a:u8, b:u8): high 0x12, low 0x34 -> 0x1234.
+        let e = Expr::concat(Expr::variable(0), Expr::variable(1));
+        assert_eq!(eval_expr(&e, &[0x12, 0x34], 8), 0x1234);
+
+        // Cross-check the concat == zext-arith identity at one point.
+        let lhs = Expr::concat(Expr::variable(0), Expr::variable(1));
+        let rhs = Expr::add(
+            Expr::mul(Expr::zext(Expr::variable(0), 16), Expr::constant(256)),
+            Expr::zext(Expr::variable(1), 16),
+        );
+        assert_eq!(
+            eval_expr(&lhs, &[0x80, 0x01], 8),
+            eval_expr(&rhs, &[0x80, 0x01], 16)
+        );
     }
 
     #[test]

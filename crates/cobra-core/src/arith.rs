@@ -76,6 +76,43 @@ pub const fn mod_shr(a: u64, k: u64, bitwidth: u32) -> u64 {
     (a >> k) & bitmask(bitwidth)
 }
 
+/// Zero-extend `v` to width `to`. Zero-extension never adds set bits, so this
+/// is just a mask of the (already-narrow) value to the result width.
+#[inline]
+#[must_use]
+pub const fn zext(v: u64, to: u32) -> u64 {
+    v & bitmask(to)
+}
+
+/// Sign-extend `v` (interpreted as a `from`-bit two's-complement value) to
+/// width `to`, then mask to `to`. Widening (`to >= from`) replicates the sign
+/// bit; narrowing (`to < from`) degenerates to a truncation to `to`.
+#[inline]
+#[must_use]
+pub const fn sext(v: u64, from: u32, to: u32) -> u64 {
+    let from_mask = bitmask(from);
+    let low = v & from_mask;
+    if from == 0 || to <= from {
+        // No source sign bit to replicate, or we're truncating: just mask.
+        return low & bitmask(to);
+    }
+    let sign = sign_bit_mask(from);
+    if low & sign != 0 {
+        // Set every bit from `from` up to `to` (the extension region).
+        let ext = bitmask(to) & !from_mask;
+        (low | ext) & bitmask(to)
+    } else {
+        low & bitmask(to)
+    }
+}
+
+/// Truncate `v` to its low `to` bits.
+#[inline]
+#[must_use]
+pub const fn trunc(v: u64, to: u32) -> u64 {
+    v & bitmask(to)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,5 +182,45 @@ mod tests {
         assert_eq!(mod_shr(0xFF, 8, 8), 0);
         assert_eq!(mod_shr(u64::MAX, 64, 64), 0);
         assert_eq!(mod_shr(u64::MAX, 100, 64), 0);
+    }
+
+    #[test]
+    fn zext_is_a_widen_mask() {
+        // 0xAB zero-extended to 16 bits stays 0x00AB.
+        assert_eq!(zext(0xAB, 16), 0x00AB);
+        // Already-wide input is masked to the target width.
+        assert_eq!(zext(0x1_2345, 8), 0x45);
+        assert_eq!(zext(0x1, 1), 0x1);
+        assert_eq!(zext(u64::MAX, 64), u64::MAX);
+    }
+
+    #[test]
+    fn sext_widens_with_sign() {
+        // 0xFF as an 8-bit value is -1; sign-extend to 16 → 0xFFFF.
+        assert_eq!(sext(0xFF, 8, 16), 0xFFFF);
+        // 0x7F is positive at width 8 → stays 0x007F at width 16.
+        assert_eq!(sext(0x7F, 8, 16), 0x007F);
+        // width-1 sign bit: 1 → all ones at the target width.
+        assert_eq!(sext(0x1, 1, 8), 0xFF);
+        assert_eq!(sext(0x0, 1, 8), 0x00);
+        // 8 → 64 negative.
+        assert_eq!(sext(0x80, 8, 64), 0xFFFF_FFFF_FFFF_FF80);
+        // 16 → 64 negative and positive.
+        assert_eq!(sext(0x8000, 16, 64), 0xFFFF_FFFF_FFFF_8000);
+        assert_eq!(sext(0x7FFF, 16, 64), 0x0000_0000_0000_7FFF);
+        // Same width is identity (mod mask).
+        assert_eq!(sext(0xFF, 8, 8), 0xFF);
+        // Narrowing degenerates to truncation.
+        assert_eq!(sext(0xABCD, 16, 8), 0xCD);
+    }
+
+    #[test]
+    fn trunc_keeps_low_bits() {
+        assert_eq!(trunc(0xABCD, 8), 0xCD);
+        assert_eq!(trunc(0xABCD, 16), 0xABCD);
+        assert_eq!(trunc(0xFF, 1), 0x1);
+        assert_eq!(trunc(u64::MAX, 64), u64::MAX);
+        // Truncating to 32 keeps only the low half.
+        assert_eq!(trunc(0xDEAD_BEEF_CAFE_F00D, 32), 0xCAFE_F00D);
     }
 }

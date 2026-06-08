@@ -14,6 +14,7 @@
 //!   probing at `x = 0` and `x = all_ones`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use cobra_core::arith::{bitmask, mod_neg};
 use cobra_core::expr::{Expr, Kind};
@@ -62,6 +63,10 @@ fn eval_bitwise_at(expr: &Expr, vars: &[u64], mask: u64) -> u64 {
         }
         Kind::Add | Kind::Mul | Kind::Neg => {
             unreachable!("arithmetic kind inside atom expression")
+        }
+        // Walled off upstream: a mixed-width atom is opaque and never bit-walked.
+        Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => {
+            unreachable!("cast/Concat inside atom expression")
         }
     }
 }
@@ -113,7 +118,7 @@ fn find_or_create_bare_atom(
 fn create_atom_indexed(
     ir: &mut SemilinearIR,
     index: &mut HashMap<u64, Vec<AtomId>>,
-    subtree: Box<Expr>,
+    subtree: Arc<Expr>,
     provenance: OperatorFamily,
 ) -> AtomId {
     let hash = structural_hash(&subtree);
@@ -180,7 +185,7 @@ pub fn recover_structure(ir: &mut SemilinearIR) {
     let modmask = bitmask(ir.bitwidth);
 
     let mut basis_groups: HashMap<u64, Vec<GroupTerm>> = HashMap::new();
-    let mut basis_repr: HashMap<u64, Box<Expr>> = HashMap::new();
+    let mut basis_repr: HashMap<u64, Arc<Expr>> = HashMap::new();
     let mut in_group = vec![false; ir.terms.len()];
 
     for (i, term) in ir.terms.iter().enumerate() {
@@ -307,7 +312,7 @@ pub fn coalesce_terms(ir: &mut SemilinearIR) {
     let modmask = bitmask(ir.bitwidth);
 
     let mut basis_groups: HashMap<u64, Vec<GroupTerm>> = HashMap::new();
-    let mut basis_repr: HashMap<u64, Box<Expr>> = HashMap::new();
+    let mut basis_repr: HashMap<u64, Arc<Expr>> = HashMap::new();
     let mut in_group = vec![false; ir.terms.len()];
 
     for (i, term) in ir.terms.iter().enumerate() {

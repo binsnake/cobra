@@ -156,8 +156,8 @@ pub fn parse_and_evaluate(input: &str, bitwidth: u32) -> Result<ParseResult> {
     let mut stack: Vec<u64> = Vec::with_capacity(compiled.len());
     let mut inputs = vec![0u64; num_vars as usize];
 
-    for (i, slot) in sig.iter_mut().enumerate().take(len) {
-        for (v, input) in inputs.iter_mut().enumerate().take(num_vars as usize) {
+    for (i, slot) in sig.iter_mut().enumerate() {
+        for (v, input) in inputs.iter_mut().enumerate() {
             *input = ((i >> v) & 1) as u64;
         }
         stack.clear();

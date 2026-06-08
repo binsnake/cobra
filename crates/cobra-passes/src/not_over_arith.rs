@@ -8,6 +8,7 @@
 
 use cobra_core::arith::bitmask;
 use cobra_core::expr::{Expr, Kind};
+use std::sync::Arc;
 
 /// True if every node in `e` is `Constant`, `Variable`, `Add`, `Mul`,
 /// or `Neg` — i.e. the subtree has no bitwise or shift operators.
@@ -32,9 +33,10 @@ pub fn has_not_over_arith(e: &Expr) -> bool {
 
 /// Bottom-up rewrite: replace each `Not(arith)` node with
 #[must_use]
-pub fn lower_not_over_arith(mut e: Box<Expr>, bitwidth: u32) -> Box<Expr> {
+pub fn lower_not_over_arith(e: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
+    let mut e = Arc::try_unwrap(e).unwrap_or_else(|a| (*a).clone());
     // Rewrite children first (post-order).
-    let rewritten: Vec<Box<Expr>> = e
+    let rewritten: Vec<Arc<Expr>> = e
         .children
         .drain(..)
         .map(|c| lower_not_over_arith(c, bitwidth))
@@ -47,7 +49,7 @@ pub fn lower_not_over_arith(mut e: Box<Expr>, bitwidth: u32) -> Box<Expr> {
         let inner = e.children.remove(0);
         return Expr::add(Expr::neg(inner), Expr::constant(mask));
     }
-    e
+    Arc::new(e)
 }
 
 #[cfg(test)]

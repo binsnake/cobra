@@ -15,6 +15,7 @@
 
 use cobra_core::expr::{Expr, Kind};
 use cobra_core::is_boolean_valued;
+use std::sync::Arc;
 
 use cobra_orchestrator::GateKind;
 
@@ -83,7 +84,7 @@ pub fn compact_signature(sig: &[u64], n: u32) -> (Vec<u64>, Vec<u32>) {
 /// Remap variable indices in `expr` using `index_map` (compacted index
 /// → original index). Returns a fresh tree; the input is not modified.
 #[must_use]
-pub fn remap_vars(expr: &Expr, index_map: &[u32]) -> Box<Expr> {
+pub fn remap_vars(expr: &Expr, index_map: &[u32]) -> Arc<Expr> {
     match &expr.kind {
         Kind::Constant(v) => Expr::constant(*v),
         Kind::Variable(i) => Expr::variable(index_map[*i as usize]),
@@ -110,13 +111,22 @@ pub fn remap_vars(expr: &Expr, index_map: &[u32]) -> Box<Expr> {
         Kind::Not => Expr::not(remap_vars(&expr.children[0], index_map)),
         Kind::Neg => Expr::neg(remap_vars(&expr.children[0], index_map)),
         Kind::Shr(k) => Expr::shr(remap_vars(&expr.children[0], index_map), u64::from(*k)),
+        // Width-changing nodes are remapped structurally (variable indices
+        // only); the cast widths and Concat shape are preserved verbatim.
+        Kind::ZExt(w) => Expr::zext(remap_vars(&expr.children[0], index_map), *w),
+        Kind::SExt(w) => Expr::sext(remap_vars(&expr.children[0], index_map), *w),
+        Kind::Trunc(w) => Expr::trunc(remap_vars(&expr.children[0], index_map), *w),
+        Kind::Concat => Expr::concat(
+            remap_vars(&expr.children[0], index_map),
+            remap_vars(&expr.children[1], index_map),
+        ),
     }
 }
 
 /// Compose `gate(x_k, g_expr)` with the ADD gate taking an optional
 /// coefficient on `x_k`.
 #[must_use]
-pub fn compose(gate: GateKind, original_k: u32, g_expr: Box<Expr>, add_coeff: u64) -> Box<Expr> {
+pub fn compose(gate: GateKind, original_k: u32, g_expr: Arc<Expr>, add_coeff: u64) -> Arc<Expr> {
     let var_k = Expr::variable(original_k);
     match gate {
         GateKind::And => Expr::and(var_k, g_expr),

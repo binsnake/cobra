@@ -5,6 +5,7 @@ use cobra_core::expr::Expr;
 use cobra_core::expr_cost::{is_better, ExprCost};
 use cobra_core::pass_contract::{ReasonDetail, VerificationState};
 use cobra_verify::{LeanCertificate, LeanSignatureCertificate};
+use std::sync::Arc;
 
 use crate::continuation::{ContinuationData, GroupId};
 use crate::enums::PassId;
@@ -17,7 +18,7 @@ pub use crate::continuation::JoinId;
 
 #[derive(Clone, Debug)]
 pub struct CandidateRecord {
-    pub expr: Box<Expr>,
+    pub expr: Arc<Expr>,
     pub cost: ExprCost,
     pub verification: VerificationState,
     pub real_vars: Vec<String>,

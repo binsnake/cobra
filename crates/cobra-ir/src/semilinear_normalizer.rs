@@ -20,18 +20,13 @@ use crate::semilinear::{
     OperatorFamily, SemilinearIR, WeightedAtom,
 };
 
+use crate::dynamic_mask::contains_shr;
+
 fn has_constant(expr: &Expr) -> bool {
     if matches!(expr.kind, Kind::Constant(_)) {
         return true;
     }
     expr.children.iter().any(|c| has_constant(c))
-}
-
-fn contains_shr(expr: &Expr) -> bool {
-    if matches!(expr.kind, Kind::Shr(_)) {
-        return true;
-    }
-    expr.children.iter().any(|c| contains_shr(c))
 }
 
 #[allow(clippy::struct_excessive_bools)]
@@ -74,15 +69,9 @@ fn compute_expr_info(expr: &Expr, cache: &mut HashMap<*const Expr, ExprInfo>) ->
                 contains_shr: l.contains_shr || r.contains_shr,
             }
         }
-        Kind::Not => {
-            let c = compute_expr_info(&expr.children[0], cache);
-            ExprInfo {
-                is_purely_bitwise: c.is_purely_bitwise,
-                has_var_dep: c.has_var_dep,
-                has_constant: c.has_constant,
-                contains_shr: c.contains_shr,
-            }
-        }
+        // `Not` is transparent to every predicate, so the child's info is
+        // already exactly correct.
+        Kind::Not => compute_expr_info(&expr.children[0], cache),
         Kind::Shr(_) => {
             let c = compute_expr_info(&expr.children[0], cache);
             ExprInfo {
@@ -102,14 +91,27 @@ fn compute_expr_info(expr: &Expr, cache: &mut HashMap<*const Expr, ExprInfo>) ->
                 contains_shr: l.contains_shr || r.contains_shr,
             }
         }
-        Kind::Neg => {
-            let c = compute_expr_info(&expr.children[0], cache);
-            ExprInfo {
+        Kind::Neg => ExprInfo {
+            is_purely_bitwise: false,
+            ..compute_expr_info(&expr.children[0], cache)
+        },
+        // Mixed-width nodes are opaque: not purely bitwise, and their child
+        // predicates propagate conservatively. They are walled off before any
+        // bit-walking, so only the aggregate flags matter here.
+        Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => {
+            let mut acc = ExprInfo {
                 is_purely_bitwise: false,
-                has_var_dep: c.has_var_dep,
-                has_constant: c.has_constant,
-                contains_shr: c.contains_shr,
+                has_var_dep: false,
+                has_constant: false,
+                contains_shr: false,
+            };
+            for child in &expr.children {
+                let c = compute_expr_info(child, cache);
+                acc.has_var_dep |= c.has_var_dep;
+                acc.has_constant |= c.has_constant;
+                acc.contains_shr |= c.contains_shr;
             }
+            acc
         }
     };
     cache.insert(key, info);
@@ -162,7 +164,8 @@ fn eval_constant_arith(expr: &Expr, mask: u64, bitwidth: u32) -> u64 {
             mod_shr(v, u64::from(*k), 64) & mask
         }
         Kind::And | Kind::Or | Kind::Xor | Kind::Not => eval_constant_bitwise(expr, mask),
-        Kind::Variable(_) => 0,
+        // Opaque (mixed-width or variable): not a recognised constant term.
+        Kind::Variable(_) | Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => 0,
     }
 }
 
@@ -208,14 +211,10 @@ fn detect_provenance(expr: &Expr) -> OperatorFamily {
     }
 }
 
+#[inline]
 fn collect_support(expr: &Expr, out: &mut Vec<GlobalVarIdx>) {
-    if let Kind::Variable(i) = expr.kind {
-        out.push(i);
-        return;
-    }
-    for c in &expr.children {
-        collect_support(c, out);
-    }
+    // `GlobalVarIdx` is `u32`; this is exactly `cobra_core::collect_vars`.
+    cobra_core::collect_vars(expr, out);
 }
 
 struct CollectCtx {

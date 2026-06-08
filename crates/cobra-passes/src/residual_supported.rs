@@ -141,6 +141,8 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use cobra_core::evaluator::Evaluator;
     use cobra_core::expr::Expr;
@@ -150,7 +152,7 @@ mod tests {
     fn mk_remainder_item(
         vars: Vec<String>,
         sig: Vec<u64>,
-        prefix: Box<Expr>,
+        prefix: Arc<Expr>,
         eval: Evaluator,
     ) -> WorkItem {
         let elim = EliminationResult {

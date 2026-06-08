@@ -7,6 +7,9 @@ use std::collections::HashMap;
 
 use ahash::RandomState;
 
+use cobra_core::arith::bitmask;
+
+use crate::math_utils::precision_bits;
 use crate::mono::MonomialKey;
 
 /// Coefficient type: always `u64`, interpreted modulo `2^bitwidth`.
@@ -70,11 +73,10 @@ impl NormalizedPoly {
                 return false;
             }
             let q = tuple.v2_factorial_weight(self.num_vars);
-            if q >= self.bitwidth {
+            let Some(bound_bits) = precision_bits(q, self.bitwidth) else {
                 return false;
-            }
-            let bound_bits = self.bitwidth - q;
-            if bound_bits < 64 && c >= 1u64 << bound_bits {
+            };
+            if c > bitmask(bound_bits) {
                 return false;
             }
         }

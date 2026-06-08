@@ -221,13 +221,15 @@ fn hash_var_list(vars: &[String]) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::enums::{Provenance, StateKind};
     use crate::state::{AstPayload, CandidatePayload, CompetitionResolvedPayload};
     use cobra_core::expr::Expr;
     use cobra_core::expr_cost::ExprCost;
 
-    fn mk_ast_item(expr: Box<Expr>) -> WorkItem {
+    fn mk_ast_item(expr: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
             expr,
             classification: None,

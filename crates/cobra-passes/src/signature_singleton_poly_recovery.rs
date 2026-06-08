@@ -21,6 +21,7 @@ use cobra_core::expr_cost::compute_cost;
 use cobra_core::expr_rewrite::build_var_support;
 use cobra_core::pass_contract::{ReasonDetail, VerificationState};
 use cobra_core::result::Result;
+use std::sync::Arc;
 
 use cobra_ir::{
     build_poly_expr, lower_arithmetic_fragment, normalize_polynomial, recover_singleton_powers,
@@ -118,7 +119,7 @@ pub fn run_signature_singleton_poly_recovery(
     let split = split_coefficients(coeffs, &eval, num_vars, ctx.bitwidth, &singleton_at_2);
     let has_mul = split.mul_coeffs.iter().any(|&c| c != 0);
 
-    let mut poly_expr: Option<Box<Expr>> = None;
+    let mut poly_expr: Option<Arc<Expr>> = None;
     let mut residual = split.and_coeffs.clone();
     if has_mul {
         if let Ok(lowered) = lower_arithmetic_fragment(
@@ -139,7 +140,7 @@ pub fn run_signature_singleton_poly_recovery(
     let bit_expr = build_cob_expr(&residual, num_vars, ctx.bitwidth);
     let bit_is_zero = bit_is_zero_constant(&bit_expr);
 
-    let mut prefix: Option<Box<Expr>> = poly_expr;
+    let mut prefix: Option<Arc<Expr>> = poly_expr;
     if let Some(s) = singleton_expr {
         prefix = Some(match prefix {
             Some(p) => Expr::add(p, s),
@@ -213,7 +214,7 @@ pub fn run_signature_singleton_poly_recovery(
     // through to "no progress". When Cluster 3 lands, switch this to
     // check `item.evaluator_override.is_some()`.
     if item.evaluator_override.is_some() {
-        let mut combined: Option<Box<Expr>> = None;
+        let mut combined: Option<Arc<Expr>> = None;
         if !bit_is_zero {
             combined = Some(bit_expr);
         }

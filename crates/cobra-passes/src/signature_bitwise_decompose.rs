@@ -9,61 +9,22 @@
 //! short-circuit and submit directly to the parent without spawning a
 //! child.
 
-use cobra_core::classification::SemanticClass;
 use cobra_core::pass_contract::{ReasonDetail, VerificationState};
 use cobra_core::result::Result;
 
 use cobra_orchestrator::{
-    acquire_handle, create_group, has_verified_candidate, BitwiseComposeCont, CandidateRecord,
-    ContinuationData, EliminationResult, ItemDisposition, OrchestratorContext, PassDecision,
-    PassId, PassResult, SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem,
+    acquire_handle, create_group, BitwiseComposeCont, CandidateRecord, ContinuationData,
+    EliminationResult, ItemDisposition, OrchestratorContext, PassDecision, PassId, PassResult,
+    SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem,
 };
 
 use crate::bitwise_decomposer::{compact_signature, compose, enumerate_bitwise_candidates};
 use crate::candidate_normalize::{
     signature_certificate_for_candidate, submit_normalized_candidate,
 };
+use crate::decomposition_helpers::{should_skip_decomposition, MAX_CANDIDATES};
 use crate::mapped_evaluator::build_mapped_evaluator;
 use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
-
-const MAX_CANDIDATES: usize = 8;
-
-fn verified_candidate_decomposition_cost_bound(num_vars: u32) -> u32 {
-    2 * num_vars + 1
-}
-
-fn should_skip_decomposition(
-    item: &WorkItem,
-    ctx: &OrchestratorContext,
-    sub_ctx: &SignatureSubproblemContext,
-    require_root_depth: bool,
-    require_global_evaluator: bool,
-) -> bool {
-    let Some(group_id) = item.group_id else {
-        return false;
-    };
-    let Some(classification) = item.features.classification else {
-        return false;
-    };
-    if !matches!(
-        classification.semantic,
-        SemanticClass::Linear | SemanticClass::Semilinear
-    ) {
-        return false;
-    }
-    if require_root_depth && item.signature_recursion_depth != 0 {
-        return false;
-    }
-    if require_global_evaluator && ctx.evaluator.is_none() {
-        return false;
-    }
-    has_verified_candidate(
-        &ctx.competition_groups,
-        group_id,
-        verified_candidate_decomposition_cost_bound(sub_ctx.real_vars.len() as u32),
-        ctx.bitwidth,
-    )
-}
 
 #[allow(clippy::unnecessary_wraps, clippy::too_many_lines)]
 pub fn run_signature_bitwise_decompose(
@@ -283,7 +244,7 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::classification::{Classification, StructuralFlag};
+    use cobra_core::classification::{Classification, SemanticClass, StructuralFlag};
     use cobra_core::evaluator::Evaluator;
     use cobra_core::expr::Expr;
     use cobra_core::expr_cost::ExprCost;

@@ -11,6 +11,7 @@ use cobra_core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
 };
 use cobra_core::result::Result;
+use std::sync::Arc;
 
 use cobra_orchestrator::{
     AstPayload, ItemDisposition, LeanCertificate, OrchestratorContext, PassDecision, PassResult,
@@ -116,8 +117,8 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 }
 
 fn xor_lowering_certificate(
-    original: Box<Expr>,
-    simplified: Box<Expr>,
+    original: Arc<Expr>,
+    simplified: Arc<Expr>,
     bitwidth: u32,
 ) -> Option<LeanCertificate> {
     if bitwidth != 64 {
@@ -152,7 +153,7 @@ mod tests {
     use cobra_core::expr::Expr;
     use cobra_core::simplify_outcome::Options;
 
-    fn mk_ast_item(expr: Box<Expr>) -> WorkItem {
+    fn mk_ast_item(expr: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
             expr,
             classification: None,

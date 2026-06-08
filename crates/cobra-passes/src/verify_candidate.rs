@@ -11,6 +11,7 @@ use cobra_core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, VerificationState,
 };
 use cobra_core::result::Result;
+use std::sync::Arc;
 
 use cobra_orchestrator::{
     CandidatePayload, ItemDisposition, LeanCertificate, OrchestratorContext, PassDecision,
@@ -128,7 +129,7 @@ fn remapped_endpoint_certificate(
     } else {
         let idx_map = try_build_var_support(&ctx.original_vars, real_vars)?;
         let mut remapped = expr.clone_tree();
-        remap_var_indices(&mut remapped, &idx_map);
+        remap_var_indices(Arc::make_mut(&mut remapped), &idx_map);
         remapped
     };
     LeanCertificate::try_single_rewrite_between_64(
@@ -154,7 +155,7 @@ mod tests {
     use cobra_core::simplify_outcome::Options;
     use cobra_orchestrator::PassId;
 
-    fn mk_cand_item(simplified: Box<Expr>) -> WorkItem {
+    fn mk_cand_item(simplified: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
             expr: simplified,
             real_vars: vec!["x".into(), "y".into()],

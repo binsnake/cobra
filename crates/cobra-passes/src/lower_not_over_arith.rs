@@ -14,12 +14,14 @@ use cobra_core::expr::{Expr, Kind};
 use cobra_core::pass_contract::ReasonDetail;
 use cobra_core::result::Result;
 use cobra_core::signature_eval::evaluate_boolean_signature;
+use std::sync::Arc;
 
 use cobra_orchestrator::{
     AstPayload, ExprPath, ItemDisposition, LeanCertificate, OrchestratorContext, PassDecision,
     PassResult, Provenance, StateData, WorkItem,
 };
 
+use crate::candidate_normalize::merge_certificate;
 use crate::not_over_arith::{has_not_over_arith, is_purely_arithmetic, lower_not_over_arith};
 
 #[allow(clippy::unnecessary_wraps)]
@@ -97,7 +99,7 @@ pub fn run_lower_not_over_arith(
 fn lower_not_over_arith_certified(
     expr: &Expr,
     bitwidth: u32,
-) -> (Box<Expr>, Option<LeanCertificate>) {
+) -> (Arc<Expr>, Option<LeanCertificate>) {
     if bitwidth != 64 {
         return (lower_not_over_arith(expr.clone_tree(), bitwidth), None);
     }
@@ -118,17 +120,7 @@ fn lower_not_over_arith_certified(
     (current, chain)
 }
 
-fn merge_certificate(
-    previous: Option<LeanCertificate>,
-    next: LeanCertificate,
-) -> Option<LeanCertificate> {
-    match previous {
-        Some(prev) => prev.merge_step_chain(next),
-        None => Some(next),
-    }
-}
-
-fn find_first_lowering_site(root: &Expr, bitwidth: u32) -> Option<(ExprPath, Box<Expr>)> {
+fn find_first_lowering_site(root: &Expr, bitwidth: u32) -> Option<(ExprPath, Arc<Expr>)> {
     find_first_lowering_site_at(root, bitwidth, &mut Vec::new())
 }
 
@@ -136,7 +128,7 @@ fn find_first_lowering_site_at(
     root: &Expr,
     bitwidth: u32,
     path: &mut Vec<u8>,
-) -> Option<(ExprPath, Box<Expr>)> {
+) -> Option<(ExprPath, Arc<Expr>)> {
     for (idx, child) in root.children.iter().enumerate() {
         let child_idx = u8::try_from(idx).ok()?;
         path.push(child_idx);
@@ -174,7 +166,7 @@ mod tests {
     use cobra_core::expr::{Expr, Kind};
     use cobra_core::simplify_outcome::Options;
 
-    fn mk_ast_item(e: Box<Expr>, prov: Provenance) -> WorkItem {
+    fn mk_ast_item(e: Arc<Expr>, prov: Provenance) -> WorkItem {
         let mut item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
             expr: e,
             classification: None,

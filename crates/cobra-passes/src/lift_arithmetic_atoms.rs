@@ -16,8 +16,9 @@ use cobra_orchestrator::{
 };
 
 use crate::lifting::{
-    allocate_fresh_virtual_names, baseline_cost, boolean_signature, collect_liftable_atoms,
-    deduplicate_atoms, is_bitwise_kind, make_binding, replace_atoms_with_virtual,
+    active_ast_evaluator, active_ast_vars, allocate_fresh_virtual_names, baseline_cost,
+    boolean_signature, collect_liftable_atoms, deduplicate_atoms, is_bitwise_kind, make_binding,
+    replace_atoms_with_virtual,
 };
 
 fn resource_limit(msg: String) -> ReasonDetail {
@@ -33,27 +34,6 @@ fn resource_limit(msg: String) -> ReasonDetail {
         },
         causes: Vec::new(),
     }
-}
-
-fn active_ast_vars(item: &WorkItem, ctx: &OrchestratorContext) -> Vec<String> {
-    if let StateData::FoldedAst(ast) = &item.payload {
-        if let Some(sc) = &ast.solve_ctx {
-            return sc.vars.clone();
-        }
-    }
-    ctx.original_vars.clone()
-}
-
-fn active_ast_evaluator(
-    item: &WorkItem,
-    ctx: &OrchestratorContext,
-) -> Option<cobra_core::evaluator::Evaluator> {
-    if let StateData::FoldedAst(ast) = &item.payload {
-        if let Some(sc) = &ast.solve_ctx {
-            return sc.evaluator.clone();
-        }
-    }
-    ctx.evaluator.clone()
 }
 
 #[allow(clippy::unnecessary_wraps)]
@@ -140,6 +120,9 @@ pub fn run_lift_arithmetic_atoms(
     skel_item.metadata.lean_signature_certificate = None;
     skel_item.depth = item.depth;
     skel_item.rewrite_gen = item.rewrite_gen;
+    // Carry the source item's competition group so a nested lift chains back
+    // to it (see `prepare_lifted_outer_solve` / `resolve_lifted_substitute`).
+    skel_item.group_id = item.group_id;
     skel_item.history.clone_from(&item.history);
 
     Ok(PassResult {
@@ -157,12 +140,14 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use cobra_core::expr::Expr;
     use cobra_core::simplify_outcome::Options;
     use cobra_orchestrator::{AstPayload, Provenance};
 
-    fn mk_ast_item(expr: Box<Expr>) -> WorkItem {
+    fn mk_ast_item(expr: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
             expr,
             classification: None,

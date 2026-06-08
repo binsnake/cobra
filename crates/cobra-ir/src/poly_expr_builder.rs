@@ -9,56 +9,49 @@ use cobra_core::arith::bitmask;
 use cobra_core::expr::Expr;
 use cobra_core::expr_rewrite::apply_coefficient;
 use cobra_core::result::{err, CobraError, Result};
+use std::sync::Arc;
 
 use crate::basis_transform::to_monomial_basis;
 use crate::mono::{MonomialKey, MAX_POLY_VARS};
 use crate::poly::NormalizedPoly;
 
-fn build_power_expr(var_index: u32, exponent: u8) -> Box<Expr> {
+fn build_power_expr(var_index: u32, exponent: u8) -> Arc<Expr> {
     debug_assert!(exponent >= 2);
-    let mut factors: Vec<Box<Expr>> = (0..exponent).map(|_| Expr::variable(var_index)).collect();
-    while factors.len() > 1 {
-        let mut next: Vec<Box<Expr>> = Vec::with_capacity(factors.len().div_ceil(2));
-        let mut i = 0;
-        while i < factors.len() {
-            if i + 1 < factors.len() {
-                let a = factors[i].clone_tree();
-                let b = factors[i + 1].clone_tree();
-                next.push(Expr::mul(a, b));
-            } else {
-                next.push(factors[i].clone_tree());
-            }
-            i += 2;
-        }
-        factors = next;
-    }
-    factors.pop().expect("factors non-empty")
+    let factors: Vec<Arc<Expr>> = (0..exponent).map(|_| Expr::variable(var_index)).collect();
+    reduce_pairwise(factors, Expr::mul).expect("factors non-empty")
 }
 
 #[allow(clippy::vec_box)]
-fn reduce_add_tree(mut terms: Vec<Box<Expr>>) -> Box<Expr> {
-    while terms.len() > 1 {
-        let mut next: Vec<Box<Expr>> = Vec::with_capacity(terms.len().div_ceil(2));
-        let mut i = 0;
-        while i < terms.len() {
-            if i + 1 < terms.len() {
-                let a = terms[i].clone_tree();
-                let b = terms[i + 1].clone_tree();
-                next.push(Expr::add(a, b));
-            } else {
-                next.push(terms[i].clone_tree());
+fn reduce_add_tree(terms: Vec<Arc<Expr>>) -> Arc<Expr> {
+    reduce_pairwise(terms, Expr::add).expect("at least one term")
+}
+
+/// Balanced pairwise reduction of `items` under `combine`. Operands are
+/// moved (never cloned): each level consumes its vec via `into_iter`,
+/// pairing adjacent elements and carrying any odd tail forward.
+#[allow(clippy::vec_box)]
+fn reduce_pairwise(
+    mut items: Vec<Arc<Expr>>,
+    combine: fn(Arc<Expr>, Arc<Expr>) -> Arc<Expr>,
+) -> Option<Arc<Expr>> {
+    while items.len() > 1 {
+        let mut next: Vec<Arc<Expr>> = Vec::with_capacity(items.len().div_ceil(2));
+        let mut it = items.into_iter();
+        while let Some(a) = it.next() {
+            match it.next() {
+                Some(b) => next.push(combine(a, b)),
+                None => next.push(a),
             }
-            i += 2;
         }
-        terms = next;
+        items = next;
     }
-    terms.pop().expect("at least one term")
+    items.pop()
 }
 
 /// Build an `Expr` from a `NormalizedPoly`. Returns `Ok(Constant(0))`
 /// for the empty-polynomial case. Fails with `TooManyVariables` if the
 /// polynomial's `num_vars` exceeds `MAX_POLY_VARS`.
-pub fn build_poly_expr(poly: &NormalizedPoly) -> Result<Box<Expr>> {
+pub fn build_poly_expr(poly: &NormalizedPoly) -> Result<Arc<Expr>> {
     let n = poly.num_vars;
     if usize::from(n) > MAX_POLY_VARS {
         return Err(err(
@@ -81,13 +74,13 @@ pub fn build_poly_expr(poly: &NormalizedPoly) -> Result<Box<Expr>> {
     let mut sorted: Vec<(MonomialKey, u64)> = monomial.into_iter().collect();
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let mut term_exprs: Vec<Box<Expr>> = Vec::with_capacity(sorted.len());
+    let mut term_exprs: Vec<Arc<Expr>> = Vec::with_capacity(sorted.len());
     for (tuple, coeff) in sorted {
         let c = coeff & mask;
         if c == 0 {
             continue;
         }
-        let mut product: Option<Box<Expr>> = None;
+        let mut product: Option<Arc<Expr>> = None;
         for i in 0..n {
             let e = tuple.exponent_at(i);
             if e == 0 {

@@ -5,6 +5,7 @@ use cobra_core::classification::Classification;
 use cobra_core::evaluator::Evaluator;
 use cobra_core::pass_contract::ReasonDetail;
 use cobra_core::simplify_outcome::Options;
+use std::sync::Arc;
 
 use crate::competition::GroupMap;
 use crate::continuation::{GroupId, JoinId};
@@ -52,7 +53,7 @@ pub struct RunMetadata {
 pub struct OrchestratorContext {
     pub opts: Options,
     pub original_vars: Vec<String>,
-    pub original_expr: Option<Box<cobra_core::expr::Expr>>,
+    pub original_expr: Option<Arc<cobra_core::expr::Expr>>,
     pub evaluator: Option<Evaluator>,
     pub bitwidth: u32,
     pub run_metadata: RunMetadata,

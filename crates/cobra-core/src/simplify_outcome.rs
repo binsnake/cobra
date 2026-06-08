@@ -6,6 +6,7 @@ use crate::classification::{Classification, SemanticClass, StructuralFlag};
 use crate::evaluator::Evaluator;
 use crate::expr::Expr;
 use crate::pass_contract::{ReasonCode, ReasonFrame};
+use std::sync::Arc;
 
 /// struct (`bitwidth = 64`, `max_vars = 16`, `spot_check = true`,
 /// `enable_bitwise_decomposition = true`).
@@ -101,7 +102,7 @@ pub enum ProofLevel {
 #[derive(Clone, Debug)]
 pub struct SimplifyOutcome {
     pub kind: SimplifyOutcomeKind,
-    pub expr: Option<Box<Expr>>,
+    pub expr: Option<Arc<Expr>>,
     pub sig_vector: Vec<u64>,
     pub real_vars: Vec<String>,
     pub verified: bool,

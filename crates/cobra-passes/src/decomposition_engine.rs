@@ -16,6 +16,7 @@ use cobra_core::expr_cost::compute_cost;
 use cobra_core::pass_contract::{ReasonDetail, SolverResult};
 use cobra_core::result::Result;
 use cobra_core::simplify_outcome::Options;
+use std::sync::Arc;
 
 use cobra_orchestrator::{
     CandidatePayload, CoreCandidatePayload, ExtractorKind, ItemDisposition, OrchestratorContext,
@@ -42,7 +43,7 @@ pub struct DecompositionContext<'a> {
 /// Emitted by a successful extractor. `degree_used` is only set by the
 /// polynomial extractor and is zero otherwise.
 pub struct CoreCandidate {
-    pub expr: Box<Expr>,
+    pub expr: Arc<Expr>,
     pub kind: ExtractorKind,
     pub degree_used: u8,
 }

@@ -23,14 +23,13 @@ use cobra_core::arith::bitmask;
 use cobra_core::expr::{Expr, Kind};
 use cobra_core::expr_utils::{eval_constant, is_constant_subtree};
 use cobra_orchestrator::{ExprPath, LeanCertificate};
+use std::sync::Arc;
 
 use cobra_ir::semilinear::{AtomId, GlobalVarIdx, SemilinearIR, WeightedAtom};
 
-type ComplementKey = (u64, Vec<GlobalVarIdx>, Vec<u64>);
+use crate::candidate_normalize::merge_certificate;
 
-fn is_const(e: &Expr) -> bool {
-    matches!(e.kind, Kind::Constant(_))
-}
+type ComplementKey = (u64, Vec<GlobalVarIdx>, Vec<u64>);
 
 fn constant_val(e: &Expr) -> Option<u64> {
     if let Kind::Constant(v) = e.kind {
@@ -40,15 +39,18 @@ fn constant_val(e: &Expr) -> Option<u64> {
     }
 }
 
-fn negate_bitwise_child(child: Box<Expr>) -> Box<Expr> {
+fn negate_bitwise_child(child: Arc<Expr>) -> Arc<Expr> {
     if matches!(child.kind, Kind::Not) && !child.children.is_empty() {
         let mut c = child;
-        return c.children.pop().expect("checked non-empty");
+        return Arc::make_mut(&mut c)
+            .children
+            .pop()
+            .expect("checked non-empty");
     }
     Expr::not(child)
 }
 
-fn try_fold_binary(kind: Kind, lhs: Box<Expr>, rhs: Box<Expr>, bitwidth: u32) -> Box<Expr> {
+fn try_fold_binary(kind: Kind, lhs: Arc<Expr>, rhs: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
     let all_ones = bitmask(bitwidth);
     let lc = constant_val(&lhs);
     let rc = constant_val(&rhs);
@@ -90,33 +92,25 @@ fn try_fold_binary(kind: Kind, lhs: Box<Expr>, rhs: Box<Expr>, bitwidth: u32) ->
         _ => {
             // Preserve the incoming kind verbatim for anything else.
             let mut e = Expr::and(lhs, rhs);
-            e.kind = kind;
+            Arc::make_mut(&mut e).kind = kind;
             e
         }
     }
 }
 
-fn exprs_equal(a: &Expr, b: &Expr) -> bool {
-    if std::mem::discriminant(&a.kind) != std::mem::discriminant(&b.kind) {
-        return false;
-    }
-    match (&a.kind, &b.kind) {
-        (Kind::Constant(x), Kind::Constant(y)) => x == y,
-        (Kind::Variable(x), Kind::Variable(y)) | (Kind::Shr(x), Kind::Shr(y)) => x == y,
-        _ => {
-            if a.children.len() != b.children.len() {
-                return false;
-            }
-            a.children
-                .iter()
-                .zip(b.children.iter())
-                .all(|(c1, c2)| exprs_equal(c1, c2))
-        }
-    }
-}
-
 fn has_constant_or_shr(e: &Expr) -> bool {
-    if matches!(e.kind, Kind::Constant(_) | Kind::Shr(_)) {
+    // Constants and shifts already block complement-merge / constant-fold;
+    // width-changing casts and Concat are likewise opaque to this same-width
+    // machinery and must block it too (soundness wall).
+    if matches!(
+        e.kind,
+        Kind::Constant(_)
+            | Kind::Shr(_)
+            | Kind::ZExt(_)
+            | Kind::SExt(_)
+            | Kind::Trunc(_)
+            | Kind::Concat
+    ) {
         return true;
     }
     e.children.iter().any(|c| has_constant_or_shr(c))
@@ -125,13 +119,13 @@ fn has_constant_or_shr(e: &Expr) -> bool {
 /// Simplify a bitwise atom expression tree bottom-up. Consumes `atom`,
 /// returns the possibly-rewritten tree.
 #[must_use]
-pub fn simplify_atom(atom: Box<Expr>, bitwidth: u32) -> Box<Expr> {
+pub fn simplify_atom(atom: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
     if matches!(atom.kind, Kind::Constant(_) | Kind::Variable(_)) {
         return atom;
     }
 
-    let mut atom = atom;
-    let new_children: Vec<Box<Expr>> = atom
+    let mut atom = Arc::try_unwrap(atom).unwrap_or_else(|a| (*a).clone());
+    let new_children: Vec<Arc<Expr>> = atom
         .children
         .drain(..)
         .map(|c| simplify_atom(c, bitwidth))
@@ -143,10 +137,10 @@ pub fn simplify_atom(atom: Box<Expr>, bitwidth: u32) -> Box<Expr> {
     }
 
     if matches!(atom.kind, Kind::Not) && matches!(atom.children[0].kind, Kind::Not) {
-        let inner = atom.children.into_iter().next().expect("not has one child");
-        return inner
+        let mut inner = atom.children.into_iter().next().expect("not has one child");
+        return Arc::make_mut(&mut inner)
             .children
-            .into_iter()
+            .drain(..)
             .next()
             .expect("inner not has one child");
     }
@@ -161,8 +155,9 @@ pub fn simplify_atom(atom: Box<Expr>, bitwidth: u32) -> Box<Expr> {
         if inner_is_and_or && inner_has_not {
             let was_and = matches!(inner.kind, Kind::And);
             let mut inner = atom.children.into_iter().next().expect("not child");
-            let rhs = negate_bitwise_child(inner.children.pop().expect("two children"));
-            let lhs = negate_bitwise_child(inner.children.pop().expect("two children"));
+            let inner_mut = Arc::make_mut(&mut inner);
+            let rhs = negate_bitwise_child(inner_mut.children.pop().expect("two children"));
+            let lhs = negate_bitwise_child(inner_mut.children.pop().expect("two children"));
             let combined = if was_and {
                 Expr::or(lhs, rhs)
             } else {
@@ -174,7 +169,7 @@ pub fn simplify_atom(atom: Box<Expr>, bitwidth: u32) -> Box<Expr> {
 
     if matches!(atom.kind, Kind::And | Kind::Or)
         && atom.children.len() == 2
-        && exprs_equal(&atom.children[0], &atom.children[1])
+        && atom.children[0] == atom.children[1]
     {
         return atom.children.into_iter().next().expect("two children");
     }
@@ -191,7 +186,7 @@ pub fn simplify_atom(atom: Box<Expr>, bitwidth: u32) -> Box<Expr> {
         return try_fold_binary(kind, lhs, rhs, bitwidth);
     }
 
-    atom
+    Arc::new(atom)
 }
 
 /// Simplify an atom and return Lean-checkable evidence for the same
@@ -200,9 +195,9 @@ pub fn simplify_atom(atom: Box<Expr>, bitwidth: u32) -> Box<Expr> {
 /// endpoint certificate replayed by the generated Lean `bv_decide` path.
 #[must_use]
 pub fn simplify_atom_certified(
-    atom: Box<Expr>,
+    atom: Arc<Expr>,
     bitwidth: u32,
-) -> (Box<Expr>, Option<LeanCertificate>) {
+) -> (Arc<Expr>, Option<LeanCertificate>) {
     let expected = simplify_atom(atom.clone_tree(), bitwidth);
     if bitwidth != 64 {
         return (expected, None);
@@ -233,20 +228,10 @@ pub fn simplify_atom_certified(
     }
 }
 
-fn merge_certificate(
-    previous: Option<LeanCertificate>,
-    next: LeanCertificate,
-) -> Option<LeanCertificate> {
-    match previous {
-        Some(prev) => prev.merge_step_chain(next),
-        None => Some(next),
-    }
-}
-
 fn find_first_certifiable_atom_rewrite(
     root: &Expr,
     bitwidth: u32,
-) -> Option<(ExprPath, Box<Expr>)> {
+) -> Option<(ExprPath, Arc<Expr>)> {
     find_first_certifiable_atom_rewrite_at(root, bitwidth, &mut Vec::new())
 }
 
@@ -254,7 +239,7 @@ fn find_first_certifiable_atom_rewrite_at(
     root: &Expr,
     bitwidth: u32,
     path: &mut Vec<u8>,
-) -> Option<(ExprPath, Box<Expr>)> {
+) -> Option<(ExprPath, Arc<Expr>)> {
     for (idx, child) in root.children.iter().enumerate() {
         let child_idx = u8::try_from(idx).ok()?;
         path.push(child_idx);
@@ -269,7 +254,7 @@ fn find_first_certifiable_atom_rewrite_at(
     Some((ExprPath(path.clone()), after))
 }
 
-fn local_certifiable_atom_rewrite(node: &Expr, bitwidth: u32) -> Option<Box<Expr>> {
+fn local_certifiable_atom_rewrite(node: &Expr, bitwidth: u32) -> Option<Arc<Expr>> {
     match &node.kind {
         Kind::Shr(0) if node.children.len() == 1 => Some(node.children[0].clone_tree()),
         Kind::Not if node.children.len() == 1 => {
@@ -293,7 +278,7 @@ fn local_certifiable_atom_rewrite(node: &Expr, bitwidth: u32) -> Option<Box<Expr
             None
         }
         Kind::And | Kind::Or
-            if node.children.len() == 2 && exprs_equal(&node.children[0], &node.children[1]) =>
+            if node.children.len() == 2 && node.children[0] == node.children[1] =>
         {
             Some(node.children[0].clone_tree())
         }
@@ -384,8 +369,6 @@ pub fn simplify_structure(ir: &mut SemilinearIR) {
         let subtree = std::mem::replace(&mut info.original_subtree, Expr::constant(0));
         info.original_subtree = simplify_atom(subtree, ir.bitwidth);
     }
-    // Touch the unused helper to avoid dead_code warnings in debug builds.
-    let _ = is_const;
 }
 
 #[cfg(test)]

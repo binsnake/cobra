@@ -15,6 +15,7 @@ use cobra_core::expr_rewrite::repair_product_shadow;
 use cobra_core::is_boolean_valued;
 use cobra_core::pass_contract::{ReasonDetail, VerificationState};
 use cobra_core::result::Result;
+use std::sync::Arc;
 
 use cobra_ir::{build_anf_expr, compute_anf};
 use cobra_orchestrator::{
@@ -55,7 +56,7 @@ pub fn run_signature_anf(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resu
     }
 
     let packed = compute_anf(sig, num_vars);
-    let mut anf_expr: Box<Expr> = build_anf_expr(&packed, num_vars);
+    let mut anf_expr: Arc<Expr> = build_anf_expr(&packed, num_vars);
 
     // Spot check against the signature vector — cheap, rejects any
     // ANF-builder bug before a candidate enters the verification budget.

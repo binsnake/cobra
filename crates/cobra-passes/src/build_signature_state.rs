@@ -163,20 +163,16 @@ fn active_input_sig<'a>(item: &'a WorkItem, ctx: &'a OrchestratorContext) -> Opt
     }
 }
 
-// Silence unused-`Evaluator` import warning — the active-eval flag
-// checks only `is_some()`, but keeping the type imported makes the
-// signature documentation above self-referential.
-#[allow(dead_code)]
-fn _reference_evaluator_type(_e: &Evaluator) {}
-
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use cobra_core::expr::Expr;
     use cobra_core::simplify_outcome::Options;
     use cobra_orchestrator::{create_group as orch_create_group, AstPayload, Provenance};
 
-    fn mk_ast_item(expr: Box<Expr>, prov: Provenance) -> WorkItem {
+    fn mk_ast_item(expr: Arc<Expr>, prov: Provenance) -> WorkItem {
         let mut item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
             expr,
             classification: None,

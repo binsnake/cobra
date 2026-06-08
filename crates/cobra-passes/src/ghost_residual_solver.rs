@@ -10,6 +10,7 @@ use cobra_core::expr::Expr;
 use cobra_core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
 };
+use std::sync::Arc;
 
 use cobra_ir::mod_inverse_odd;
 use cobra_ir::poly_expr_builder::build_poly_expr;
@@ -19,7 +20,7 @@ use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 use crate::weighted_poly_fit::{recover_weighted_poly, WeightFn};
 
 pub struct GhostSolveResult {
-    pub expr: Box<Expr>,
+    pub expr: Arc<Expr>,
     pub primitives_used: Vec<&'static str>,
     pub num_terms: u8,
 }

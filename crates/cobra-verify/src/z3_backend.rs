@@ -27,7 +27,7 @@ impl Verifier for Z3Verifier {
     ) -> VerifyOutcome {
         let cfg = make_config(opts.timeout_ms);
         let ctx = Context::new(&cfg);
-        let var_asts = make_var_asts(&ctx, var_names, opts.bitwidth);
+        let var_asts = make_var_asts(&ctx, var_names, &opts.var_widths, opts.bitwidth);
 
         let lhs = build_bv(&ctx, original, &var_asts, opts.bitwidth);
         let rhs = build_bv(&ctx, simplified, &var_asts, opts.bitwidth);
@@ -44,7 +44,7 @@ impl Verifier for Z3Verifier {
     ) -> VerifyOutcome {
         let cfg = make_config(opts.timeout_ms);
         let ctx = Context::new(&cfg);
-        let var_asts = make_var_asts(&ctx, var_names, opts.bitwidth);
+        let var_asts = make_var_asts(&ctx, var_names, &opts.var_widths, opts.bitwidth);
 
         let reconstructed = build_from_coeffs(&ctx, cob_coeffs, &var_asts, num_vars, opts.bitwidth);
         let simpl = build_bv(&ctx, simplified, &var_asts, opts.bitwidth);
@@ -58,10 +58,23 @@ fn make_config(timeout_ms: u32) -> Config {
     cfg
 }
 
-fn make_var_asts<'c>(ctx: &'c Context, var_names: &[String], bitwidth: u32) -> Vec<BV<'c>> {
+/// Build one Z3 bit-vector constant per named variable, each at its own width.
+/// `var_widths[i]` is variable `i`'s bit width; missing entries (including an
+/// empty slice) default to the global `bitwidth`, so uniform-width callers
+/// are unchanged.
+fn make_var_asts<'c>(
+    ctx: &'c Context,
+    var_names: &[String],
+    var_widths: &[u32],
+    bitwidth: u32,
+) -> Vec<BV<'c>> {
     var_names
         .iter()
-        .map(|name| BV::new_const(ctx, name.as_str(), bitwidth))
+        .enumerate()
+        .map(|(i, name)| {
+            let width = var_widths.get(i).copied().unwrap_or(bitwidth);
+            BV::new_const(ctx, name.as_str(), width)
+        })
         .collect()
 }
 
@@ -101,6 +114,28 @@ fn build_bv<'c>(ctx: &'c Context, expr: &Expr, var_asts: &[BV<'c>], bitwidth: u3
             let child = build_bv(ctx, &expr.children[0], var_asts, bitwidth);
             let shift = BV::from_u64(ctx, u64::from(*k), bitwidth);
             child.bvlshr(&shift)
+        }
+        // Width-changing nodes. The child's BV already carries its own width
+        // (variables via `var_widths`, casts/Concat via their own result width),
+        // so we read it back with `get_size()` rather than assuming `bitwidth`.
+        Kind::ZExt(w) => {
+            let child = build_bv(ctx, &expr.children[0], var_asts, bitwidth);
+            child.zero_ext(w.saturating_sub(child.get_size()))
+        }
+        Kind::SExt(w) => {
+            let child = build_bv(ctx, &expr.children[0], var_asts, bitwidth);
+            child.sign_ext(w.saturating_sub(child.get_size()))
+        }
+        Kind::Trunc(w) => {
+            let child = build_bv(ctx, &expr.children[0], var_asts, bitwidth);
+            // Keep the low `w` bits: extract bits [w-1 .. 0].
+            child.extract(w.saturating_sub(1), 0)
+        }
+        Kind::Concat => {
+            // child[0] is the high part, child[1] the low part (per spec).
+            let high = build_bv(ctx, &expr.children[0], var_asts, bitwidth);
+            let low = build_bv(ctx, &expr.children[1], var_asts, bitwidth);
+            high.concat(&low)
         }
     }
 }

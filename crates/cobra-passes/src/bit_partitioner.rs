@@ -69,6 +69,9 @@ fn eval_atom_at_bit_impl(
         Kind::Add | Kind::Mul | Kind::Neg => {
             unreachable!("arithmetic inside pure-bitwise atom")
         }
+        Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => {
+            unreachable!("width-changing cast/Concat inside pure-bitwise atom")
+        }
     }
 }
 

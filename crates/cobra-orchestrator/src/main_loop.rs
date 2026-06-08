@@ -19,6 +19,7 @@ use cobra_core::pass_contract::{
 };
 use cobra_core::result::Result;
 use cobra_core::spot_check::full_width_check_eval;
+use std::sync::Arc;
 
 use crate::attempt_cache::PassAttemptCache;
 use crate::competition::{
@@ -27,7 +28,7 @@ use crate::competition::{
 };
 use crate::context::{OrchestratorContext, OrchestratorPolicy, OrchestratorTelemetry, RunMetadata};
 use crate::enums::{ItemDisposition, PassDecision, PassId};
-use crate::ranker::unsupported_rank_better;
+use crate::ranker::{terminal_rank, unsupported_rank_better};
 use crate::registry::{build_pass_index, PassDescriptor};
 use crate::scheduler::select_next_pass;
 use crate::state::StateData;
@@ -56,7 +57,7 @@ pub struct LoopResult {
 struct BestRewrite {
     /// Expression already remapped to the original variable space when a
     /// `solve_ctx` sub-problem produced it.
-    expr: Box<Expr>,
+    expr: Arc<Expr>,
     cost: ExprCost,
     /// Real vars in original space (`ctx.original_vars` when present).
     real_vars: Vec<String>,
@@ -201,7 +202,7 @@ pub fn run_main_loop(
         }
 
         // Scheduler: pick a pass.
-        let pass_id = select_next_pass(&item, policy, verifications, &cache);
+        let pass_id = select_next_pass(&item, policy, verifications, &cache, ctx.bitwidth);
         let Some(pass_id) = pass_id else {
             // No eligible pass — release the group handle if we own one.
             if let Some(gid) = item.group_id {
@@ -289,14 +290,6 @@ fn make_unsupported_candidate(work: &WorkItem) -> UnsupportedCandidate {
     }
 }
 
-fn terminal_rank(c: ReasonCategory) -> u8 {
-    match c {
-        ReasonCategory::VerifyFailed => 2,
-        ReasonCategory::RepresentationGap => 1,
-        _ => 0,
-    }
-}
-
 /// Eligibility gate for the exhaustion-path "best rewrite" tracker. A
 /// work item qualifies iff its payload is a `FoldedAst`, it has been
 /// through at least one structural rewrite (`rewrite_gen > 0`), and its
@@ -348,7 +341,7 @@ fn maybe_update_best_rewrite(
                 return;
             };
             let mut remapped = ast.expr.clone_tree();
-            remap_var_indices(&mut remapped, &idx_map);
+            remap_var_indices(Arc::make_mut(&mut remapped), &idx_map);
             (remapped, ctx.original_vars.clone())
         }
     } else {
