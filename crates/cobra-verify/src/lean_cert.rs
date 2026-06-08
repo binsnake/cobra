@@ -8,6 +8,7 @@
 use cobra_core::expr::Expr;
 use cobra_core::expr::Kind;
 use cobra_core::width::is_uniform_width;
+use std::sync::Arc;
 
 use crate::lean_match::{
     add_with_neg_operands, and_or_sum_operands, expr_eq, is_all_ones, is_const_value, is_not_of,
@@ -230,16 +231,16 @@ pub struct ExprPath(pub Vec<u8>);
 /// expression around the local before/after pair.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextFrame {
-    AddL { rhs: Box<Expr> },
-    AddR { lhs: Box<Expr> },
-    MulL { rhs: Box<Expr> },
-    MulR { lhs: Box<Expr> },
-    AndL { rhs: Box<Expr> },
-    AndR { lhs: Box<Expr> },
-    OrL { rhs: Box<Expr> },
-    OrR { lhs: Box<Expr> },
-    XorL { rhs: Box<Expr> },
-    XorR { lhs: Box<Expr> },
+    AddL { rhs: Arc<Expr> },
+    AddR { lhs: Arc<Expr> },
+    MulL { rhs: Arc<Expr> },
+    MulR { lhs: Arc<Expr> },
+    AndL { rhs: Arc<Expr> },
+    AndR { lhs: Arc<Expr> },
+    OrL { rhs: Arc<Expr> },
+    OrR { lhs: Arc<Expr> },
+    XorL { rhs: Arc<Expr> },
+    XorR { lhs: Arc<Expr> },
     Not,
     Neg,
     Shr { amount: u32 },
@@ -253,7 +254,7 @@ pub struct ExprContext {
 
 impl ExprContext {
     #[must_use]
-    pub fn plug(&self, mut expr: Box<Expr>) -> Box<Expr> {
+    pub fn plug(&self, mut expr: Arc<Expr>) -> Arc<Expr> {
         for frame in &self.frames {
             expr = frame.plug(expr);
         }
@@ -263,7 +264,7 @@ impl ExprContext {
 
 impl ContextFrame {
     #[must_use]
-    pub fn plug(&self, expr: Box<Expr>) -> Box<Expr> {
+    pub fn plug(&self, expr: Arc<Expr>) -> Arc<Expr> {
         match self {
             Self::AddL { rhs } => Expr::add(expr, rhs.clone_tree()),
             Self::AddR { lhs } => Expr::add(lhs.clone_tree(), expr),
@@ -283,7 +284,7 @@ impl ContextFrame {
 }
 
 #[must_use]
-pub fn context_from_path(root: &Expr, path: &ExprPath) -> Option<(ExprContext, Box<Expr>)> {
+pub fn context_from_path(root: &Expr, path: &ExprPath) -> Option<(ExprContext, Arc<Expr>)> {
     let mut current = root;
     let mut root_to_site = Vec::new();
 
@@ -663,22 +664,22 @@ pub struct CertStep {
     pub theorem: LeanTheorem,
     pub path: ExprPath,
     pub context: ExprContext,
-    pub before: Box<Expr>,
-    pub after: Box<Expr>,
+    pub before: Arc<Expr>,
+    pub after: Arc<Expr>,
 }
 
 /// End-to-end certificate for `original == simplified` at `bitwidth`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LeanCertificate {
     pub bitwidth: u32,
-    pub original: Box<Expr>,
-    pub simplified: Box<Expr>,
+    pub original: Arc<Expr>,
+    pub simplified: Arc<Expr>,
     pub steps: Vec<CertStep>,
 }
 
 impl LeanCertificate {
     #[must_use]
-    pub fn new(bitwidth: u32, original: Box<Expr>, simplified: Box<Expr>) -> Self {
+    pub fn new(bitwidth: u32, original: Arc<Expr>, simplified: Arc<Expr>) -> Self {
         Self {
             bitwidth,
             original,
@@ -691,8 +692,8 @@ impl LeanCertificate {
         &mut self,
         theorem: LeanTheorem,
         path: ExprPath,
-        before: Box<Expr>,
-        after: Box<Expr>,
+        before: Arc<Expr>,
+        after: Arc<Expr>,
     ) {
         self.steps.push(CertStep {
             theorem,
@@ -707,8 +708,8 @@ impl LeanCertificate {
         &mut self,
         theorem: LeanTheorem,
         context: ExprContext,
-        before: Box<Expr>,
-        after: Box<Expr>,
+        before: Arc<Expr>,
+        after: Arc<Expr>,
     ) {
         self.steps.push(CertStep {
             theorem,
@@ -722,9 +723,9 @@ impl LeanCertificate {
     #[must_use]
     pub fn try_single_rewrite_64(
         bitwidth: u32,
-        original: Box<Expr>,
+        original: Arc<Expr>,
         path: ExprPath,
-        after: Box<Expr>,
+        after: Arc<Expr>,
     ) -> Option<Self> {
         // The Lean theorem pack is 64-bit only; reject any other width.
         if bitwidth != 64 {
@@ -754,8 +755,8 @@ impl LeanCertificate {
     #[must_use]
     pub fn try_single_rewrite_between_64(
         bitwidth: u32,
-        original: Box<Expr>,
-        simplified: Box<Expr>,
+        original: Arc<Expr>,
+        simplified: Arc<Expr>,
     ) -> Option<Self> {
         // The Lean theorem pack is 64-bit only; reject any other width.
         if bitwidth != 64 {
@@ -852,12 +853,12 @@ pub struct LeanSignatureCertificate {
     pub bitwidth: u32,
     pub num_vars: u32,
     pub signature: Vec<u64>,
-    pub expr: Box<Expr>,
+    pub expr: Arc<Expr>,
 }
 
 impl LeanSignatureCertificate {
     #[must_use]
-    pub fn new(bitwidth: u32, num_vars: u32, signature: Vec<u64>, expr: Box<Expr>) -> Option<Self> {
+    pub fn new(bitwidth: u32, num_vars: u32, signature: Vec<u64>, expr: Arc<Expr>) -> Option<Self> {
         let expected_len = 1usize.checked_shl(num_vars)?;
         if signature.len() != expected_len {
             return None;

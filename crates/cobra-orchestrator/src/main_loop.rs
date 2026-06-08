@@ -19,6 +19,7 @@ use cobra_core::pass_contract::{
 };
 use cobra_core::result::Result;
 use cobra_core::spot_check::full_width_check_eval;
+use std::sync::Arc;
 
 use crate::attempt_cache::PassAttemptCache;
 use crate::competition::{
@@ -56,7 +57,7 @@ pub struct LoopResult {
 struct BestRewrite {
     /// Expression already remapped to the original variable space when a
     /// `solve_ctx` sub-problem produced it.
-    expr: Box<Expr>,
+    expr: Arc<Expr>,
     cost: ExprCost,
     /// Real vars in original space (`ctx.original_vars` when present).
     real_vars: Vec<String>,
@@ -340,7 +341,7 @@ fn maybe_update_best_rewrite(
                 return;
             };
             let mut remapped = ast.expr.clone_tree();
-            remap_var_indices(&mut remapped, &idx_map);
+            remap_var_indices(Arc::make_mut(&mut remapped), &idx_map);
             (remapped, ctx.original_vars.clone())
         }
     } else {

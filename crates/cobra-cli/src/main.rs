@@ -95,7 +95,7 @@ fn run(args: &Args) -> Result<i32, String> {
             let mut expr_owned = raw.clone();
             if !outcome.real_vars.is_empty() && outcome.real_vars.len() < parsed.vars.len() {
                 let idx_map = build_var_support(&parsed.vars, &outcome.real_vars);
-                remap_var_indices(&mut expr_owned, &idx_map);
+                remap_var_indices(std::sync::Arc::make_mut(&mut expr_owned), &idx_map);
             }
             let expr = &expr_owned;
             let rendered = render(expr, &parsed.vars, args.bitwidth);

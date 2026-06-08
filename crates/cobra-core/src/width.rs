@@ -93,9 +93,11 @@ pub fn validate_widths(expr: &Expr, var_widths: &[u32], default_w: u32) -> Resul
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
-    fn v(i: u32) -> Box<Expr> {
+    fn v(i: u32) -> Arc<Expr> {
         Expr::variable(i)
     }
 

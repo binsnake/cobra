@@ -396,6 +396,8 @@ fn eligible(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::state::RemainderTargetContext;
     use crate::state::{AstPayload, CandidatePayload, RemainderStatePayload};
@@ -423,7 +425,7 @@ mod tests {
         })))
     }
 
-    fn mk_folded(ast: Box<Expr>, prov: Provenance, cls: Option<Classification>) -> WorkItem {
+    fn mk_folded(ast: Arc<Expr>, prov: Provenance, cls: Option<Classification>) -> WorkItem {
         let mut item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
             expr: ast,
             classification: None,

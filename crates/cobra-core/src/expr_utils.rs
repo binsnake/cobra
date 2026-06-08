@@ -96,7 +96,7 @@ pub fn remap_var_indices(expr: &mut Expr, index_map: &[u32]) {
         return;
     }
     for child in &mut expr.children {
-        remap_var_indices(child, index_map);
+        remap_var_indices(std::sync::Arc::make_mut(child), index_map);
     }
 }
 
@@ -205,12 +205,12 @@ mod tests {
 
     #[test]
     fn remap_var_indices_rewrites_leaves() {
-        let mut e = *Expr::add(
+        let mut e = Expr::add(
             Expr::mul(Expr::variable(0), Expr::variable(1)),
             Expr::variable(2),
         );
         // Map 0->10, 1->11, 2->12
-        remap_var_indices(&mut e, &[10, 11, 12]);
+        remap_var_indices(std::sync::Arc::make_mut(&mut e), &[10, 11, 12]);
         let mut out = Vec::new();
         collect_vars(&e, &mut out);
         assert_eq!(out, vec![10, 11, 12]);

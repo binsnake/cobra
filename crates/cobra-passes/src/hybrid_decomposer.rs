@@ -4,6 +4,7 @@
 //! Sorted ascending by `active_count` so the smallest residual wins.
 
 use cobra_core::expr::Expr;
+use std::sync::Arc;
 
 use cobra_orchestrator::ExtractOp;
 
@@ -47,7 +48,7 @@ pub fn build_residual_sig(sig: &[u64], k: u32, op: ExtractOp) -> Vec<u64> {
 
 /// Compose `f = x_k OP r_expr`.
 #[must_use]
-pub fn compose_extraction(op: ExtractOp, original_k: u32, r_expr: Box<Expr>) -> Box<Expr> {
+pub fn compose_extraction(op: ExtractOp, original_k: u32, r_expr: Arc<Expr>) -> Arc<Expr> {
     let var_k = Expr::variable(original_k);
     match op {
         ExtractOp::Xor => Expr::xor(var_k, r_expr),

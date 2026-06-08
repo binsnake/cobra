@@ -7,6 +7,7 @@
 use cobra_core::evaluator::Evaluator;
 use cobra_core::expr::Expr;
 use cobra_core::expr_cost::ExprCost;
+use std::sync::Arc;
 
 use crate::enums::RemainderOrigin;
 use crate::stubs::{ExtractOp, GateKind};
@@ -85,7 +86,7 @@ impl Default for HybridComposeCont {
 
 #[derive(Clone, Debug)]
 pub struct RemainderRecombineCont {
-    pub prefix_expr: Box<Expr>,
+    pub prefix_expr: Arc<Expr>,
     pub origin: RemainderOrigin,
     pub remainder_eval: Evaluator,
     pub source_sig: Vec<u64>,
@@ -140,7 +141,7 @@ pub enum LiftedValueKind {
 pub struct LiftedBinding {
     pub kind: LiftedValueKind,
     pub outer_var_index: u32,
-    pub subtree: Box<Expr>,
+    pub subtree: Arc<Expr>,
     pub structural_hash: u64,
     pub original_support: Vec<u32>,
 }

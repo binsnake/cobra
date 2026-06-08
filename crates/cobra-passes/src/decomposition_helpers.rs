@@ -128,7 +128,7 @@ pub fn is_product_addend(e: &Expr) -> bool {
 pub fn split_add_tree<'a>(
     e: &'a Expr,
     products: &mut Vec<&'a Expr>,
-    residual: &mut Vec<Box<Expr>>,
+    residual: &mut Vec<Arc<Expr>>,
 ) {
     if matches!(e.kind, Kind::Add) && e.children.len() == 2 {
         split_add_tree(&e.children[0], products, residual);

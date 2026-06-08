@@ -25,6 +25,7 @@
 )]
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use cobra_core::arith::bitmask;
 use cobra_core::evaluator::Evaluator;
@@ -48,7 +49,7 @@ mod subcode {
 
 #[derive(Clone, Debug)]
 pub struct TemplateResult {
-    pub expr: Box<Expr>,
+    pub expr: Arc<Expr>,
     pub cost: ExprCost,
 }
 
@@ -85,7 +86,7 @@ fn gate_residual(target: u64, a: u64, g: Gate, mask: u64) -> u64 {
     }
 }
 
-fn gate_expr(g: Gate, a: Box<Expr>, b: Box<Expr>) -> Box<Expr> {
+fn gate_expr(g: Gate, a: Arc<Expr>, b: Arc<Expr>) -> Arc<Expr> {
     match g {
         Gate::And => Expr::and(a, b),
         Gate::Or => Expr::or(a, b),
@@ -220,7 +221,7 @@ fn compatible(a: &ProbeVals, target: &ProbeVals, g: Gate) -> bool {
 // ---------------------------------------------------------------
 
 struct Atom {
-    expr: Box<Expr>,
+    expr: Arc<Expr>,
     vals: ProbeVals,
     cost: ExprCost,
 }
@@ -244,7 +245,7 @@ impl ValMap {
     }
 }
 
-fn push(pool: &mut Vec<Atom>, idx: &mut ValMap, e: Box<Expr>, vals: ProbeVals) {
+fn push(pool: &mut Vec<Atom>, idx: &mut ValMap, e: Arc<Expr>, vals: ProbeVals) {
     let new_cost = compute_cost(&e).cost;
     if let Some(slot) = idx.find(&vals) {
         if is_better(&new_cost, &pool[slot].cost) {
@@ -264,7 +265,7 @@ fn push(pool: &mut Vec<Atom>, idx: &mut ValMap, e: Box<Expr>, vals: ProbeVals) {
 
 fn populate(pool: &mut Vec<Atom>, idx: &mut ValMap, nv: u32, pts: &[Vec<u64>], bw: u32) {
     let mask = bitmask(bw);
-    let add = |pool: &mut Vec<Atom>, idx: &mut ValMap, e: Box<Expr>| {
+    let add = |pool: &mut Vec<Atom>, idx: &mut ValMap, e: Arc<Expr>| {
         let v = probe(&e, pts, bw);
         push(pool, idx, e, v);
     };
@@ -368,7 +369,7 @@ fn build_inner_compositions(pool: &[Atom], vmap: &ValMap, mask: u64) -> InnerCom
     inner
 }
 
-fn make_inner(pool: &[Atom], ic: &InnerComp) -> Box<Expr> {
+fn make_inner(pool: &[Atom], ic: &InnerComp) -> Arc<Expr> {
     gate_expr(
         ic.gate,
         pool[ic.bi].expr.clone_tree(),
@@ -442,7 +443,7 @@ fn collect_mul_probe0_candidates(
 
 fn try_update(
     best: &mut Option<TemplateResult>,
-    candidate: Box<Expr>,
+    candidate: Arc<Expr>,
     eval: &Evaluator,
     nv: u32,
     bw: u32,
@@ -702,7 +703,7 @@ fn layer3(
                 }
                 for bi in 0..pn {
                     let r2 = r1.residual(&pool[bi].vals, g2, mask);
-                    let r2_expr: Option<Box<Expr>> = vmap
+                    let r2_expr: Option<Arc<Expr>> = vmap
                         .find(&r2)
                         .map(|p| pool[p].expr.clone_tree())
                         .or_else(|| inner_idx.find(&r2).map(|p| make_inner(pool, &inner[p])));
@@ -1041,7 +1042,7 @@ pub fn try_template_decomposition(
         } else {
             target.not_op(mask)
         };
-        let check_wrap = |inner_e: Box<Expr>| -> Option<TemplateResult> {
+        let check_wrap = |inner_e: Arc<Expr>| -> Option<TemplateResult> {
             let wrapped = if wrap == 0 {
                 Expr::neg(inner_e)
             } else {

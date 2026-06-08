@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
 
 use crate::arith::{bitmask, mod_add};
 use crate::expr::{Expr, Kind};
@@ -14,8 +15,8 @@ use crate::expr_utils::{eval_constant, has_var_dep, is_constant_subtree};
 /// Build a left-leaning `And` product from the variables whose bit is set
 /// expected to handle this case).
 #[must_use]
-pub fn build_and_product(mut mask: u64) -> Option<Box<Expr>> {
-    let mut result: Option<Box<Expr>> = None;
+pub fn build_and_product(mut mask: u64) -> Option<Arc<Expr>> {
+    let mut result: Option<Arc<Expr>> = None;
     while mask != 0 {
         let bit = mask.trailing_zeros();
         let var = Expr::variable(bit);
@@ -31,7 +32,7 @@ pub fn build_and_product(mut mask: u64) -> Option<Box<Expr>> {
 /// Apply a multiplicative coefficient to an expression:
 /// `1 * e → e`, `-1 * e → -e`, otherwise `c * e`.
 #[must_use]
-pub fn apply_coefficient(expr: Box<Expr>, coeff: u64, bitwidth: u32) -> Box<Expr> {
+pub fn apply_coefficient(expr: Arc<Expr>, coeff: u64, bitwidth: u32) -> Arc<Expr> {
     if coeff == 1 {
         return expr;
     }
@@ -88,21 +89,24 @@ pub fn has_nonleaf_bitwise(expr: &Expr) -> bool {
 /// unrestricted bit-vector variables; callers must guard it with the relevant
 /// signature/full-width verification for their candidate family.
 #[must_use]
-pub fn repair_product_shadow(mut expr: Box<Expr>) -> Box<Expr> {
-    let mut new_children = expr
-        .children
-        .drain(..)
-        .map(repair_product_shadow)
-        .collect::<smallvec::SmallVec<[Box<Expr>; 2]>>();
-
-    expr.children = new_children.drain(..).collect();
+pub fn repair_product_shadow(mut expr: Arc<Expr>) -> Arc<Expr> {
+    {
+        let node = Arc::make_mut(&mut expr);
+        let new_children = node
+            .children
+            .drain(..)
+            .map(repair_product_shadow)
+            .collect::<smallvec::SmallVec<[Arc<Expr>; 2]>>();
+        node.children = new_children;
+    }
 
     if matches!(expr.kind, Kind::And)
         && expr.children.len() == 2
         && is_pure_product(&expr.children[0])
         && is_pure_product(&expr.children[1])
     {
-        let mut it = expr.children.into_iter();
+        let node = Arc::make_mut(&mut expr);
+        let mut it = node.children.drain(..);
         let lhs = it.next().unwrap();
         let rhs = it.next().unwrap();
         return Expr::mul(lhs, rhs);
@@ -122,7 +126,7 @@ fn is_pure_product(e: &Expr) -> bool {
 /// by `-x + (2^n - 1)` → `~x` refolding followed by common-factor extraction.
 /// Semantics-preserving, so no verification step is required.
 #[must_use]
-pub fn cleanup_final_expr(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
+pub fn cleanup_final_expr(mut expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
     expr = fold_constant_arithmetic(expr, bitwidth);
     expr = refold_negation(expr, bitwidth);
     expr = extract_common_factor(expr);
@@ -134,9 +138,10 @@ pub fn cleanup_final_expr(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
 
 /// Flatten a left/right-associated binary chain of `op` nodes into its
 /// leaf operands. Non-`op` nodes are pushed as-is.
-fn flatten_assoc(mut node: Box<Expr>, op: &Kind, out: &mut Vec<Box<Expr>>) {
+fn flatten_assoc(mut node: Arc<Expr>, op: &Kind, out: &mut Vec<Arc<Expr>>) {
     if node.kind == *op {
-        let mut it = node.children.drain(..);
+        let n = Arc::make_mut(&mut node);
+        let mut it = n.children.drain(..);
         let lhs = it.next().unwrap();
         let rhs = it.next().unwrap();
         drop(it);
@@ -147,15 +152,15 @@ fn flatten_assoc(mut node: Box<Expr>, op: &Kind, out: &mut Vec<Box<Expr>>) {
     }
 }
 
-fn flatten_add(node: Box<Expr>, terms: &mut Vec<Box<Expr>>) {
+fn flatten_add(node: Arc<Expr>, terms: &mut Vec<Arc<Expr>>) {
     flatten_assoc(node, &Kind::Add, terms);
 }
 
-fn flatten_mul(node: Box<Expr>, factors: &mut Vec<Box<Expr>>) {
+fn flatten_mul(node: Arc<Expr>, factors: &mut Vec<Arc<Expr>>) {
     flatten_assoc(node, &Kind::Mul, factors);
 }
 
-fn rebuild_mul(factors: Vec<Box<Expr>>) -> Box<Expr> {
+fn rebuild_mul(factors: Vec<Arc<Expr>>) -> Arc<Expr> {
     let mut it = factors.into_iter();
     let mut result = it.next().expect("rebuild_mul requires >= 1 factor");
     for f in it {
@@ -164,14 +169,17 @@ fn rebuild_mul(factors: Vec<Box<Expr>>) -> Box<Expr> {
     result
 }
 
-fn fold_constant_arithmetic(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
+fn fold_constant_arithmetic(mut expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
     // Recurse first so children are folded before we inspect the current node.
-    let children: Vec<Box<Expr>> = expr
-        .children
-        .drain(..)
-        .map(|c| fold_constant_arithmetic(c, bitwidth))
-        .collect();
-    expr.children = children.into_iter().collect();
+    {
+        let node = Arc::make_mut(&mut expr);
+        let children: Vec<Arc<Expr>> = node
+            .children
+            .drain(..)
+            .map(|c| fold_constant_arithmetic(c, bitwidth))
+            .collect();
+        node.children = children.into_iter().collect();
+    }
 
     if is_constant_subtree(&expr) && !matches!(expr.kind, Kind::Constant(_)) {
         return Expr::constant(eval_constant(&expr, bitwidth));
@@ -182,11 +190,11 @@ fn fold_constant_arithmetic(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
     }
 
     // Flatten Add chains and re-combine constant terms.
-    let mut terms: Vec<Box<Expr>> = Vec::new();
+    let mut terms: Vec<Arc<Expr>> = Vec::new();
     flatten_add(expr, &mut terms);
 
     let mut const_sum: u64 = 0;
-    let mut non_const: Vec<Box<Expr>> = Vec::new();
+    let mut non_const: Vec<Arc<Expr>> = Vec::new();
     for t in terms {
         if let Kind::Constant(v) = t.kind {
             const_sum = mod_add(const_sum, v, bitwidth);
@@ -210,13 +218,16 @@ fn fold_constant_arithmetic(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
     result
 }
 
-fn refold_negation(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
-    let children: Vec<Box<Expr>> = expr
-        .children
-        .drain(..)
-        .map(|c| refold_negation(c, bitwidth))
-        .collect();
-    expr.children = children.into_iter().collect();
+fn refold_negation(mut expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
+    {
+        let node = Arc::make_mut(&mut expr);
+        let children: Vec<Arc<Expr>> = node
+            .children
+            .drain(..)
+            .map(|c| refold_negation(c, bitwidth))
+            .collect();
+        node.children = children.into_iter().collect();
+    }
 
     if !matches!(expr.kind, Kind::Add) {
         return expr;
@@ -231,16 +242,16 @@ fn refold_negation(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
         && rhs_is_const_all_ones
         && can_refold_negation_inner(&expr.children[0].children[0])
     {
-        let mut lhs = expr.children.remove(0); // Neg(x)
-        let inner = lhs.children.remove(0);
+        let mut lhs = Arc::make_mut(&mut expr).children.remove(0); // Neg(x)
+        let inner = Arc::make_mut(&mut lhs).children.remove(0);
         return Expr::not(inner);
     }
     if rhs_is_neg
         && lhs_is_const_all_ones
         && can_refold_negation_inner(&expr.children[1].children[0])
     {
-        let mut rhs = expr.children.remove(1);
-        let inner = rhs.children.remove(0);
+        let mut rhs = Arc::make_mut(&mut expr).children.remove(1);
+        let inner = Arc::make_mut(&mut rhs).children.remove(0);
         return Expr::not(inner);
     }
     expr
@@ -251,21 +262,24 @@ fn can_refold_negation_inner(inner: &Expr) -> bool {
 }
 
 #[allow(clippy::too_many_lines)]
-fn extract_common_factor(mut expr: Box<Expr>) -> Box<Expr> {
-    let children: Vec<Box<Expr>> = expr.children.drain(..).map(extract_common_factor).collect();
-    expr.children = children.into_iter().collect();
+fn extract_common_factor(mut expr: Arc<Expr>) -> Arc<Expr> {
+    {
+        let node = Arc::make_mut(&mut expr);
+        let children: Vec<Arc<Expr>> = node.children.drain(..).map(extract_common_factor).collect();
+        node.children = children.into_iter().collect();
+    }
 
     if !matches!(expr.kind, Kind::Add) {
         return expr;
     }
 
-    let mut terms: Vec<Box<Expr>> = Vec::new();
+    let mut terms: Vec<Arc<Expr>> = Vec::new();
     flatten_add(expr, &mut terms);
     if terms.len() < 2 {
         return terms.pop().unwrap_or_else(|| Expr::constant(0));
     }
 
-    let mut all_factors: Vec<Vec<Box<Expr>>> = Vec::with_capacity(terms.len());
+    let mut all_factors: Vec<Vec<Arc<Expr>>> = Vec::with_capacity(terms.len());
     for t in terms {
         let mut factors = Vec::new();
         if matches!(t.kind, Kind::Mul) {
@@ -343,7 +357,7 @@ fn extract_common_factor(mut expr: Box<Expr>) -> Box<Expr> {
 
         let common = all_factors[0].remove(fi);
 
-        let mut remainders: Vec<Box<Expr>> = Vec::with_capacity(all_factors.len());
+        let mut remainders: Vec<Arc<Expr>> = Vec::with_capacity(all_factors.len());
         for (ti, factors) in all_factors.iter_mut().enumerate() {
             if ti == 0 {
                 // fi already removed above
@@ -367,7 +381,7 @@ fn extract_common_factor(mut expr: Box<Expr>) -> Box<Expr> {
         return Expr::mul(sum, common);
     }
 
-    let mut rebuilt: Vec<Box<Expr>> = all_factors.into_iter().map(rebuild_mul).collect();
+    let mut rebuilt: Vec<Arc<Expr>> = all_factors.into_iter().map(rebuild_mul).collect();
     let mut it = rebuilt.drain(..);
     let mut result = it.next().unwrap();
     for next in it {

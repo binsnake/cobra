@@ -7,6 +7,7 @@
 //! `AtomId`.
 
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use cobra_core::arith::bitmask;
 use cobra_core::expr::{Expr, Kind};
@@ -65,7 +66,7 @@ pub enum OperatorFamily {
 pub struct AtomInfo {
     pub atom_id: AtomId,
     pub key: AtomKey,
-    pub original_subtree: Box<Expr>,
+    pub original_subtree: Arc<Expr>,
     pub structural_hash: u64,
     pub provenance: OperatorFamily,
 }
@@ -261,7 +262,7 @@ pub fn decompose_atom(info: &AtomInfo, modmask: u64) -> Decomposed<'_> {
 /// newly-assigned `AtomId`.
 pub fn create_atom(
     ir: &mut SemilinearIR,
-    subtree: Box<Expr>,
+    subtree: Arc<Expr>,
     provenance: OperatorFamily,
 ) -> AtomId {
     let mut support = Vec::new();

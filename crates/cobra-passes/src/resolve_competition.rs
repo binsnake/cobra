@@ -36,6 +36,7 @@ use cobra_core::pass_contract::{
     VerificationState,
 };
 use cobra_core::result::Result;
+use std::sync::Arc;
 
 use cobra_orchestrator::{
     project_extractor_kind, release_handle, replace_by_hash, AstPayload, BitwiseComposeCont,
@@ -370,7 +371,7 @@ fn record_winner(group: &CompetitionGroup) -> Option<CandidateRecord> {
 fn emit_join_rewrite_operand(
     join: &OperandJoinState,
     item: &WorkItem,
-    replacement: Box<Expr>,
+    replacement: Arc<Expr>,
 ) -> WorkItem {
     let mut repl = Some(replacement);
     let (rebuilt, _) = replace_by_hash(join.full_ast.clone_tree(), join.target_hash, &mut repl);
@@ -419,7 +420,7 @@ fn emit_join_rewrite_operand(
 fn emit_join_candidate_product(
     join: &ProductJoinState,
     item: &WorkItem,
-    replacement: Box<Expr>,
+    replacement: Arc<Expr>,
     source_pass: PassId,
 ) -> Option<WorkItem> {
     let mut repl = Some(replacement);
@@ -501,8 +502,8 @@ fn resolve_operand_rewrite(
     let bw = join.bitwidth;
     let num_vars = join.vars.len() as u32;
 
-    let mut best: Option<(Box<Expr>, ExprCost)> = None;
-    let try_cand = |lhs: Box<Expr>, rhs: Box<Expr>, best: &mut Option<(Box<Expr>, ExprCost)>| {
+    let mut best: Option<(Arc<Expr>, ExprCost)> = None;
+    let try_cand = |lhs: Arc<Expr>, rhs: Arc<Expr>, best: &mut Option<(Arc<Expr>, ExprCost)>| {
         let mul = Expr::mul(lhs, rhs);
         let c = compute_cost(&mul).cost;
         if !is_better(&c, &baseline) {
@@ -659,7 +660,7 @@ fn resolve_residual_recombine(
 
     let mut solved = winner.expr.clone_tree();
     if !cont.remainder_support.is_empty() && winner.real_vars.len() < target_vars.len() {
-        remap_var_indices(&mut solved, &cont.remainder_support);
+        remap_var_indices(Arc::make_mut(&mut solved), &cont.remainder_support);
     }
 
     let num_vars = target_vars.len() as u32;
@@ -760,7 +761,7 @@ fn substitute_bindings(
     expr: &Expr,
     bindings: &[LiftedBinding],
     original_var_count: u32,
-) -> Box<Expr> {
+) -> Arc<Expr> {
     if let cobra_core::expr::Kind::Variable(vi) = expr.kind {
         if vi >= original_var_count {
             for b in bindings {
@@ -772,9 +773,12 @@ fn substitute_bindings(
         }
     }
     let mut result = expr.clone_tree();
-    for child in &mut result.children {
-        let new_child = substitute_bindings(child, bindings, original_var_count);
-        **child = *new_child;
+    {
+        let r = Arc::make_mut(&mut result);
+        for child in &mut r.children {
+            let new_child = substitute_bindings(child, bindings, original_var_count);
+            *child = new_child;
+        }
     }
     result
 }
@@ -812,7 +816,7 @@ fn resolve_lifted_substitute(
     if winner.real_vars.len() < cont.outer_vars.len() {
         let remap =
             cobra_core::expr_rewrite::build_var_support(&cont.outer_vars, &winner.real_vars);
-        remap_var_indices(&mut remapped, &remap);
+        remap_var_indices(Arc::make_mut(&mut remapped), &remap);
     }
 
     // Step 2: substitute lifted bindings.

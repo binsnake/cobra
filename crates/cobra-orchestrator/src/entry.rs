@@ -12,6 +12,7 @@ use cobra_core::result::Result;
 use cobra_core::simplify_outcome::{
     Diagnostic, ProofLevel, SimplifyOutcome, SimplifyOutcomeKind, SimplifyTelemetry,
 };
+use std::sync::Arc;
 
 use crate::context::{OrchestratorContext, OrchestratorPolicy};
 use crate::main_loop::{run_main_loop, LoopResult};
@@ -68,7 +69,7 @@ pub fn to_simplify_outcome(
             collect_vars(&cleaned_expr, &mut output_vars);
             if output_vars.iter().any(|&v| v >= original_var_count) {
                 outcome.kind = SimplifyOutcomeKind::UnchangedUnsupported;
-                outcome.expr = original_expr.map(|e| Box::new(e.clone()));
+                outcome.expr = original_expr.map(|e| Arc::new(e.clone()));
                 outcome.diag.reason =
                     "rejected: simplified expression references a lifted/aux variable \
                      not present in the original input (nested-lift leak)"
@@ -117,7 +118,7 @@ pub fn to_simplify_outcome(
         }
         other => {
             outcome.kind = SimplifyOutcomeKind::UnchangedUnsupported;
-            outcome.expr = original_expr.map(|e| Box::new(e.clone()));
+            outcome.expr = original_expr.map(|e| Arc::new(e.clone()));
             // Pull the reason's top-level message into the diagnostic.
             if let PassOutcome::Blocked(reason) | PassOutcome::Inapplicable(reason) = &other {
                 outcome.diag.reason.clone_from(&reason.top.message);
@@ -165,13 +166,13 @@ fn public_output_candidates(
     public_expr: &Expr,
     real_vars: &[String],
     original_vars: &[String],
-) -> Vec<Box<Expr>> {
+) -> Vec<Arc<Expr>> {
     let mut candidates = vec![public_expr.clone_tree()];
     let Some(idx_map) = try_build_var_support(original_vars, real_vars) else {
         return candidates;
     };
     let mut remapped = public_expr.clone_tree();
-    remap_var_indices(&mut remapped, &idx_map);
+    remap_var_indices(Arc::make_mut(&mut remapped), &idx_map);
     if *remapped != *public_expr {
         candidates.push(remapped);
     }

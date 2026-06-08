@@ -2,14 +2,15 @@
 //! Source: lib/core/Npn4Table.inc (cobra-master).
 
 use cobra_core::expr::Expr;
+use std::sync::Arc;
 
 /// Return the canonical-form Boolean expression for NPN class `class_id`.
 /// `var` maps a canonical variable index `0..=3` to the actual `Expr`
 /// (possibly negated and re-permuted by the caller).
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
-pub fn build_npn4_canonical<F>(class_id: u8, var: F) -> Option<Box<Expr>>
+pub fn build_npn4_canonical<F>(class_id: u8, var: F) -> Option<Arc<Expr>>
 where
-    F: Fn(u32) -> Box<Expr>,
+    F: Fn(u32) -> Arc<Expr>,
 {
     let v = &var;
     Some(match class_id {

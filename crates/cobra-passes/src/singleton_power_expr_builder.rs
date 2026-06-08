@@ -11,6 +11,7 @@
 use cobra_core::arith::bitmask;
 use cobra_core::expr::Expr;
 use cobra_core::expr_rewrite::apply_coefficient;
+use std::sync::Arc;
 
 use cobra_ir::{SingletonPowerResult, UnivariateTerm};
 
@@ -60,9 +61,9 @@ pub fn factorial_to_monomial(terms: &[UnivariateTerm], bitwidth: u32) -> Vec<u64
 }
 
 #[allow(clippy::vec_box)]
-fn reduce_add_tree(mut terms: Vec<Box<Expr>>) -> Box<Expr> {
+fn reduce_add_tree(mut terms: Vec<Arc<Expr>>) -> Arc<Expr> {
     while terms.len() > 1 {
-        let mut next: Vec<Box<Expr>> = Vec::with_capacity(terms.len().div_ceil(2));
+        let mut next: Vec<Arc<Expr>> = Vec::with_capacity(terms.len().div_ceil(2));
         let mut it = terms.into_iter();
         while let Some(a) = it.next() {
             match it.next() {
@@ -79,9 +80,9 @@ fn reduce_add_tree(mut terms: Vec<Box<Expr>>) -> Box<Expr> {
 /// contributes. Per-variable degrees are emitted as `coeff * x^j` with
 /// `x^j` built as a left-leaning product chain.
 #[must_use]
-pub fn build_singleton_power_expr(powers: &SingletonPowerResult) -> Option<Box<Expr>> {
+pub fn build_singleton_power_expr(powers: &SingletonPowerResult) -> Option<Arc<Expr>> {
     let w = powers.bitwidth;
-    let mut var_exprs: Vec<Box<Expr>> = Vec::new();
+    let mut var_exprs: Vec<Arc<Expr>> = Vec::new();
 
     for (i, uni) in powers.per_var.iter().enumerate() {
         if uni.terms.is_empty() {
@@ -89,8 +90,8 @@ pub fn build_singleton_power_expr(powers: &SingletonPowerResult) -> Option<Box<E
         }
         let mono = factorial_to_monomial(&uni.terms, w);
 
-        let mut degree_exprs: Vec<Box<Expr>> = Vec::new();
-        let mut power: Option<Box<Expr>> = None;
+        let mut degree_exprs: Vec<Arc<Expr>> = Vec::new();
+        let mut power: Option<Arc<Expr>> = None;
         for &coeff in mono.iter().skip(1) {
             let var_expr = Expr::variable(i as u32);
             power = Some(match power {

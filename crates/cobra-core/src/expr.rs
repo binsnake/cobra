@@ -4,6 +4,7 @@
 //! fields: the tagged kind and the child list.
 
 use std::fmt::Write as _;
+use std::sync::Arc;
 
 use smallvec::SmallVec;
 
@@ -82,14 +83,14 @@ impl Kind {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Expr {
     pub kind: Kind,
-    pub children: SmallVec<[Box<Expr>; 2]>,
+    pub children: SmallVec<[Arc<Expr>; 2]>,
 }
 
 impl Expr {
     #[inline]
     #[must_use]
-    pub fn constant(val: u64) -> Box<Self> {
-        Box::new(Self {
+    pub fn constant(val: u64) -> Arc<Self> {
+        Arc::new(Self {
             kind: Kind::Constant(val),
             children: SmallVec::new(),
         })
@@ -97,8 +98,8 @@ impl Expr {
 
     #[inline]
     #[must_use]
-    pub fn variable(index: u32) -> Box<Self> {
-        Box::new(Self {
+    pub fn variable(index: u32) -> Arc<Self> {
+        Arc::new(Self {
             kind: Kind::Variable(index),
             children: SmallVec::new(),
         })
@@ -106,50 +107,50 @@ impl Expr {
 
     #[inline]
     #[must_use]
-    pub fn add(lhs: Box<Self>, rhs: Box<Self>) -> Box<Self> {
+    pub fn add(lhs: Arc<Self>, rhs: Arc<Self>) -> Arc<Self> {
         Self::binary(Kind::Add, lhs, rhs)
     }
 
     #[inline]
     #[must_use]
-    pub fn mul(lhs: Box<Self>, rhs: Box<Self>) -> Box<Self> {
+    pub fn mul(lhs: Arc<Self>, rhs: Arc<Self>) -> Arc<Self> {
         Self::binary(Kind::Mul, lhs, rhs)
     }
 
     #[inline]
     #[must_use]
-    pub fn and(lhs: Box<Self>, rhs: Box<Self>) -> Box<Self> {
+    pub fn and(lhs: Arc<Self>, rhs: Arc<Self>) -> Arc<Self> {
         Self::binary(Kind::And, lhs, rhs)
     }
 
     #[inline]
     #[must_use]
-    pub fn or(lhs: Box<Self>, rhs: Box<Self>) -> Box<Self> {
+    pub fn or(lhs: Arc<Self>, rhs: Arc<Self>) -> Arc<Self> {
         Self::binary(Kind::Or, lhs, rhs)
     }
 
     #[inline]
     #[must_use]
-    pub fn xor(lhs: Box<Self>, rhs: Box<Self>) -> Box<Self> {
+    pub fn xor(lhs: Arc<Self>, rhs: Arc<Self>) -> Arc<Self> {
         Self::binary(Kind::Xor, lhs, rhs)
     }
 
     #[inline]
     #[must_use]
-    pub fn not(operand: Box<Self>) -> Box<Self> {
+    pub fn not(operand: Arc<Self>) -> Arc<Self> {
         Self::unary(Kind::Not, operand)
     }
 
     #[inline]
     #[must_use]
-    pub fn neg(operand: Box<Self>) -> Box<Self> {
+    pub fn neg(operand: Arc<Self>) -> Arc<Self> {
         Self::unary(Kind::Neg, operand)
     }
 
     /// Logical right shift. `amount >= 64` is accepted and will evaluate to 0
     #[inline]
     #[must_use]
-    pub fn shr(operand: Box<Self>, amount: u64) -> Box<Self> {
+    pub fn shr(operand: Arc<Self>, amount: u64) -> Arc<Self> {
         let amt = u32::try_from(amount).unwrap_or(u32::MAX);
         Self::unary(Kind::Shr(amt), operand)
     }
@@ -157,21 +158,21 @@ impl Expr {
     /// Zero-extend `child` to width `w`. Result width is `w`.
     #[inline]
     #[must_use]
-    pub fn zext(child: Box<Self>, w: u32) -> Box<Self> {
+    pub fn zext(child: Arc<Self>, w: u32) -> Arc<Self> {
         Self::unary(Kind::ZExt(w), child)
     }
 
     /// Sign-extend `child` to width `w`. Result width is `w`.
     #[inline]
     #[must_use]
-    pub fn sext(child: Box<Self>, w: u32) -> Box<Self> {
+    pub fn sext(child: Arc<Self>, w: u32) -> Arc<Self> {
         Self::unary(Kind::SExt(w), child)
     }
 
     /// Truncate `child` to its low `w` bits. Result width is `w`.
     #[inline]
     #[must_use]
-    pub fn trunc(child: Box<Self>, w: u32) -> Box<Self> {
+    pub fn trunc(child: Arc<Self>, w: u32) -> Arc<Self> {
         Self::unary(Kind::Trunc(w), child)
     }
 
@@ -179,28 +180,28 @@ impl Expr {
     /// the sum of the two child widths.
     #[inline]
     #[must_use]
-    pub fn concat(lhs: Box<Self>, rhs: Box<Self>) -> Box<Self> {
+    pub fn concat(lhs: Arc<Self>, rhs: Arc<Self>) -> Arc<Self> {
         Self::binary(Kind::Concat, lhs, rhs)
     }
 
-    fn unary(kind: Kind, child: Box<Self>) -> Box<Self> {
-        let mut children: SmallVec<[Box<Self>; 2]> = SmallVec::new();
+    fn unary(kind: Kind, child: Arc<Self>) -> Arc<Self> {
+        let mut children: SmallVec<[Arc<Self>; 2]> = SmallVec::new();
         children.push(child);
-        Box::new(Self { kind, children })
+        Arc::new(Self { kind, children })
     }
 
-    fn binary(kind: Kind, lhs: Box<Self>, rhs: Box<Self>) -> Box<Self> {
-        let mut children: SmallVec<[Box<Self>; 2]> = SmallVec::new();
+    fn binary(kind: Kind, lhs: Arc<Self>, rhs: Arc<Self>) -> Arc<Self> {
+        let mut children: SmallVec<[Arc<Self>; 2]> = SmallVec::new();
         children.push(lhs);
         children.push(rhs);
-        Box::new(Self { kind, children })
+        Arc::new(Self { kind, children })
     }
 
     /// deep copy. `Clone` already does this via `derive(Clone)`; this is
     #[inline]
     #[must_use]
-    pub fn clone_tree(&self) -> Box<Self> {
-        Box::new(self.clone())
+    pub fn clone_tree(&self) -> Arc<Self> {
+        Arc::new(self.clone())
     }
 }
 
@@ -316,7 +317,7 @@ const fn binop_str(kind: &Kind) -> &'static str {
 mod tests {
     use super::*;
 
-    fn v(i: u32) -> Box<Expr> {
+    fn v(i: u32) -> Arc<Expr> {
         Expr::variable(i)
     }
 
@@ -344,15 +345,21 @@ mod tests {
     }
 
     #[test]
-    fn clone_tree_is_deep() {
+    fn clone_tree_shares_children_with_cow() {
         let a = Expr::add(Expr::mul(v(0), Expr::constant(3)), v(1));
         let b = a.clone_tree();
         assert_eq!(a, b);
+        // `clone_tree` allocates a fresh root node...
         assert!(!std::ptr::eq(a.as_ref(), b.as_ref()));
-        assert!(!std::ptr::eq(
-            a.children[0].as_ref(),
-            b.children[0].as_ref()
-        ));
+        // ...but the children are shared (`Arc`), not deep-copied — that is the
+        // allocation win. Cloning a tree is O(1) in the number of nodes.
+        assert!(std::ptr::eq(a.children[0].as_ref(), b.children[0].as_ref()));
+        // Sharing stays sound via copy-on-write: mutating `b`'s root through
+        // `Arc::make_mut` does not affect `a`.
+        let mut b = b;
+        std::sync::Arc::make_mut(&mut b).children.pop();
+        assert_eq!(a.children.len(), 2);
+        assert_eq!(b.children.len(), 1);
     }
 
     #[test]

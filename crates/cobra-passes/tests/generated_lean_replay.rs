@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use std::sync::OnceLock;
 
 use cobra_core::classification::{Classification, SemanticClass, StructuralFlag};
@@ -35,7 +36,7 @@ use cobra_verify::{
     LeanSignatureCertificate, LeanTheorem,
 };
 
-fn mk_ast_item(expr: Box<Expr>, provenance: Provenance) -> WorkItem {
+fn mk_ast_item(expr: Arc<Expr>, provenance: Provenance) -> WorkItem {
     WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
         expr,
         classification: None,
@@ -45,7 +46,7 @@ fn mk_ast_item(expr: Box<Expr>, provenance: Provenance) -> WorkItem {
 }
 
 fn mk_classified_ast_item(
-    expr: Box<Expr>,
+    expr: Arc<Expr>,
     provenance: Provenance,
     classification: Classification,
 ) -> WorkItem {
@@ -109,7 +110,7 @@ fn mk_resolve_item(group_id: u32) -> WorkItem {
 
 fn mk_remainder_payload(
     remainder_expr: &Expr,
-    prefix_expr: Box<Expr>,
+    prefix_expr: Arc<Expr>,
     target_expr: &Expr,
     vars: Vec<String>,
     origin: RemainderOrigin,
@@ -206,11 +207,11 @@ fn replay_endpoint_certificate(name: &str, cert: &LeanCertificate) {
     );
     for (idx, step) in cert.steps.iter().enumerate() {
         assert_eq!(
-            *step.context.plug(step.before.clone_tree()),
+            step.context.plug(step.before.clone_tree()),
             if idx == 0 {
-                *cert.original.clone_tree()
+                cert.original.clone_tree()
             } else {
-                *cert.steps[idx - 1]
+                cert.steps[idx - 1]
                     .context
                     .plug(cert.steps[idx - 1].after.clone_tree())
             },
@@ -276,7 +277,7 @@ fn lean_emitter_fallbacks_replays_in_lean() {
     replay_lean("lean_emitter_constant_signature", &constant_source);
 }
 
-fn replay_public_cleanup_case(name: &str, original: Box<Expr>) {
+fn replay_public_cleanup_case(name: &str, original: Arc<Expr>) {
     let cleaned = cleanup_final_expr(original.clone_tree(), 64);
     assert_ne!(
         *original, *cleaned,
@@ -348,7 +349,7 @@ fn lean_theorem_exports_replays_in_lean() {
     replay_lean("lean_theorem_exports", &source);
 }
 
-fn replay_local_rewrite(name: &str, before: Box<Expr>, after: Box<Expr>, theorem: LeanTheorem) {
+fn replay_local_rewrite(name: &str, before: Arc<Expr>, after: Arc<Expr>, theorem: LeanTheorem) {
     let cert = LeanCertificate::try_single_rewrite_64(64, before, ExprPath::default(), after)
         .expect("recognized local rewrite certificate");
     assert_eq!(cert.steps.len(), 1);
@@ -438,7 +439,7 @@ fn theorem_arity(theorem: LeanTheorem) -> usize {
     }
 }
 
-fn replay_context_frame_rewrite(name: &str, root: Box<Expr>, path: ExprPath) {
+fn replay_context_frame_rewrite(name: &str, root: Arc<Expr>, path: ExprPath) {
     let original = root.clone_tree();
     let cert = LeanCertificate::try_single_rewrite_64(64, root, path, Expr::variable(0))
         .expect("context rewrite certificate");
@@ -523,8 +524,8 @@ fn lean_context_frame_matrix_replays_in_lean() {
 fn replay_local_rewrite_seen(
     seen: &mut HashSet<LeanTheorem>,
     name: &str,
-    before: Box<Expr>,
-    after: Box<Expr>,
+    before: Arc<Expr>,
+    after: Arc<Expr>,
     theorem: LeanTheorem,
 ) {
     replay_local_rewrite(name, before, after, theorem);
@@ -848,7 +849,7 @@ fn lower_not_over_arith_generated_certificate_replays_in_lean() {
     );
 }
 
-fn replay_lower_not_over_arith_case(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_lower_not_over_arith_case(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
     let item = mk_ast_item(expr, Provenance::Original);
 
@@ -943,7 +944,7 @@ fn signature_pattern_match_grouped_candidate_generated_certificate_replays_in_le
     replay_signature_certificate("signature_pattern_match_grouped_candidate_replay", cert);
 }
 
-fn replay_build_signature_state_flow(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_build_signature_state_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
     ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
     let mut item = mk_ast_item(expr, Provenance::Original);
@@ -987,7 +988,7 @@ fn replay_build_signature_state_flow(name: &str, expr: Box<Expr>, vars: Vec<Stri
 
 fn replay_normalized_candidate_signature_case(
     name: &str,
-    expr: Box<Expr>,
+    expr: Arc<Expr>,
     vars: Vec<String>,
     source_pass: PassId,
 ) {
@@ -1271,7 +1272,7 @@ fn replay_signature_anf_case(
     name: &str,
     sig: Vec<u64>,
     vars: Vec<String>,
-    evaluator_expr: Option<Box<Expr>>,
+    evaluator_expr: Option<Arc<Expr>>,
 ) {
     let mut ctx = OrchestratorContext::new(Options::default(), vars.clone(), 64);
     if let Some(expr) = evaluator_expr {
@@ -1434,7 +1435,7 @@ fn replay_signature_cob_case(name: &str, sig: Vec<u64>, vars: Vec<String>) {
 fn replay_signature_cob_override_case(
     name: &str,
     sig: Vec<u64>,
-    expr: Box<Expr>,
+    expr: Arc<Expr>,
     vars: Vec<String>,
 ) {
     let arity = vars.len() as u32;
@@ -1473,7 +1474,7 @@ fn signature_cob_candidate_override_generated_certificate_replays_in_lean() {
     );
 }
 
-fn replay_prepare_coeff_model_flow(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_prepare_coeff_model_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let sig = evaluate_boolean_signature(&expr, vars.len() as u32, 64);
     let mut ctx = OrchestratorContext::new(Options::default(), vars.clone(), 64);
     ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
@@ -1584,7 +1585,7 @@ fn xor_lowering_generated_certificate_replays_in_lean() {
     );
 }
 
-fn replay_xor_lowering_case(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_xor_lowering_case(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
     let item = mk_ast_item(expr, Provenance::Original);
 
@@ -1666,7 +1667,7 @@ fn semilinear_reconstruct_generated_certificate_replays_in_lean() {
     replay_signature_certificate("semilinear_reconstruct_replay", cert);
 }
 
-fn replay_semilinear_flow_case(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_semilinear_flow_case(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let classification = Classification {
         semantic: SemanticClass::Semilinear,
         flags: StructuralFlag::HAS_BITWISE | StructuralFlag::HAS_ARITHMETIC,
@@ -1931,7 +1932,7 @@ fn residual_poly_recovery_generated_certificate_replays_in_lean() {
     replay_signature_certificate("residual_poly_recovery_replay", cert);
 }
 
-fn replay_residual_poly_case(name: &str, target: Box<Expr>, vars: Vec<String>, degree_floor: u8) {
+fn replay_residual_poly_case(name: &str, target: Arc<Expr>, vars: Vec<String>, degree_floor: u8) {
     let residual = mk_remainder_payload(
         &target,
         Expr::constant(0),
@@ -2052,7 +2053,7 @@ fn prepare_direct_remainder_recombine_generated_certificate_replays_in_lean() {
     replay_signature_certificate("prepare_direct_remainder_recombine_replay", cert);
 }
 
-fn replay_prepare_direct_remainder_ghost_flow(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_prepare_direct_remainder_ghost_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
     ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
     let mut item = mk_ast_item(expr, Provenance::Original);
@@ -2133,9 +2134,9 @@ fn prepare_direct_remainder_ghost_flow_generated_certificate_replays_in_lean() {
 
 fn replay_residual_ghost_case(
     name: &str,
-    residual_expr: Box<Expr>,
-    prefix: Box<Expr>,
-    target: Box<Expr>,
+    residual_expr: Arc<Expr>,
+    prefix: Arc<Expr>,
+    target: Arc<Expr>,
 ) {
     let vars = vec!["x".to_owned(), "y".to_owned()];
     let residual = mk_remainder_payload(
@@ -2204,9 +2205,9 @@ fn residual_factored_ghost_generated_certificate_replays_in_lean() {
 
 fn replay_residual_factored_ghost_case(
     name: &str,
-    residual_expr: Box<Expr>,
-    prefix: Box<Expr>,
-    target: Box<Expr>,
+    residual_expr: Arc<Expr>,
+    prefix: Arc<Expr>,
+    target: Arc<Expr>,
     vars: Vec<String>,
     escalated: bool,
 ) {
@@ -2302,7 +2303,7 @@ fn residual_template_generated_certificate_replays_in_lean() {
 
 fn replay_residual_template_case(
     name: &str,
-    target: Box<Expr>,
+    target: Arc<Expr>,
     vars: Vec<String>,
     origin: RemainderOrigin,
 ) {
@@ -2382,7 +2383,7 @@ fn replay_bitwise_compose_case(
     name: &str,
     gate: GateKind,
     add_coeff: u64,
-    parent_expr: Box<Expr>,
+    parent_expr: Arc<Expr>,
     parent_signature: Vec<u64>,
 ) {
     replay_bitwise_compose_custom_case(
@@ -2405,11 +2406,11 @@ fn replay_bitwise_compose_custom_case(
     gate: GateKind,
     add_coeff: u64,
     parent_vars: Vec<String>,
-    child_expr: Box<Expr>,
+    child_expr: Arc<Expr>,
     child_vars: Vec<String>,
     child_signature: Vec<u64>,
     active_context_indices: Vec<u32>,
-    parent_expr: Box<Expr>,
+    parent_expr: Arc<Expr>,
     parent_signature: Vec<u64>,
 ) {
     let mut ctx = OrchestratorContext::new(Options::default(), parent_vars.clone(), 64);
@@ -2589,7 +2590,7 @@ fn signature_bitwise_decompose_direct_generated_certificate_replays_in_lean() {
     replay_signature_certificate("signature_bitwise_decompose_direct_replay", cert);
 }
 
-fn replay_signature_bitwise_decompose_child_flow(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_signature_bitwise_decompose_child_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let sig = evaluate_boolean_signature(&expr, vars.len() as u32, 64);
     let mut ctx = OrchestratorContext::new(Options::default(), vars.clone(), 64);
     ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
@@ -2752,7 +2753,7 @@ fn hybrid_compose_generated_certificate_replays_in_lean() {
 fn replay_hybrid_compose_case(
     name: &str,
     op: ExtractOp,
-    parent_expr: Box<Expr>,
+    parent_expr: Arc<Expr>,
     parent_signature: Vec<u64>,
 ) {
     replay_hybrid_compose_custom_case(
@@ -2773,9 +2774,9 @@ fn replay_hybrid_compose_custom_case(
     op: ExtractOp,
     var_k: u32,
     parent_vars: Vec<String>,
-    child_expr: Box<Expr>,
+    child_expr: Arc<Expr>,
     child_signature: Vec<u64>,
-    parent_expr: Box<Expr>,
+    parent_expr: Arc<Expr>,
     parent_signature: Vec<u64>,
 ) {
     let mut ctx = OrchestratorContext::new(Options::default(), parent_vars.clone(), 64);
@@ -3021,9 +3022,9 @@ fn replay_lifted_substitute_direct_case(
     original_vars: Vec<String>,
     bindings: Vec<LiftedBinding>,
     outer_vars: Vec<String>,
-    winner_expr: Box<Expr>,
+    winner_expr: Arc<Expr>,
     winner_real_vars: Vec<String>,
-    original_expr: Box<Expr>,
+    original_expr: Arc<Expr>,
 ) {
     let mut ctx = OrchestratorContext::new(Options::default(), original_vars.clone(), 64);
     let source_sig = evaluate_boolean_signature(&original_expr, original_vars.len() as u32, 64);
@@ -3070,7 +3071,7 @@ fn replay_lifted_substitute_direct_case(
     replay_signature_certificate(name, cert);
 }
 
-fn replay_lifted_flow(name: &str, expr: Box<Expr>, vars: Vec<String>, repeated: bool) {
+fn replay_lifted_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>, repeated: bool) {
     let mut ctx = OrchestratorContext::new(Options::default(), vars.clone(), 64);
     ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
     let item = mk_ast_item(expr, Provenance::Original);
@@ -3367,7 +3368,7 @@ fn operand_join_rewrite_generated_certificate_replays_in_lean() {
     replay_endpoint_certificate("operand_join_rewrite_replay", cert);
 }
 
-fn replay_operand_simplify_flow(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_operand_simplify_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
     let item = mk_ast_item(expr, Provenance::Original);
 
@@ -3445,10 +3446,10 @@ fn operand_simplify_family_generated_certificate_replays_in_lean() {
 fn replay_product_join_rewrite_case(
     name: &str,
     vars: Vec<String>,
-    original_expr: Box<Expr>,
-    full_ast: Box<Expr>,
-    replacement_x: Box<Expr>,
-    replacement_y: Box<Expr>,
+    original_expr: Arc<Expr>,
+    full_ast: Arc<Expr>,
+    replacement_x: Arc<Expr>,
+    replacement_y: Arc<Expr>,
     resolve_y_first: bool,
     has_solve_ctx: bool,
 ) {
@@ -3666,7 +3667,7 @@ fn product_identity_collapse_flow_generated_certificate_replays_in_lean() {
     replay_signature_certificate("product_identity_collapse_flow_replay", cert);
 }
 
-fn replay_product_identity_collapse_pattern_flow(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_product_identity_collapse_pattern_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
     let item = mk_ast_item(expr, Provenance::Original);
 
@@ -3760,7 +3761,7 @@ fn atom_identity_rewrite_generated_certificate_replays_in_lean() {
     );
 }
 
-fn replay_atom_identity_case(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_atom_identity_case(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let item = mk_ast_item(expr, Provenance::Original);
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
 
@@ -3918,7 +3919,7 @@ fn extract_product_core_generated_certificate_replays_in_lean() {
     );
 }
 
-fn replay_extract_product_core_case(name: &str, expr: Box<Expr>, num_vars: u32) {
+fn replay_extract_product_core_case(name: &str, expr: Arc<Expr>, num_vars: u32) {
     let vars = (0..num_vars)
         .map(|idx| format!("x{idx}"))
         .collect::<Vec<_>>();
@@ -3969,7 +3970,7 @@ fn extract_product_core_family_generated_certificate_replays_in_lean() {
     );
 }
 
-fn replay_poly_core(name: &str, expr: Box<Expr>, degree: u8, num_vars: u32) {
+fn replay_poly_core(name: &str, expr: Arc<Expr>, degree: u8, num_vars: u32) {
     let vars = (0..num_vars)
         .map(|idx| format!("x{idx}"))
         .collect::<Vec<_>>();
@@ -4104,7 +4105,7 @@ fn extract_template_core_generated_certificate_replays_in_lean() {
     replay_extract_template_core_case("extract_template_core_replay", expr, 2);
 }
 
-fn replay_extract_template_core_case(name: &str, expr: Box<Expr>, num_vars: u32) {
+fn replay_extract_template_core_case(name: &str, expr: Arc<Expr>, num_vars: u32) {
     let classification = Classification {
         semantic: SemanticClass::NonPolynomial,
         flags: StructuralFlag::HAS_BITWISE_OVER_ARITH,
@@ -4188,8 +4189,8 @@ fn verify_candidate_generated_certificate_replays_in_lean() {
 
 fn replay_verify_candidate_case(
     name: &str,
-    original: Box<Expr>,
-    simplified: Box<Expr>,
+    original: Arc<Expr>,
+    simplified: Arc<Expr>,
     original_vars: Vec<String>,
     real_vars: Vec<String>,
 ) {
@@ -4283,7 +4284,7 @@ fn signature_multivar_poly_generated_certificate_replays_in_lean() {
     replay_signature_certificate("signature_multivar_poly_replay", cert);
 }
 
-fn replay_signature_multivar_poly_case(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_signature_multivar_poly_case(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let sig = evaluate_boolean_signature(&expr, vars.len() as u32, 64);
     let mut ctx = OrchestratorContext::new(Options::default(), vars.clone(), 64);
     ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
@@ -4309,7 +4310,7 @@ fn replay_signature_multivar_poly_case(name: &str, expr: Box<Expr>, vars: Vec<St
     replay_signature_certificate(name, cert);
 }
 
-fn replay_signature_multivar_poly_override_case(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_signature_multivar_poly_override_case(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let arity = vars.len() as u32;
     let sig = evaluate_boolean_signature(&expr, arity, 64);
     let mut ctx = OrchestratorContext::new(Options::default(), vars.clone(), 64);
@@ -4401,7 +4402,7 @@ fn signature_singleton_poly_generated_certificate_replays_in_lean() {
     replay_signature_certificate("signature_singleton_poly_replay", cert);
 }
 
-fn replay_signature_singleton_poly_case(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_signature_singleton_poly_case(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let sig = evaluate_boolean_signature(&expr, vars.len() as u32, 64);
     let mut ctx = OrchestratorContext::new(Options::default(), vars.clone(), 64);
     ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
@@ -4423,7 +4424,7 @@ fn replay_signature_singleton_poly_case(name: &str, expr: Box<Expr>, vars: Vec<S
     replay_signature_certificate(name, cert);
 }
 
-fn replay_signature_singleton_poly_remainder_flow(name: &str, expr: Box<Expr>, vars: Vec<String>) {
+fn replay_signature_singleton_poly_remainder_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let sig = evaluate_boolean_signature(&expr, vars.len() as u32, 64);
     let mut ctx = OrchestratorContext::new(Options::default(), vars.clone(), 64);
     ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
@@ -4473,7 +4474,7 @@ fn replay_signature_singleton_poly_remainder_flow(name: &str, expr: Box<Expr>, v
 
 fn replay_signature_singleton_poly_inline_override_case(
     name: &str,
-    expr: Box<Expr>,
+    expr: Arc<Expr>,
     vars: Vec<String>,
 ) {
     let arity = vars.len() as u32;

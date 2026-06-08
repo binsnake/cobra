@@ -165,12 +165,14 @@ fn active_input_sig<'a>(item: &'a WorkItem, ctx: &'a OrchestratorContext) -> Opt
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use cobra_core::expr::Expr;
     use cobra_core::simplify_outcome::Options;
     use cobra_orchestrator::{create_group as orch_create_group, AstPayload, Provenance};
 
-    fn mk_ast_item(expr: Box<Expr>, prov: Provenance) -> WorkItem {
+    fn mk_ast_item(expr: Arc<Expr>, prov: Provenance) -> WorkItem {
         let mut item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
             expr,
             classification: None,

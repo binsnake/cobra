@@ -26,16 +26,17 @@ use cobra_core::arith::{bitmask, mod_mul, mod_neg};
 use cobra_core::expr::Expr;
 use cobra_core::expr_rewrite::{apply_coefficient, build_and_product};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 struct Term {
     mask: u64,
     coeff: u64,
-    expr: Option<Box<Expr>>,
+    expr: Option<Arc<Expr>>,
     consumed: bool,
 }
 
 impl Term {
-    fn take_operand(&mut self) -> Box<Expr> {
+    fn take_operand(&mut self) -> Arc<Expr> {
         if let Some(e) = self.expr.take() {
             return e;
         }
@@ -150,7 +151,7 @@ fn try_not_recognition(terms: &mut [Term], const_coeff: u64, bitwidth: u32) -> b
 /// constant term; `coeffs[i]` for `i > 0` is the coefficient of the
 /// AND-monomial whose variable set is the bits of `i`.
 #[must_use]
-pub fn build_cob_expr(coeffs: &[u64], _num_vars: u32, bitwidth: u32) -> Box<Expr> {
+pub fn build_cob_expr(coeffs: &[u64], _num_vars: u32, bitwidth: u32) -> Arc<Expr> {
     let mut const_coeff = coeffs.first().copied().unwrap_or(0);
     let mut terms: Vec<Term> = Vec::new();
     let mut mask_index: HashMap<u64, usize> = HashMap::new();
@@ -175,7 +176,7 @@ pub fn build_cob_expr(coeffs: &[u64], _num_vars: u32, bitwidth: u32) -> Box<Expr
         const_coeff = 0;
     }
 
-    let mut result: Option<Box<Expr>> = None;
+    let mut result: Option<Arc<Expr>> = None;
     if const_coeff != 0 {
         result = Some(Expr::constant(const_coeff));
     }

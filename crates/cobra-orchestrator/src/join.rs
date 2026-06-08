@@ -3,6 +3,7 @@
 use cobra_core::evaluator::Evaluator;
 use cobra_core::expr::Expr;
 use cobra_core::expr_cost::ExprCost;
+use std::sync::Arc;
 
 use crate::competition::{CandidateRecord, JoinId};
 use crate::context::expr_identity_hash;
@@ -16,9 +17,9 @@ pub struct OperandJoinState {
     pub rhs_winner: Option<CandidateRecord>,
     pub lhs_resolved: bool,
     pub rhs_resolved: bool,
-    pub full_ast: Box<Expr>,
+    pub full_ast: Arc<Expr>,
     /// while both sides are being solved).
-    pub original_mul: Box<Expr>,
+    pub original_mul: Arc<Expr>,
     /// Hash of the target `Mul` for splicing back into `full_ast`.
     pub target_hash: u64,
     pub baseline_cost: ExprCost,
@@ -43,7 +44,7 @@ pub struct ProductJoinState {
     pub y_winner: Option<CandidateRecord>,
     pub x_resolved: bool,
     pub y_resolved: bool,
-    pub original_expr: Box<Expr>,
+    pub original_expr: Arc<Expr>,
     pub baseline_cost: ExprCost,
     pub vars: Vec<String>,
     pub parent_group_id: Option<GroupId>,
@@ -56,7 +57,7 @@ pub struct ProductJoinState {
     pub rewrite_gen: u32,
     pub parent_history: Vec<PassId>,
     /// Full AST for replacement splicing.
-    pub full_ast: Box<Expr>,
+    pub full_ast: Arc<Expr>,
     pub target_hash: u64,
 }
 
@@ -87,10 +88,10 @@ pub fn create_join(joins: &mut JoinMap, next_id: &mut JoinId, state: JoinState) 
 /// Returns the rebuilt tree plus a `replaced` flag indicating whether
 #[allow(clippy::unnecessary_box_returns)]
 pub fn replace_by_hash(
-    root: Box<Expr>,
+    root: Arc<Expr>,
     target_hash: u64,
-    replacement: &mut Option<Box<Expr>>,
-) -> (Box<Expr>, bool) {
+    replacement: &mut Option<Arc<Expr>>,
+) -> (Arc<Expr>, bool) {
     // Precompute structural hashes for every node in a single postorder
     // pass, keyed by raw pointer. `root` is owned and no child is moved
     // until we match, so these pointers remain valid for the walk below.
@@ -111,12 +112,12 @@ fn precompute_hashes(node: &Expr, out: &mut std::collections::HashMap<*const Exp
 
 #[allow(clippy::unnecessary_box_returns)]
 fn replace_by_hash_rec(
-    root: Box<Expr>,
+    root: Arc<Expr>,
     target_hash: u64,
-    replacement: &mut Option<Box<Expr>>,
+    replacement: &mut Option<Arc<Expr>>,
     replaced: &mut bool,
     hashes: &std::collections::HashMap<*const Expr, u64>,
-) -> Box<Expr> {
+) -> Arc<Expr> {
     if *replaced {
         return root;
     }
@@ -131,12 +132,15 @@ fn replace_by_hash_rec(
         }
     }
     let mut root = root;
-    for i in 0..root.children.len() {
-        let child = std::mem::replace(&mut root.children[i], Expr::constant(0));
-        let rebuilt = replace_by_hash_rec(child, target_hash, replacement, replaced, hashes);
-        root.children[i] = rebuilt;
-        if *replaced {
-            break;
+    {
+        let node = Arc::make_mut(&mut root);
+        for i in 0..node.children.len() {
+            let child = std::mem::replace(&mut node.children[i], Expr::constant(0));
+            let rebuilt = replace_by_hash_rec(child, target_hash, replacement, replaced, hashes);
+            node.children[i] = rebuilt;
+            if *replaced {
+                break;
+            }
         }
     }
     root

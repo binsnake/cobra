@@ -16,6 +16,7 @@
 //! The winner is whichever rule produces the lowest [`anf_expr_cost`].
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use cobra_core::expr::{Expr, Kind};
 
@@ -99,7 +100,7 @@ fn or_chain_cost(var_mask: u32) -> u32 {
     }
 }
 
-fn build_monomial(mask: u32) -> Box<Expr> {
+fn build_monomial(mask: u32) -> Arc<Expr> {
     let vars: Vec<u32> = (0..32).filter(|i| (mask >> i) & 1 == 1).collect();
     assert!(!vars.is_empty(), "empty monomial has no Expr");
     let mut result = Expr::variable(vars[0]);
@@ -109,11 +110,11 @@ fn build_monomial(mask: u32) -> Box<Expr> {
     result
 }
 
-#[allow(clippy::vec_box)] // `Box<Expr>` matches the factory shape; unboxing would force re-heap-allocs
-fn xor_tree(terms: Vec<Box<Expr>>) -> Box<Expr> {
+#[allow(clippy::vec_box)] // `Arc<Expr>` matches the factory shape; unboxing would force re-heap-allocs
+fn xor_tree(terms: Vec<Arc<Expr>>) -> Arc<Expr> {
     // Balanced binary fold using an Option-slot buffer so we can move
     // ownership out without cloning the subtrees.
-    fn recurse(slice: &mut [Option<Box<Expr>>]) -> Box<Expr> {
+    fn recurse(slice: &mut [Option<Arc<Expr>>]) -> Arc<Expr> {
         if slice.len() == 1 {
             return slice[0].take().expect("xor_tree slot already consumed");
         }
@@ -121,7 +122,7 @@ fn xor_tree(terms: Vec<Box<Expr>>) -> Box<Expr> {
         let (lo, hi) = slice.split_at_mut(mid);
         Expr::xor(recurse(lo), recurse(hi))
     }
-    let mut slots: Vec<Option<Box<Expr>>> = terms.into_iter().map(Some).collect();
+    let mut slots: Vec<Option<Arc<Expr>>> = terms.into_iter().map(Some).collect();
     recurse(&mut slots)
 }
 
@@ -159,8 +160,8 @@ pub fn anf_expr_cost(expr: &Expr) -> u32 {
 
 /// Emit a raw XOR-of-monomials tree without any cleanup.
 #[must_use]
-pub fn emit_raw_anf(form: &AnfForm) -> Box<Expr> {
-    let mut terms: Vec<Box<Expr>> = Vec::new();
+pub fn emit_raw_anf(form: &AnfForm) -> Arc<Expr> {
+    let mut terms: Vec<Arc<Expr>> = Vec::new();
     if form.constant_bit != 0 {
         terms.push(Expr::constant(1));
     }
@@ -174,7 +175,7 @@ pub fn emit_raw_anf(form: &AnfForm) -> Box<Expr> {
     }
 }
 
-fn build_or_chain(var_mask: u32) -> Box<Expr> {
+fn build_or_chain(var_mask: u32) -> Arc<Expr> {
     let vars: Vec<u32> = (0..32).filter(|i| (var_mask >> i) & 1 == 1).collect();
     assert!(!vars.is_empty(), "empty OR-chain");
     let mut result = Expr::variable(vars[0]);
@@ -228,7 +229,7 @@ struct FactorCandidate {
     covered_indices: Vec<u32>,
 }
 
-type AnfCache = HashMap<(Vec<u32>, u8), Box<Expr>>;
+type AnfCache = HashMap<(Vec<u32>, u8), Arc<Expr>>;
 
 fn find_best_factor(form: &AnfForm, cache: &mut AnfCache) -> Option<FactorCandidate> {
     if form.monomials.len() < 2 {
@@ -452,13 +453,13 @@ fn find_absorption(form: &AnfForm) -> Option<AbsorptionCandidate> {
 
 /// Build the optimal `Expr` tree for an ANF monomial set.
 #[must_use]
-pub fn cleanup_anf(form: &AnfForm) -> Box<Expr> {
+pub fn cleanup_anf(form: &AnfForm) -> Arc<Expr> {
     let mut cache = AnfCache::new();
     cleanup_anf_memo(form, &mut cache)
 }
 
 #[allow(clippy::too_many_lines)]
-fn cleanup_anf_memo(form: &AnfForm, cache: &mut AnfCache) -> Box<Expr> {
+fn cleanup_anf_memo(form: &AnfForm, cache: &mut AnfCache) -> Arc<Expr> {
     if form.monomials.is_empty() {
         return Expr::constant(u64::from(form.constant_bit));
     }
@@ -485,7 +486,7 @@ fn cleanup_anf_memo(form: &AnfForm, cache: &mut AnfCache) -> Box<Expr> {
 
     let raw = emit_raw_anf(form);
     let raw_cost = anf_expr_cost(&raw);
-    let mut best: Option<Box<Expr>> = None;
+    let mut best: Option<Arc<Expr>> = None;
     let mut best_cost = raw_cost;
 
     // Rule 2: partial OR.
@@ -585,7 +586,7 @@ fn cleanup_anf_memo(form: &AnfForm, cache: &mut AnfCache) -> Box<Expr> {
 /// Convenience wrapper: build the ANF-optimised Expr from a
 /// [`PackedAnf`] coefficient vector.
 #[must_use]
-pub fn build_anf_expr(anf: &PackedAnf, num_vars: u32) -> Box<Expr> {
+pub fn build_anf_expr(anf: &PackedAnf, num_vars: u32) -> Arc<Expr> {
     let form = AnfForm::from_anf_coeffs(anf, num_vars);
     cleanup_anf(&form)
 }

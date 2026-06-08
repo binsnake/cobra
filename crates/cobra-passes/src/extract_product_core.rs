@@ -9,6 +9,7 @@ use cobra_core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
 };
 use cobra_core::result::Result;
+use std::sync::Arc;
 
 use cobra_orchestrator::{ExtractorKind, OrchestratorContext, PassResult, WorkItem};
 
@@ -49,7 +50,7 @@ impl Extractor for ProductCoreExtractor {
         };
 
         let mut products: Vec<&Expr> = Vec::new();
-        let mut residual: Vec<Box<Expr>> = Vec::new();
+        let mut residual: Vec<Arc<Expr>> = Vec::new();
         split_add_tree(expr, &mut products, &mut residual);
 
         if products.is_empty() {

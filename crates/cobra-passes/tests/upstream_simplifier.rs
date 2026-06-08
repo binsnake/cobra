@@ -13,6 +13,7 @@ use cobra_core::simplify_outcome::{Options, ProofLevel, SimplifyOutcomeKind};
 use cobra_core::{eval_expr, evaluate_boolean_signature, full_width_check_eval};
 use cobra_parser::parse_to_ast;
 use cobra_passes::{simplify, simplify_expr, MAX_INPUT_VARS};
+use std::sync::Arc;
 
 fn names(list: &[&str]) -> Vec<String> {
     list.iter().map(|s| (*s).to_string()).collect()
@@ -50,7 +51,7 @@ fn affine_sig(coeffs: &[u64]) -> Vec<u64> {
     sig
 }
 
-fn parsed_expr(input: &str, bitwidth: u32) -> (Box<Expr>, Vec<String>) {
+fn parsed_expr(input: &str, bitwidth: u32) -> (Arc<Expr>, Vec<String>) {
     let parsed = parse_to_ast(input, bitwidth)
         .unwrap_or_else(|err| panic!("failed to parse `{input}` at bitwidth {bitwidth}: {err:?}"));
     (parsed.expr, parsed.vars)
@@ -75,7 +76,7 @@ fn full_width_expr_case(input: &str, bitwidth: u32, opts: Options) -> cobra_core
         .clone_tree();
     let support = try_build_var_support(&vars, &out.real_vars)
         .unwrap_or_else(|| panic!("cannot remap {:?} into {:?}", out.real_vars, vars));
-    remap_var_indices(&mut candidate, &support);
+    remap_var_indices(Arc::make_mut(&mut candidate), &support);
 
     let eval = Evaluator::from_expr(&expr, bitwidth);
     let check = full_width_check_eval(&eval, vars.len() as u32, &candidate, bitwidth, 512);

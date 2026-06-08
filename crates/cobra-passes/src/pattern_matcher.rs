@@ -18,6 +18,7 @@ use cobra_core::expr_rewrite::apply_coefficient;
 use cobra_core::expr_utils::{collect_vars, remap_var_indices};
 use cobra_core::is_boolean_valued;
 use cobra_orchestrator::{ExprPath, LeanCertificate};
+use std::sync::Arc;
 
 use crate::atom_simplifier::simplify_atom;
 use crate::candidate_normalize::merge_certificate;
@@ -47,7 +48,7 @@ pub fn pack_bool_sig(sig: &[u64]) -> u32 {
 /// `s0 + (s1 - s0) * x`. Returns `None` only when `s1 == s0`
 /// (handled earlier by [`all_equal`] so this arm is just a safety net).
 #[must_use]
-pub fn match_1var(sig: &[u64], bitwidth: u32) -> Option<Box<Expr>> {
+pub fn match_1var(sig: &[u64], bitwidth: u32) -> Option<Arc<Expr>> {
     let s0 = sig[0];
     let s1 = sig[1];
     if s0 == 0 && s1 == 1 {
@@ -69,7 +70,7 @@ pub fn match_1var(sig: &[u64], bitwidth: u32) -> Option<Box<Expr>> {
 /// reaching this table. Indexing convention: `key bit i` is `f(x, y)`
 /// `Match2varBoolean`.
 #[must_use]
-pub fn match_2var_boolean(key: u8) -> Option<Box<Expr>> {
+pub fn match_2var_boolean(key: u8) -> Option<Arc<Expr>> {
     let x = || Expr::variable(0);
     let y = || Expr::variable(1);
     let m = match key {
@@ -110,7 +111,7 @@ pub fn pack_bool_sig_64(sig: &[u64]) -> u64 {
 /// `Match3varBoolean`.
 #[must_use]
 #[allow(clippy::too_many_lines)]
-pub fn match_3var_boolean(key: u8) -> Option<Box<Expr>> {
+pub fn match_3var_boolean(key: u8) -> Option<Arc<Expr>> {
     let x = || Expr::variable(0);
     let y = || Expr::variable(1);
     let z = || Expr::variable(2);
@@ -432,8 +433,8 @@ pub fn match_3var_boolean(key: u8) -> Option<Box<Expr>> {
 /// negations can introduce double-NOTs when the canonical form already
 /// contains a NOT at the same position.
 #[allow(clippy::boxed_local)]
-fn collapse_double_not(expr: Box<Expr>) -> Box<Expr> {
-    let mut e = *expr;
+fn collapse_double_not(expr: Arc<Expr>) -> Arc<Expr> {
+    let mut e = Arc::try_unwrap(expr).unwrap_or_else(|a| (*a).clone());
     for i in 0..e.children.len() {
         let child = std::mem::replace(&mut e.children[i], Expr::constant(0));
         e.children[i] = collapse_double_not(child);
@@ -442,10 +443,13 @@ fn collapse_double_not(expr: Box<Expr>) -> Box<Expr> {
         if let cobra_core::expr::Kind::Not = e.children[0].kind {
             // Take grandchild out — Not(Not(x)) → x.
             let mut inner = std::mem::replace(&mut e.children[0], Expr::constant(0));
-            return std::mem::replace(&mut inner.children[0], Expr::constant(0));
+            return std::mem::replace(
+                &mut Arc::make_mut(&mut inner).children[0],
+                Expr::constant(0),
+            );
         }
     }
-    Box::new(e)
+    Arc::new(e)
 }
 
 /// 4-variable NPN equivalence-class lookup. The 65536-entry table
@@ -453,7 +457,7 @@ fn collapse_double_not(expr: Box<Expr>) -> Box<Expr> {
 /// permutation, input-negation mask, and output-negation flag that
 /// transform the canonical expression back to it.
 #[must_use]
-pub fn match_4var_npn(key: u16) -> Option<Box<Expr>> {
+pub fn match_4var_npn(key: u16) -> Option<Arc<Expr>> {
     let entry = &crate::npn4_table::KNPN4_TABLE[key as usize];
     let perm = &crate::npn4_table::KPERMS4[entry.perm_idx as usize];
 
@@ -463,7 +467,7 @@ pub fn match_4var_npn(key: u16) -> Option<Box<Expr>> {
     }
 
     let neg = entry.neg_inputs;
-    let var_fn = move |j: u32| -> Box<Expr> {
+    let var_fn = move |j: u32| -> Arc<Expr> {
         let a = inv[j as usize];
         let mut e = Expr::variable(a);
         if (neg >> a) & 1 != 0 {
@@ -483,7 +487,7 @@ pub fn match_4var_npn(key: u16) -> Option<Box<Expr>> {
 /// function. Splits `f(x,y,z,w,v)` into cofactors `f0 = f(...,0)` and
 /// `Match5varBoolean`.
 #[must_use]
-pub fn match_5var_boolean(key: u32) -> Option<Box<Expr>> {
+pub fn match_5var_boolean(key: u32) -> Option<Arc<Expr>> {
     let v = || Expr::variable(4);
     let f0 = (key & 0xFFFF) as u16;
     let f1 = ((key >> 16) & 0xFFFF) as u16;
@@ -526,7 +530,7 @@ pub fn match_5var_boolean(key: u32) -> Option<Box<Expr>> {
 /// Shannon decomposition on variable 5 of a 6-variable Boolean
 /// function. Recurses into [`match_5var_boolean`].
 #[must_use]
-pub fn match_6var_boolean(key: u64) -> Option<Box<Expr>> {
+pub fn match_6var_boolean(key: u64) -> Option<Arc<Expr>> {
     let u = || Expr::variable(5);
     let f0 = (key & 0xFFFF_FFFF) as u32;
     let f1 = ((key >> 32) & 0xFFFF_FFFF) as u32;
@@ -574,7 +578,7 @@ pub fn match_6var_boolean(key: u64) -> Option<Box<Expr>> {
 /// shape, when the inner Boolean form has no pattern entry, or when
 /// the slope `k` is zero (caught earlier by [`all_equal`] anyway).
 #[must_use]
-pub fn match_scaled_boolean(sig: &[u64], num_vars: u32, bitwidth: u32) -> Option<Box<Expr>> {
+pub fn match_scaled_boolean(sig: &[u64], num_vars: u32, bitwidth: u32) -> Option<Arc<Expr>> {
     let c = sig[0];
     let mut k: u64 = 0;
     for &v in &sig[1..] {
@@ -618,7 +622,7 @@ pub fn match_scaled_boolean(sig: &[u64], num_vars: u32, bitwidth: u32) -> Option
 /// Returns `None` when no arm fires; later passes (`SignatureCob`,
 /// `SignatureAnf`, etc.) cover the remaining cases.
 #[must_use]
-pub fn match_pattern(sig: &[u64], num_vars: u32, bitwidth: u32) -> Option<Box<Expr>> {
+pub fn match_pattern(sig: &[u64], num_vars: u32, bitwidth: u32) -> Option<Arc<Expr>> {
     if all_equal(sig) {
         return Some(Expr::constant(sig[0]));
     }
@@ -639,7 +643,7 @@ pub fn match_pattern(sig: &[u64], num_vars: u32, bitwidth: u32) -> Option<Box<Ex
 
 /// `TwoVarBasisPattern`.
 struct TwoVarBasisPattern {
-    expr: Box<Expr>,
+    expr: Arc<Expr>,
     sig: Vec<u64>,
 }
 
@@ -700,7 +704,7 @@ fn build_coefficient_candidates(sig: &[u64], bitwidth: u32) -> Vec<u64> {
 /// Combine a constant with up to two basis summands into an affine
 /// both basis terms by value since our callers always produce them.
 #[allow(clippy::unnecessary_box_returns)]
-fn build_affine_basis_expr(constant: u64, first: Box<Expr>, second: Box<Expr>) -> Box<Expr> {
+fn build_affine_basis_expr(constant: u64, first: Arc<Expr>, second: Arc<Expr>) -> Arc<Expr> {
     let sum = Expr::add(first, second);
     if constant != 0 {
         Expr::add(Expr::constant(constant), sum)
@@ -725,11 +729,11 @@ pub fn try_simplify_two_var_pattern_sum(
     bitwidth: u32,
     baseline_cost: ExprCost,
     mut verify: impl FnMut(&Expr) -> bool,
-) -> Option<Box<Expr>> {
+) -> Option<Arc<Expr>> {
     let coeffs = build_coefficient_candidates(sig, bitwidth);
     let basis = cached_two_var_basis_patterns(bitwidth);
 
-    let mut best: Option<Box<Expr>> = None;
+    let mut best: Option<Arc<Expr>> = None;
     let mut best_cost = baseline_cost;
 
     for i in 0..basis.len() {
@@ -805,7 +809,7 @@ pub fn try_simplify_two_var_basis_triple(
     bitwidth: u32,
     baseline_cost: ExprCost,
     mut verify: impl FnMut(&Expr) -> bool,
-) -> Option<Box<Expr>> {
+) -> Option<Arc<Expr>> {
     if sig.len() != 4 {
         return None;
     }
@@ -815,7 +819,7 @@ pub fn try_simplify_two_var_basis_triple(
     // Stack-allocated RHS; copy `sig` once per call, reinitialize per triple.
     let sig_arr: [u64; 4] = [sig[0], sig[1], sig[2], sig[3]];
 
-    let mut best: Option<Box<Expr>> = None;
+    let mut best: Option<Arc<Expr>> = None;
     let mut best_cost = baseline_cost;
 
     for i in 0..basis.len() {
@@ -841,7 +845,7 @@ pub fn try_simplify_two_var_basis_triple(
                 };
                 let (c, a, b, d) = (sol[0], sol[1], sol[2], sol[3]);
 
-                let mut terms: Vec<Box<Expr>> = Vec::new();
+                let mut terms: Vec<Arc<Expr>> = Vec::new();
                 if c != 0 {
                     terms.push(Expr::constant(c));
                 }
@@ -885,7 +889,7 @@ pub fn try_simplify_two_var_basis_triple(
 /// Returns `None` when the baseline expression is already a leaf
 /// no candidate beats the baseline cost and verifies full-width.
 #[must_use]
-pub fn try_simplify_pattern_subtree(expr: &Expr, bitwidth: u32) -> Option<Box<Expr>> {
+pub fn try_simplify_pattern_subtree(expr: &Expr, bitwidth: u32) -> Option<Arc<Expr>> {
     // Trivial arithmetic identities `x + 0 = x` and `x * 1 = x`. These
     // arise after deeper pattern rewrites zero out one side (e.g., PIC
     // shapes where one `(X & ~Y) * (~X & Y)` factor reduces to zero),
@@ -918,7 +922,7 @@ pub fn try_simplify_pattern_subtree(expr: &Expr, bitwidth: u32) -> Option<Box<Ex
         for (i, &v) in support.iter().enumerate() {
             dense_map[v as usize] = i as u32;
         }
-        remap_var_indices(&mut dense_expr, &dense_map);
+        remap_var_indices(Arc::make_mut(&mut dense_expr), &dense_map);
     }
 
     let sig = evaluate_boolean_signature(&dense_expr, num_vars, bitwidth);
@@ -931,7 +935,7 @@ pub fn try_simplify_pattern_subtree(expr: &Expr, bitwidth: u32) -> Option<Box<Ex
                 full_width_check_eval(&eval, num_vars, &candidate, bitwidth, DEFAULT_NUM_SAMPLES);
             if check.passed {
                 if !support.is_empty() {
-                    remap_var_indices(&mut candidate, &support);
+                    remap_var_indices(Arc::make_mut(&mut candidate), &support);
                 }
                 return Some(candidate);
             }
@@ -946,7 +950,7 @@ pub fn try_simplify_pattern_subtree(expr: &Expr, bitwidth: u32) -> Option<Box<Ex
         });
         if let Some(mut candidate) = combo {
             if !support.is_empty() {
-                remap_var_indices(&mut candidate, &support);
+                remap_var_indices(Arc::make_mut(&mut candidate), &support);
             }
             return Some(candidate);
         }
@@ -966,7 +970,7 @@ pub fn try_simplify_pattern_subtree(expr: &Expr, bitwidth: u32) -> Option<Box<Ex
 /// signature of e.g. `Add(X, 0)` is identical to `X`'s — they would
 /// compare "equal cost" and be rejected by `is_better`. Catching the
 /// shape structurally is strictly cheaper anyway.
-fn try_simplify_trivial_arith(expr: &Expr, bitwidth: u32) -> Option<Box<Expr>> {
+fn try_simplify_trivial_arith(expr: &Expr, bitwidth: u32) -> Option<Arc<Expr>> {
     let mask = bitmask(bitwidth);
     match expr.kind {
         Kind::Add if expr.children.len() == 2 => {
@@ -1006,11 +1010,14 @@ fn is_constant_masked(expr: &Expr, target: u64, mask: u64) -> bool {
 /// Bottom-up recursive application of [`try_simplify_pattern_subtree`].
 /// retry at each newly-formed parent until a fixed point.
 #[must_use]
-pub fn simplify_pattern_subtrees(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
-    let children: Vec<Box<Expr>> = expr.children.drain(..).collect();
-    for child in children {
-        expr.children
-            .push(simplify_pattern_subtrees(child, bitwidth));
+pub fn simplify_pattern_subtrees(mut expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
+    {
+        let node = Arc::make_mut(&mut expr);
+        let children: Vec<Arc<Expr>> = node.children.drain(..).collect();
+        for child in children {
+            node.children
+                .push(simplify_pattern_subtrees(child, bitwidth));
+        }
     }
 
     if let Some(rewritten) = try_simplify_pattern_subtree(&expr, bitwidth) {
@@ -1025,9 +1032,9 @@ pub fn simplify_pattern_subtrees(mut expr: Box<Expr>, bitwidth: u32) -> Box<Expr
 /// checks the exact before/after expression pair.
 #[must_use]
 pub fn simplify_pattern_subtrees_certified(
-    expr: Box<Expr>,
+    expr: Arc<Expr>,
     bitwidth: u32,
-) -> (Box<Expr>, Option<LeanCertificate>) {
+) -> (Arc<Expr>, Option<LeanCertificate>) {
     let expected = simplify_pattern_subtrees(expr.clone_tree(), bitwidth);
     if bitwidth != 64 {
         return (expected, None);
@@ -1065,7 +1072,7 @@ pub fn simplify_pattern_subtrees_certified(
     }
 }
 
-fn find_first_pattern_rewrite_site(root: &Expr, bitwidth: u32) -> Option<(ExprPath, Box<Expr>)> {
+fn find_first_pattern_rewrite_site(root: &Expr, bitwidth: u32) -> Option<(ExprPath, Arc<Expr>)> {
     find_first_pattern_rewrite_site_at(root, bitwidth, &mut Vec::new())
 }
 
@@ -1073,7 +1080,7 @@ fn find_first_pattern_rewrite_site_at(
     root: &Expr,
     bitwidth: u32,
     path: &mut Vec<u8>,
-) -> Option<(ExprPath, Box<Expr>)> {
+) -> Option<(ExprPath, Arc<Expr>)> {
     for (idx, child) in root.children.iter().enumerate() {
         let child_idx = u8::try_from(idx).ok()?;
         path.push(child_idx);
@@ -1127,7 +1134,7 @@ fn match_scaled_add_term(expr: &Expr, bitwidth: u32) -> Option<(&Expr, u64)> {
 /// Rewrite `k + k*(c^x)` to `(-k)*(~c ^ x)`, and more generally
 /// `k + k*x` to `(-k)*~x`.
 #[must_use]
-pub fn canonicalize_scaled_boolean_sum(expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
+pub fn canonicalize_scaled_boolean_sum(expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
     let Some((term, coeff)) = match_scaled_add_term(&expr, bitwidth) else {
         return expr;
     };
@@ -1159,7 +1166,7 @@ pub fn canonicalize_scaled_boolean_sum(expr: Box<Expr>, bitwidth: u32) -> Box<Ex
 
 /// Final normalization used by upstream before late candidate acceptance.
 #[must_use]
-pub fn normalize_late_candidate_expr(expr: Box<Expr>, bitwidth: u32) -> Box<Expr> {
+pub fn normalize_late_candidate_expr(expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
     let expr = canonicalize_scaled_boolean_sum(expr, bitwidth);
     simplify_pattern_subtrees(expr, bitwidth)
 }

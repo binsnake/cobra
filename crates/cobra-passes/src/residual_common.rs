@@ -4,6 +4,7 @@
 use cobra_core::expr::Expr;
 use cobra_core::expr_cost::compute_cost;
 use cobra_core::pass_contract::{DecompositionMeta, VerificationState};
+use std::sync::Arc;
 
 use cobra_orchestrator::{
     project_extractor_kind, CandidatePayload, ItemDisposition, OrchestratorContext, PassDecision,
@@ -19,7 +20,7 @@ use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 /// fails or the signature certificate cannot be built.
 pub fn try_recombine_and_emit(
     residual: &RemainderStatePayload,
-    mut solved_expr: Box<Expr>,
+    mut solved_expr: Arc<Expr>,
     solved_expr_vars: &[String],
     parent: &WorkItem,
     ctx: &OrchestratorContext,

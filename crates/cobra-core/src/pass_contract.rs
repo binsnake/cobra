@@ -5,6 +5,7 @@
 
 use crate::classification::Classification;
 use crate::expr::Expr;
+use std::sync::Arc;
 
 /// Broad outcome bucket.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -165,7 +166,7 @@ pub enum VerificationState {
 /// Work the pass couldn't consume — the remaining residual plus its
 #[derive(Clone, Debug)]
 pub struct PendingWork {
-    pub residual: Box<Expr>,
+    pub residual: Arc<Expr>,
     pub residual_classification: Classification,
 }
 
@@ -173,7 +174,7 @@ pub struct PendingWork {
 #[must_use]
 pub enum PassOutcome {
     Success {
-        expr: Box<Expr>,
+        expr: Arc<Expr>,
         real_vars: Vec<String>,
         verification: VerificationState,
         sig_vector: Vec<u64>,
@@ -182,7 +183,7 @@ pub enum PassOutcome {
     Inapplicable(ReasonDetail),
     Blocked(ReasonDetail),
     Partial {
-        expr: Box<Expr>,
+        expr: Arc<Expr>,
         real_vars: Vec<String>,
         verification: VerificationState,
         pending: PendingWork,
@@ -191,7 +192,7 @@ pub enum PassOutcome {
         decomposition_meta: Option<DecompositionMeta>,
     },
     VerifyFailed {
-        expr: Box<Expr>,
+        expr: Arc<Expr>,
         real_vars: Vec<String>,
         reason: ReasonDetail,
         sig_vector: Vec<u64>,
@@ -217,7 +218,7 @@ impl PassOutcome {
     }
 
     pub fn success(
-        expr: Box<Expr>,
+        expr: Arc<Expr>,
         real_vars: Vec<String>,
         verification: VerificationState,
     ) -> Self {
@@ -239,7 +240,7 @@ impl PassOutcome {
     }
 
     pub fn partial(
-        expr: Box<Expr>,
+        expr: Arc<Expr>,
         real_vars: Vec<String>,
         verification: VerificationState,
         pending: PendingWork,
@@ -256,7 +257,7 @@ impl PassOutcome {
         }
     }
 
-    pub fn verify_failed(expr: Box<Expr>, real_vars: Vec<String>, reason: ReasonDetail) -> Self {
+    pub fn verify_failed(expr: Arc<Expr>, real_vars: Vec<String>, reason: ReasonDetail) -> Self {
         Self::VerifyFailed {
             expr,
             real_vars,

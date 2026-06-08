@@ -7,6 +7,7 @@ use cobra_core::evaluator::Evaluator;
 use cobra_core::expr::Expr;
 use cobra_core::expr_cost::ExprCost;
 use cobra_ir::semilinear::SemilinearIR;
+use std::sync::Arc;
 
 use crate::continuation::GroupId;
 use crate::enums::{PassId, Provenance, RemainderOrigin, StateKind};
@@ -25,7 +26,7 @@ pub struct AstSolveContext {
 
 #[derive(Clone, Debug)]
 pub struct AstPayload {
-    pub expr: Box<Expr>,
+    pub expr: Arc<Expr>,
     pub classification: Option<Classification>,
     pub provenance: Provenance,
     pub solve_ctx: Option<AstSolveContext>,
@@ -57,7 +58,7 @@ pub struct SignatureCoeffStatePayload {
 
 #[derive(Clone, Debug)]
 pub struct CandidatePayload {
-    pub expr: Box<Expr>,
+    pub expr: Arc<Expr>,
     pub real_vars: Vec<String>,
     pub cost: ExprCost,
     pub producing_pass: PassId,
@@ -77,7 +78,7 @@ pub struct RemainderTargetContext {
 
 #[derive(Clone, Debug)]
 pub struct CoreCandidatePayload {
-    pub core_expr: Box<Expr>,
+    pub core_expr: Arc<Expr>,
     pub extractor_kind: ExtractorKind,
     pub degree_used: u8,
     pub source_sig: Vec<u64>,
@@ -87,7 +88,7 @@ pub struct CoreCandidatePayload {
 #[derive(Clone, Debug)]
 pub struct RemainderStatePayload {
     pub origin: RemainderOrigin,
-    pub prefix_expr: Box<Expr>,
+    pub prefix_expr: Arc<Expr>,
     pub prefix_degree: u8,
     pub remainder_eval: Evaluator,
     pub source_sig: Vec<u64>,
@@ -103,7 +104,7 @@ pub struct RemainderStatePayload {
 
 #[derive(Clone, Debug)]
 pub struct LiftedSkeletonPayload {
-    pub outer_expr: Box<Expr>,
+    pub outer_expr: Arc<Expr>,
     pub outer_ctx: AstSolveContext,
     pub bindings: Vec<crate::continuation::LiftedBinding>,
     pub original_var_count: u32,

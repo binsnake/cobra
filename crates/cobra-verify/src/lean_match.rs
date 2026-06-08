@@ -70,7 +70,7 @@ pub(crate) fn binary_child<'a>(expr: &'a Expr, kind: &Kind, index: usize) -> Opt
     if expr.children.len() != 2 || !kind_matches(&expr.kind, kind) {
         return None;
     }
-    expr.children.get(index).map(Box::as_ref)
+    expr.children.get(index).map(|c| &**c)
 }
 
 /// Sole child of `expr` iff `expr` is the given unary `kind` with exactly one
@@ -80,7 +80,7 @@ pub(crate) fn unary_child<'a>(expr: &'a Expr, kind: &Kind) -> Option<&'a Expr> {
     if expr.children.len() != 1 || !kind_matches(&expr.kind, kind) {
         return None;
     }
-    expr.children.first().map(Box::as_ref)
+    expr.children.first().map(|c| &**c)
 }
 
 /// Kind equality up to payload: `Shr(_)` matches any shift amount; all other

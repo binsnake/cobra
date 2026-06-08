@@ -7,6 +7,7 @@
 //! the six-step refinement to each group.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use cobra_core::arith::bitmask;
 use cobra_core::expr::Expr;
@@ -282,7 +283,7 @@ pub fn refine_terms(ir: &mut SemilinearIR) {
     let modmask = bitmask(ir.bitwidth);
 
     let mut basis_groups: HashMap<u64, Vec<RefineTerm>> = HashMap::new();
-    let mut basis_repr: HashMap<u64, Box<Expr>> = HashMap::new();
+    let mut basis_repr: HashMap<u64, Arc<Expr>> = HashMap::new();
     let mut in_group = vec![false; ir.terms.len()];
 
     for (i, term) in ir.terms.iter().enumerate() {

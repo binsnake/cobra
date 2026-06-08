@@ -21,6 +21,7 @@ use cobra_core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
 };
 use cobra_core::{compile, eval as eval_compiled};
+use std::sync::Arc;
 
 use ahash::RandomState;
 
@@ -211,7 +212,7 @@ pub fn recover_multivar_poly(
 /// `max_degree_cap < min_degree`, `Blocked` if no degree verifies.
 #[must_use]
 pub struct PolyRecoveryResult {
-    pub expr: Box<Expr>,
+    pub expr: Arc<Expr>,
     pub degree_used: u8,
 }
 

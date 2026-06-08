@@ -9,6 +9,7 @@
 //! once the outer winner is known.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use cobra_core::evaluate_boolean_signature;
 use cobra_core::expr::{render, Expr, Kind};
@@ -201,7 +202,7 @@ pub fn replace_atoms_with_virtual(
     atoms: &[DeduplicatedAtom<'_>],
     vars: &[String],
     bitwidth: u32,
-) -> Box<Expr> {
+) -> Arc<Expr> {
     let index = build_atom_index(atoms);
     replace_atoms_with_virtual_inner(node, parent_is_bitwise, atoms, &index, vars, bitwidth)
 }
@@ -213,7 +214,7 @@ fn replace_atoms_with_virtual_inner(
     index: &HashMap<u64, Vec<usize>>,
     vars: &[String],
     bitwidth: u32,
-) -> Box<Expr> {
+) -> Arc<Expr> {
     if parent_is_bitwise
         && is_pure_arithmetic(node)
         && has_var_dep(node)
@@ -225,16 +226,19 @@ fn replace_atoms_with_virtual_inner(
     }
     let current_is_bitwise = is_bitwise_kind(&node.kind);
     let mut result = node.clone_tree();
-    for i in 0..result.children.len() {
-        let child = std::mem::replace(&mut result.children[i], Expr::constant(0));
-        result.children[i] = replace_atoms_with_virtual_inner(
-            &child,
-            current_is_bitwise,
-            atoms,
-            index,
-            vars,
-            bitwidth,
-        );
+    {
+        let r = Arc::make_mut(&mut result);
+        for i in 0..r.children.len() {
+            let child = std::mem::replace(&mut r.children[i], Expr::constant(0));
+            r.children[i] = replace_atoms_with_virtual_inner(
+                &child,
+                current_is_bitwise,
+                atoms,
+                index,
+                vars,
+                bitwidth,
+            );
+        }
     }
     result
 }
@@ -245,7 +249,7 @@ pub fn replace_repeats_with_virtual(
     atoms: &[DeduplicatedAtom<'_>],
     vars: &[String],
     bitwidth: u32,
-) -> Box<Expr> {
+) -> Arc<Expr> {
     let index = build_atom_index(atoms);
     replace_repeats_with_virtual_inner(node, atoms, &index, vars, bitwidth)
 }
@@ -256,7 +260,7 @@ fn replace_repeats_with_virtual_inner(
     index: &HashMap<u64, Vec<usize>>,
     vars: &[String],
     bitwidth: u32,
-) -> Box<Expr> {
+) -> Arc<Expr> {
     if !matches!(node.kind, Kind::Constant(_) | Kind::Variable(_)) {
         let h = expr_identity_hash(node);
         if let Some(bucket) = index.get(&h) {
@@ -272,10 +276,13 @@ fn replace_repeats_with_virtual_inner(
         }
     }
     let mut result = node.clone_tree();
-    for i in 0..result.children.len() {
-        let child = std::mem::replace(&mut result.children[i], Expr::constant(0));
-        result.children[i] =
-            replace_repeats_with_virtual_inner(&child, atoms, index, vars, bitwidth);
+    {
+        let r = Arc::make_mut(&mut result);
+        for i in 0..r.children.len() {
+            let child = std::mem::replace(&mut r.children[i], Expr::constant(0));
+            r.children[i] =
+                replace_repeats_with_virtual_inner(&child, atoms, index, vars, bitwidth);
+        }
     }
     result
 }

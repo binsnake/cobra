@@ -268,14 +268,14 @@ fn binary_child(expr: &Expr, kind: KindTag, index: usize) -> Option<&Expr> {
     if expr.children.len() != 2 || !matches_kind(expr, kind) {
         return None;
     }
-    expr.children.get(index).map(Box::as_ref)
+    expr.children.get(index).map(|c| &**c)
 }
 
 fn unary_child(expr: &Expr, kind: KindTag) -> Option<&Expr> {
     if expr.children.len() != 1 || !matches_kind(expr, kind) {
         return None;
     }
-    expr.children.first().map(Box::as_ref)
+    expr.children.first().map(|c| &**c)
 }
 
 fn matches_kind(expr: &Expr, kind: KindTag) -> bool {

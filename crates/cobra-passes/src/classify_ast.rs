@@ -54,13 +54,15 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use cobra_core::classification::{SemanticClass, StructuralFlag};
     use cobra_core::expr::Expr;
     use cobra_core::simplify_outcome::Options;
     use cobra_orchestrator::Provenance;
 
-    fn mk_ast_item(e: Box<Expr>) -> WorkItem {
+    fn mk_ast_item(e: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
             expr: e,
             classification: None,

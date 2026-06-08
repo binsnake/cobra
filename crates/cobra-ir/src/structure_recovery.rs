@@ -14,6 +14,7 @@
 //!   probing at `x = 0` and `x = all_ones`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use cobra_core::arith::{bitmask, mod_neg};
 use cobra_core::expr::{Expr, Kind};
@@ -117,7 +118,7 @@ fn find_or_create_bare_atom(
 fn create_atom_indexed(
     ir: &mut SemilinearIR,
     index: &mut HashMap<u64, Vec<AtomId>>,
-    subtree: Box<Expr>,
+    subtree: Arc<Expr>,
     provenance: OperatorFamily,
 ) -> AtomId {
     let hash = structural_hash(&subtree);
@@ -184,7 +185,7 @@ pub fn recover_structure(ir: &mut SemilinearIR) {
     let modmask = bitmask(ir.bitwidth);
 
     let mut basis_groups: HashMap<u64, Vec<GroupTerm>> = HashMap::new();
-    let mut basis_repr: HashMap<u64, Box<Expr>> = HashMap::new();
+    let mut basis_repr: HashMap<u64, Arc<Expr>> = HashMap::new();
     let mut in_group = vec![false; ir.terms.len()];
 
     for (i, term) in ir.terms.iter().enumerate() {
@@ -311,7 +312,7 @@ pub fn coalesce_terms(ir: &mut SemilinearIR) {
     let modmask = bitmask(ir.bitwidth);
 
     let mut basis_groups: HashMap<u64, Vec<GroupTerm>> = HashMap::new();
-    let mut basis_repr: HashMap<u64, Box<Expr>> = HashMap::new();
+    let mut basis_repr: HashMap<u64, Arc<Expr>> = HashMap::new();
     let mut in_group = vec![false; ir.terms.len()];
 
     for (i, term) in ir.terms.iter().enumerate() {

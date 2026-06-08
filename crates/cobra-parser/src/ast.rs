@@ -6,13 +6,14 @@
 use cobra_core::arith::bitmask;
 use cobra_core::expr::{Expr, Kind};
 use cobra_core::result::{err, CobraError, Result};
+use std::sync::Arc;
 
 use crate::postfix::{collect_sorted_vars, to_postfix, validate_shifts_and_exponents};
 use crate::token::{Token, TokenType};
 
 #[derive(Clone, Debug)]
 pub struct AstResult {
-    pub expr: Box<Expr>,
+    pub expr: Arc<Expr>,
     pub vars: Vec<String>,
     /// Per-variable bit widths, one entry per name in `vars`. Default-filled
     /// to the run's global `bitwidth`; plumbing for downstream Z3/orchestrator
@@ -60,9 +61,9 @@ pub fn parse_to_ast(input: &str, bitwidth: u32) -> Result<AstResult> {
 
 /// Reconstruct an `Expr` tree from a postfix token sequence. `var_names` is
 /// the sorted variable list produced by [`collect_sorted_vars`].
-pub fn build_ast(postfix: &[Token], var_names: &[String], bitwidth: u32) -> Result<Box<Expr>> {
+pub fn build_ast(postfix: &[Token], var_names: &[String], bitwidth: u32) -> Result<Arc<Expr>> {
     let mask = bitmask(bitwidth);
-    let mut stack: Vec<Box<Expr>> = Vec::new();
+    let mut stack: Vec<Arc<Expr>> = Vec::new();
 
     for tok in postfix {
         match tok.ty {
@@ -142,7 +143,7 @@ fn expect_constant(expr: &Expr, msg: &str) -> Result<u64> {
 }
 
 #[allow(clippy::needless_pass_by_value)] // Keep ownership shape aligned with other AST builders.
-fn apply_pow(lhs: Box<Expr>, rhs: &Expr, mask: u64) -> Result<Box<Expr>> {
+fn apply_pow(lhs: Arc<Expr>, rhs: &Expr, mask: u64) -> Result<Arc<Expr>> {
     let exp = expect_constant(rhs, "unsupported: exponent must be an integer literal")?;
     if exp == 0 {
         return Ok(Expr::constant(1 & mask));
@@ -155,7 +156,7 @@ fn apply_pow(lhs: Box<Expr>, rhs: &Expr, mask: u64) -> Result<Box<Expr>> {
 // For odd exp we emit `pow(base, exp-1) * base` so that `a ** 3` still shapes
 // as `(a * a) * a` — root Mul whose left child is Mul.
 #[allow(clippy::unnecessary_box_returns)] // `Expr` factory helpers return boxed trees throughout this module.
-fn pow_by_squaring(base: &Expr, exp: u64) -> Box<Expr> {
+fn pow_by_squaring(base: &Expr, exp: u64) -> Arc<Expr> {
     debug_assert!(exp >= 1);
     if exp == 1 {
         return base.clone_tree();
@@ -170,14 +171,14 @@ fn pow_by_squaring(base: &Expr, exp: u64) -> Box<Expr> {
     }
 }
 
-fn apply_shl(lhs: Box<Expr>, rhs: &Expr, mask: u64) -> Result<Box<Expr>> {
+fn apply_shl(lhs: Arc<Expr>, rhs: &Expr, mask: u64) -> Result<Arc<Expr>> {
     let k = expect_constant(rhs, "unsupported: shift amount must be an integer literal")?;
     // validate_shifts_and_exponents has already confirmed k < bitwidth.
     let multiplier = (1u64 << k) & mask;
     Ok(Expr::mul(lhs, Expr::constant(multiplier)))
 }
 
-fn apply_shr(lhs: Box<Expr>, rhs: &Expr) -> Result<Box<Expr>> {
+fn apply_shr(lhs: Arc<Expr>, rhs: &Expr) -> Result<Arc<Expr>> {
     let k = expect_constant(rhs, "unsupported: shift amount must be an integer literal")?;
     Ok(Expr::shr(lhs, k))
 }

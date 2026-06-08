@@ -12,11 +12,12 @@
 
 use cobra_core::expr::Expr;
 use cobra_core::expr_rewrite::apply_coefficient;
+use std::sync::Arc;
 
 use crate::semilinear::{AtomId, PartitionClass, SemilinearIR};
 
 struct ReconstructEntry {
-    expr: Box<Expr>,
+    expr: Arc<Expr>,
     coeff: u64,
     atom_id: AtomId,
 }
@@ -34,7 +35,7 @@ fn compute_active_mask(atom_id: AtomId, partitions: &[PartitionClass]) -> u64 {
 /// with coefficient-1 pairs fused into `OR` nodes when their active
 /// masks are disjoint.
 #[must_use]
-pub fn reconstruct_masked_atoms(ir: &SemilinearIR, partitions: &[PartitionClass]) -> Box<Expr> {
+pub fn reconstruct_masked_atoms(ir: &SemilinearIR, partitions: &[PartitionClass]) -> Arc<Expr> {
     if ir.terms.is_empty() {
         return Expr::constant(ir.constant);
     }
@@ -56,7 +57,7 @@ pub fn reconstruct_masked_atoms(ir: &SemilinearIR, partitions: &[PartitionClass]
         .collect();
 
     let mut consumed = vec![false; entries.len()];
-    let mut combined: Vec<Box<Expr>> = Vec::new();
+    let mut combined: Vec<Arc<Expr>> = Vec::new();
 
     if !partitions.is_empty() {
         for i in 0..entries.len() {
@@ -83,7 +84,7 @@ pub fn reconstruct_masked_atoms(ir: &SemilinearIR, partitions: &[PartitionClass]
         }
     }
 
-    let mut all_terms: Vec<Box<Expr>> = combined;
+    let mut all_terms: Vec<Arc<Expr>> = combined;
     for (i, e) in entries.into_iter().enumerate() {
         if !consumed[i] {
             all_terms.push(e.expr);

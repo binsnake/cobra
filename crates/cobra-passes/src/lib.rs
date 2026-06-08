@@ -14,7 +14,7 @@
 //! enabling more passes is purely additive.
 
 #![forbid(unsafe_code)]
-// Expr-building helpers return `Box<Expr>` to match the ownership shape
+// Expr-building helpers return `Arc<Expr>` to match the ownership shape
 // of `cobra_core::Expr` factories.
 #![allow(clippy::unnecessary_box_returns)]
 

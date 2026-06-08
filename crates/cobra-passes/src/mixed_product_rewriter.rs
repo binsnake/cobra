@@ -16,6 +16,7 @@ use cobra_core::expr::{Expr, Kind};
 use cobra_core::expr_rewrite::has_nonleaf_bitwise;
 use cobra_core::expr_utils::has_var_dep;
 use cobra_orchestrator::ExprPath;
+use std::sync::Arc;
 
 use crate::classifier::classify_structural;
 
@@ -40,7 +41,7 @@ pub struct RewriteOptions {
 
 #[derive(Clone)]
 pub struct RewriteResult {
-    pub expr: Box<Expr>,
+    pub expr: Arc<Expr>,
     pub rounds_applied: u32,
     pub structure_changed: bool,
 }
@@ -116,7 +117,7 @@ fn count_sites_and_nodes(expr: &Expr) -> (u32, u32) {
     count_sites_and_nodes_impl(expr, RewriteContext::default())
 }
 
-fn lower_xor_site(expr: &Expr) -> Option<Box<Expr>> {
+fn lower_xor_site(expr: &Expr) -> Option<Arc<Expr>> {
     if !matches!(expr.kind, Kind::Xor) || expr.children.len() != 2 {
         return None;
     }
@@ -131,8 +132,8 @@ fn lower_xor_site(expr: &Expr) -> Option<Box<Expr>> {
 }
 
 #[must_use]
-pub fn find_first_xor_lowering_rewrite(expr: &Expr) -> Option<(ExprPath, Box<Expr>)> {
-    fn go(expr: &Expr, ctx: RewriteContext, path: &mut Vec<u8>) -> Option<(ExprPath, Box<Expr>)> {
+pub fn find_first_xor_lowering_rewrite(expr: &Expr) -> Option<(ExprPath, Arc<Expr>)> {
+    fn go(expr: &Expr, ctx: RewriteContext, path: &mut Vec<u8>) -> Option<(ExprPath, Arc<Expr>)> {
         let child_ctx = child_context(expr, ctx);
         for (idx, child) in expr.children.iter().enumerate() {
             let idx = u8::try_from(idx).ok()?;
@@ -155,8 +156,8 @@ pub fn find_first_xor_lowering_rewrite(expr: &Expr) -> Option<(ExprPath, Box<Exp
 }
 
 #[allow(clippy::boxed_local)]
-fn apply_xor_lowering(expr: Box<Expr>, ctx: RewriteContext) -> Box<Expr> {
-    let mut e = *expr;
+fn apply_xor_lowering(expr: Arc<Expr>, ctx: RewriteContext) -> Arc<Expr> {
+    let mut e = Arc::try_unwrap(expr).unwrap_or_else(|a| (*a).clone());
     let child_ctx = child_context(&e, ctx);
     for i in 0..e.children.len() {
         let child = std::mem::replace(&mut e.children[i], Expr::constant(0));
@@ -165,11 +166,11 @@ fn apply_xor_lowering(expr: Box<Expr>, ctx: RewriteContext) -> Box<Expr> {
     if matches!(e.kind, Kind::Xor) && child_ctx.unsupported() && e.children.len() == 2 {
         return lower_xor_site(&e).expect("xor lowering site");
     }
-    Box::new(e)
+    Arc::new(e)
 }
 
 #[must_use]
-pub fn rewrite_mixed_products(expr: Box<Expr>, opts: &RewriteOptions) -> RewriteResult {
+pub fn rewrite_mixed_products(expr: Arc<Expr>, opts: &RewriteOptions) -> RewriteResult {
     let cls = classify_structural(&expr);
     let unsupported_mask =
         StructuralFlag::HAS_MIXED_PRODUCT | StructuralFlag::HAS_BITWISE_OVER_ARITH;
