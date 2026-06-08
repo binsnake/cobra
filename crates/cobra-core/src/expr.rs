@@ -235,7 +235,10 @@ fn render_impl(
         }
         Kind::Variable(index) => {
             let idx = *index as usize;
-            out.push_str(&var_names[idx]);
+            // Bounds-check: an out-of-range index means a lifted/aux var
+            // leaked into the public expr. Render a placeholder instead of
+            // panicking so the caller can detect and reject it gracefully.
+            out.push_str(var_names.get(idx).map_or("?", String::as_str));
         }
         Kind::Not => {
             out.push('~');
