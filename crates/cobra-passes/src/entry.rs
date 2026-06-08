@@ -340,4 +340,92 @@ mod tests {
         assert_eq!(ctx.next_group_id, 1);
         assert_eq!(ctx.competition_groups[&0].open_handles, 1);
     }
+
+    // --- Mixed-width soundness (the wall) --------------------------------
+
+    /// Sample-check that `simplify_expr`'s output is semantically equivalent
+    /// to its input over `bitwidth`-wide variable assignments.
+    fn assert_simplify_preserves_semantics(expr: &Expr, vars: &[String], bitwidth: u32) {
+        let outcome = simplify_expr(expr, vars, Options::default())
+            .expect("simplify must not error on a well-formed mixed-width expr");
+        // The wall may legitimately leave it unchanged/unsupported; whatever
+        // comes back must still compute the same value as the input.
+        let Some(result) = outcome.expr.as_ref() else {
+            return;
+        };
+        let input_eval = Evaluator::from_expr(expr, bitwidth);
+        let output_eval = Evaluator::from_expr(result, bitwidth);
+        let n = vars.len();
+        // Deterministic spread of assignments across the variable space.
+        for seed in 0u64..64 {
+            let point: Vec<u64> = (0..n)
+                .map(|i| {
+                    let rot = u32::try_from(i * 7 + 3).unwrap_or(0) & 63;
+                    seed.wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(rot)
+                })
+                .collect();
+            assert_eq!(
+                input_eval.eval(&point),
+                output_eval.eval(&point),
+                "mixed-width simplify changed semantics at {point:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_width_zext_is_handled_soundly() {
+        // zext(v0, 32) is non-uniform: the pipeline must wall it off and
+        // never panic (the bit_partitioner tripwire) nor miscompile.
+        let expr = Expr::zext(Expr::variable(0), 32);
+        let vars = vec!["a".to_string()];
+        assert_simplify_preserves_semantics(&expr, &vars, 64);
+    }
+
+    #[test]
+    fn mixed_width_concat_is_handled_soundly() {
+        // concat(v0:u8, v1:u8) — a width-summing node buried in arithmetic.
+        let expr = Expr::add(
+            Expr::concat(Expr::variable(0), Expr::variable(1)),
+            Expr::variable(2),
+        );
+        let vars = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        assert_simplify_preserves_semantics(&expr, &vars, 64);
+    }
+
+    #[test]
+    fn mixed_width_cast_inside_mba_stays_equivalent() {
+        // A cross-width MBA: trunc inside a bitwise/arith mix. The opaque
+        // path must keep it equivalent (output == input semantically).
+        let expr = Expr::xor(
+            Expr::trunc(Expr::variable(0), 8),
+            Expr::and(Expr::variable(1), Expr::constant(0xFF)),
+        );
+        let vars = vec!["a".to_string(), "b".to_string()];
+        assert_simplify_preserves_semantics(&expr, &vars, 64);
+    }
+
+    // --- Shift still works (parse -> simplify) ---------------------------
+
+    #[test]
+    fn shl_parses_to_mul_and_simplifies_sanely() {
+        // `a << 3` lowers to `a * 8` at parse; simplify must keep it
+        // semantically equal to the input.
+        let parsed = cobra_parser::parse_to_ast("a << 3", 64).expect("parse a << 3");
+        assert!(
+            matches!(parsed.expr.kind, Kind::Mul),
+            "a << 3 should lower to a Mul node"
+        );
+        assert_simplify_preserves_semantics(&parsed.expr, &parsed.vars, 64);
+    }
+
+    #[test]
+    fn shr_parses_to_shr_node_and_simplifies_sanely() {
+        // `a >> 2` stays a Shr(2) node; simplify must keep it equivalent.
+        let parsed = cobra_parser::parse_to_ast("a >> 2", 64).expect("parse a >> 2");
+        match parsed.expr.kind {
+            Kind::Shr(k) => assert_eq!(k, 2),
+            ref other => panic!("a >> 2 should be Shr(2), got {other:?}"),
+        }
+        assert_simplify_preserves_semantics(&parsed.expr, &parsed.vars, 64);
+    }
 }

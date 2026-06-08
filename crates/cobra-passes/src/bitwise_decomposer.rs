@@ -110,6 +110,15 @@ pub fn remap_vars(expr: &Expr, index_map: &[u32]) -> Box<Expr> {
         Kind::Not => Expr::not(remap_vars(&expr.children[0], index_map)),
         Kind::Neg => Expr::neg(remap_vars(&expr.children[0], index_map)),
         Kind::Shr(k) => Expr::shr(remap_vars(&expr.children[0], index_map), u64::from(*k)),
+        // Width-changing nodes are remapped structurally (variable indices
+        // only); the cast widths and Concat shape are preserved verbatim.
+        Kind::ZExt(w) => Expr::zext(remap_vars(&expr.children[0], index_map), *w),
+        Kind::SExt(w) => Expr::sext(remap_vars(&expr.children[0], index_map), *w),
+        Kind::Trunc(w) => Expr::trunc(remap_vars(&expr.children[0], index_map), *w),
+        Kind::Concat => Expr::concat(
+            remap_vars(&expr.children[0], index_map),
+            remap_vars(&expr.children[1], index_map),
+        ),
     }
 }
 

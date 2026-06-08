@@ -42,6 +42,23 @@ fn classify_node(expr: &Expr) -> NodeInfo {
         }
         Kind::Not => classify_not(&expr.children[0]),
         Kind::Shr(_) => classify_shr(&expr.children[0]),
+        // Width-changing casts / Concat: opaque structurally. Mark
+        // HAS_UNKNOWN_SHAPE so the orchestrator steers away from algebraic
+        // recovery, and fold in children's flags (var-dep) conservatively
+        // without propagating any same-width polynomial/bitwise structure.
+        Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => {
+            let mut info = NodeInfo {
+                flags: StructuralFlag::HAS_UNKNOWN_SHAPE,
+                ..NodeInfo::default()
+            };
+            for child in &expr.children {
+                let c = classify_node(child);
+                info.has_var_dep |= c.has_var_dep;
+                info.has_arith_var_dep |= c.has_arith_var_dep || c.has_var_dep;
+                info.flags |= c.flags;
+            }
+            info
+        }
     }
 }
 

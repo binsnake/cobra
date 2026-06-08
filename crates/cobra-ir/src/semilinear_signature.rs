@@ -9,6 +9,7 @@
 
 use cobra_core::arith::{bitmask, mod_neg, mod_shr};
 use cobra_core::expr::{Expr, Kind};
+use cobra_core::width::is_uniform_width;
 
 fn pool_take(pool: &mut Vec<Vec<u64>>, len: usize) -> Vec<u64> {
     match pool.pop() {
@@ -217,6 +218,13 @@ fn eval_at_point(expr: &Expr, var_vals: &[u64], mask: u64) -> u64 {
 #[must_use]
 pub fn is_linear_shortcut(expr: &Expr, num_vars: u32, bitwidth: u32) -> bool {
     if bitwidth == 0 || num_vars > 20 {
+        return false;
+    }
+    // Soundness wall: a mixed-width expression (any cast/Concat node) is not a
+    // clean linear-shortcut candidate. Bail conservatively so the probe's
+    // `eval_at_point` never observes a width-changing node — the opaque /
+    // normal semilinear path handles these instead.
+    if !is_uniform_width(expr, &[], bitwidth) {
         return false;
     }
     // Size the assignment buffer by the max variable index actually

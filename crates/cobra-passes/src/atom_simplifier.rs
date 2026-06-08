@@ -116,7 +116,18 @@ fn exprs_equal(a: &Expr, b: &Expr) -> bool {
 }
 
 fn has_constant_or_shr(e: &Expr) -> bool {
-    if matches!(e.kind, Kind::Constant(_) | Kind::Shr(_)) {
+    // Constants and shifts already block complement-merge / constant-fold;
+    // width-changing casts and Concat are likewise opaque to this same-width
+    // machinery and must block it too (soundness wall).
+    if matches!(
+        e.kind,
+        Kind::Constant(_)
+            | Kind::Shr(_)
+            | Kind::ZExt(_)
+            | Kind::SExt(_)
+            | Kind::Trunc(_)
+            | Kind::Concat
+    ) {
         return true;
     }
     e.children.iter().any(|c| has_constant_or_shr(c))
