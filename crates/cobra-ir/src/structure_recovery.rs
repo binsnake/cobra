@@ -63,6 +63,10 @@ fn eval_bitwise_at(expr: &Expr, vars: &[u64], mask: u64) -> u64 {
         Kind::Add | Kind::Mul | Kind::Neg => {
             unreachable!("arithmetic kind inside atom expression")
         }
+        // Walled off upstream: a mixed-width atom is opaque and never bit-walked.
+        Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => {
+            unreachable!("cast/Concat inside atom expression")
+        }
     }
 }
 

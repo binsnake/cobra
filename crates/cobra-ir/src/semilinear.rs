@@ -11,6 +11,7 @@ use std::hash::{Hash, Hasher};
 use cobra_core::arith::bitmask;
 use cobra_core::expr::{Expr, Kind};
 use cobra_core::expr_utils::{collect_vars, eval_constant, is_constant_subtree};
+use cobra_core::width::is_uniform_width;
 
 /// Stable index into `SemilinearIR::atom_table`.
 pub type AtomId = u32;
@@ -109,6 +110,13 @@ pub fn compute_atom_truth_table(atom: &Expr, support: &[GlobalVarIdx], bitwidth:
     if n > 5 {
         return Vec::new();
     }
+    // Soundness wall: a mixed-width subtree (any cast / `Concat`) must never be
+    // bit-walked by `eval_expr_bool`. Treat it as an opaque atom — an empty
+    // truth table, the same signal used for over-large support above — so it is
+    // keyed by support + subtree and never decomposed across a width boundary.
+    if !is_uniform_width(atom, &[], bitwidth) {
+        return Vec::new();
+    }
     let len = 1usize << n;
     let mask = bitmask(bitwidth);
     let mut tt = Vec::with_capacity(len);
@@ -151,6 +159,11 @@ fn eval_expr_bool(e: &Expr, support: &[GlobalVarIdx], assignment: u64, mask: u64
         Kind::Add | Kind::Mul | Kind::Neg => {
             unreachable!("arithmetic kind inside pure-bitwise atom")
         }
+        // Walled off by `compute_atom_truth_table`: a mixed-width subtree is
+        // registered as an opaque atom and never reaches the bit-walker.
+        Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => {
+            unreachable!("cast/Concat inside pure-bitwise atom")
+        }
     }
 }
 
@@ -168,6 +181,10 @@ pub fn structural_hash(expr: &Expr) -> u64 {
         Kind::Not => 7,
         Kind::Neg => 8,
         Kind::Shr(_) => 9,
+        Kind::ZExt(_) => 10,
+        Kind::SExt(_) => 11,
+        Kind::Trunc(_) => 12,
+        Kind::Concat => 13,
     };
     let mut h: u64 = tag;
     match &expr.kind {
@@ -176,6 +193,9 @@ pub fn structural_hash(expr: &Expr) -> u64 {
         }
         Kind::Shr(k) => {
             h ^= u64::from(*k).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        }
+        Kind::ZExt(w) | Kind::SExt(w) | Kind::Trunc(w) => {
+            h ^= u64::from(*w).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         }
         Kind::Variable(idx) => {
             h ^= u64::from(*idx + 1).wrapping_mul(0x517C_C1B7_2722_0A95);
@@ -322,6 +342,42 @@ mod tests {
         let atom = Expr::and(Expr::variable(0), Expr::variable(1));
         let support: Vec<u32> = (0..6).collect();
         assert!(compute_atom_truth_table(&atom, &support, 64).is_empty());
+    }
+
+    #[test]
+    fn mixed_width_atom_is_opaque_not_bit_walked() {
+        // Soundness wall: an atom containing a cast / `Concat` must NOT be
+        // decomposed into a truth table. The empty-table signal (shared with
+        // the over-large-support path) marks it opaque so the signature
+        // machinery never bit-walks the cast node.
+        let zext_atom = Expr::and(Expr::zext(Expr::variable(0), 16), Expr::variable(1));
+        assert!(
+            compute_atom_truth_table(&zext_atom, &[0, 1], 16).is_empty(),
+            "ZExt subtree must be treated as an opaque atom"
+        );
+
+        let concat_atom = Expr::concat(Expr::variable(0), Expr::variable(1));
+        assert!(
+            compute_atom_truth_table(&concat_atom, &[0, 1], 16).is_empty(),
+            "Concat subtree must be treated as an opaque atom"
+        );
+
+        // Uniform-width atoms are unaffected — same table as before the wall.
+        let uniform = Expr::and(Expr::variable(0), Expr::variable(1));
+        assert_eq!(
+            compute_atom_truth_table(&uniform, &[0, 1], 16),
+            vec![0, 0, 0, 1],
+            "uniform-width atoms must still be bit-walked unchanged"
+        );
+
+        // `create_atom` routes a mixed-width subtree to an empty truth table
+        // too, so it lands in the opaque-atom path rather than being decomposed.
+        let mut ir = SemilinearIR {
+            bitwidth: 16,
+            ..Default::default()
+        };
+        let id = create_atom(&mut ir, Expr::zext(Expr::variable(0), 16), OperatorFamily::Mixed);
+        assert!(ir.atom_table[id as usize].key.truth_table.is_empty());
     }
 
     #[test]

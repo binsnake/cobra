@@ -137,8 +137,12 @@ fn count_or_chain_depth(expr: &Expr) -> u32 {
 pub fn anf_expr_cost(expr: &Expr) -> u32 {
     match &expr.kind {
         Kind::Constant(_) | Kind::Variable(_) => 1,
-        Kind::Not | Kind::Neg => 1 + anf_expr_cost(&expr.children[0]),
-        Kind::Shr(_) | Kind::Add | Kind::Mul | Kind::And | Kind::Xor => {
+        // Casts are unary; their node cost is one plus the child's, like Not/Neg.
+        Kind::Not | Kind::Neg | Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) => {
+            1 + anf_expr_cost(&expr.children[0])
+        }
+        // Concat is binary; cost like any other binary node.
+        Kind::Shr(_) | Kind::Add | Kind::Mul | Kind::And | Kind::Xor | Kind::Concat => {
             1 + anf_expr_cost(&expr.children[0]) + anf_expr_cost(&expr.children[1])
         }
         Kind::Or => {

@@ -111,6 +111,24 @@ fn compute_expr_info(expr: &Expr, cache: &mut HashMap<*const Expr, ExprInfo>) ->
                 contains_shr: c.contains_shr,
             }
         }
+        // Mixed-width nodes are opaque: not purely bitwise, and their child
+        // predicates propagate conservatively. They are walled off before any
+        // bit-walking, so only the aggregate flags matter here.
+        Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => {
+            let mut acc = ExprInfo {
+                is_purely_bitwise: false,
+                has_var_dep: false,
+                has_constant: false,
+                contains_shr: false,
+            };
+            for child in &expr.children {
+                let c = compute_expr_info(child, cache);
+                acc.has_var_dep |= c.has_var_dep;
+                acc.has_constant |= c.has_constant;
+                acc.contains_shr |= c.contains_shr;
+            }
+            acc
+        }
     };
     cache.insert(key, info);
     info
@@ -162,7 +180,12 @@ fn eval_constant_arith(expr: &Expr, mask: u64, bitwidth: u32) -> u64 {
             mod_shr(v, u64::from(*k), 64) & mask
         }
         Kind::And | Kind::Or | Kind::Xor | Kind::Not => eval_constant_bitwise(expr, mask),
-        Kind::Variable(_) => 0,
+        // Opaque (mixed-width or variable): not a recognised constant term.
+        Kind::Variable(_)
+        | Kind::ZExt(_)
+        | Kind::SExt(_)
+        | Kind::Trunc(_)
+        | Kind::Concat => 0,
     }
 }
 

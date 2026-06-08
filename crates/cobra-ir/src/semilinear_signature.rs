@@ -116,6 +116,11 @@ fn eval_semilinear_recursive(
             pool.push(r);
             l
         }
+        // Mixed-width nodes are walled off before any signature row is built;
+        // reaching one here means a pass bypassed the uniform-width gate.
+        Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => {
+            unreachable!("cast/Concat in semilinear row evaluation")
+        }
     }
 }
 
@@ -197,6 +202,11 @@ fn eval_at_point(expr: &Expr, var_vals: &[u64], mask: u64) -> u64 {
             (eval_at_point(&expr.children[0], var_vals, mask)
                 ^ eval_at_point(&expr.children[1], var_vals, mask))
                 & mask
+        }
+        // Mixed-width nodes are walled off before the linearity probe runs;
+        // reaching one here means a pass bypassed the uniform-width gate.
+        Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => {
+            unreachable!("cast/Concat in linearity-probe evaluation")
         }
     }
 }
