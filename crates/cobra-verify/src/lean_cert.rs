@@ -9,6 +9,12 @@ use cobra_core::expr::Expr;
 use cobra_core::expr::Kind;
 use cobra_core::width::is_uniform_width;
 
+use crate::lean_match::{
+    add_with_neg_operands, and_or_sum_operands, expr_eq, is_all_ones, is_const_value, is_not_of,
+    is_one, is_zero, not_or_add_self_add_one_operands, not_or_minus_not_operands,
+    same_or_and_operands, scaled_and_or_sum_operands, unordered_pair_eq, xor_via_or_not_operands,
+};
+
 /// Theorem identifiers exported by `formal/lean/Cobra/Core.lean`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum LeanTheorem {
@@ -530,190 +536,6 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
     None
 }
 
-fn add_with_neg_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
-    let lhs = &expr.children[0];
-    let rhs = &expr.children[1];
-    if matches!(rhs.kind, Kind::Neg) && rhs.children.len() == 1 {
-        Some((lhs, &rhs.children[0]))
-    } else if matches!(lhs.kind, Kind::Neg) && lhs.children.len() == 1 {
-        Some((rhs, &lhs.children[0]))
-    } else {
-        None
-    }
-}
-
-fn same_or_and_operands<'a>(or_node: &'a Expr, and_node: &'a Expr) -> Option<(&'a Expr, &'a Expr)> {
-    if !matches!(or_node.kind, Kind::Or) || !matches!(and_node.kind, Kind::And) {
-        return None;
-    }
-    if or_node.children.len() != 2 || and_node.children.len() != 2 {
-        return None;
-    }
-    let a = &or_node.children[0];
-    let b = &or_node.children[1];
-    let x = &and_node.children[0];
-    let y = &and_node.children[1];
-    if unordered_pair_eq(a, b, x, y) {
-        Some((a, b))
-    } else {
-        None
-    }
-}
-
-fn and_or_sum_operands<'a>(lhs: &'a Expr, rhs: &'a Expr) -> Option<(&'a Expr, &'a Expr)> {
-    if let Some((a, b)) = same_or_and_operands(lhs, rhs) {
-        Some((a, b))
-    } else {
-        same_or_and_operands(rhs, lhs)
-    }
-}
-
-fn scaled_and_or_sum_operands<'a>(
-    lhs: &'a Expr,
-    rhs: &'a Expr,
-    coeff: u64,
-) -> Option<(&'a Expr, &'a Expr)> {
-    let lhs = scaled_child(lhs, coeff)?;
-    let rhs = scaled_child(rhs, coeff)?;
-    and_or_sum_operands(lhs, rhs)
-}
-
-fn scaled_child(expr: &Expr, coeff: u64) -> Option<&Expr> {
-    if !matches!(expr.kind, Kind::Mul) || expr.children.len() != 2 {
-        return None;
-    }
-    if is_const_value(&expr.children[0], coeff) {
-        Some(&expr.children[1])
-    } else if is_const_value(&expr.children[1], coeff) {
-        Some(&expr.children[0])
-    } else {
-        None
-    }
-}
-
-fn not_or_minus_not_operands<'a>(
-    or_node: &'a Expr,
-    not_node: &'a Expr,
-) -> Option<(&'a Expr, &'a Expr)> {
-    if !matches!(or_node.kind, Kind::Or)
-        || or_node.children.len() != 2
-        || !matches!(not_node.kind, Kind::Not)
-        || not_node.children.len() != 1
-    {
-        return None;
-    }
-    let a = &not_node.children[0];
-    let lhs = &or_node.children[0];
-    let rhs = &or_node.children[1];
-    if is_not_of(lhs, a) {
-        Some((a, rhs))
-    } else if is_not_of(rhs, a) {
-        Some((a, lhs))
-    } else {
-        None
-    }
-}
-
-struct SignedAddend<'a> {
-    expr: &'a Expr,
-    negated: bool,
-}
-
-fn flatten_signed_addends<'a>(expr: &'a Expr, negated: bool, out: &mut Vec<SignedAddend<'a>>) {
-    match expr.kind {
-        Kind::Add if expr.children.len() == 2 => {
-            flatten_signed_addends(&expr.children[0], negated, out);
-            flatten_signed_addends(&expr.children[1], negated, out);
-        }
-        Kind::Neg if expr.children.len() == 1 => {
-            flatten_signed_addends(&expr.children[0], !negated, out);
-        }
-        _ => out.push(SignedAddend { expr, negated }),
-    }
-}
-
-fn not_or_add_self_add_one_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
-    let mut addends = Vec::new();
-    flatten_signed_addends(expr, false, &mut addends);
-    if addends.len() != 3 || addends.iter().any(|a| a.negated) {
-        return None;
-    }
-
-    let one_idx = addends.iter().position(|a| is_one(a.expr))?;
-    let or_idx = addends
-        .iter()
-        .enumerate()
-        .find(|(idx, a)| *idx != one_idx && matches!(a.expr.kind, Kind::Or))
-        .map(|(idx, _)| idx)?;
-    let a_idx = (0..3).find(|idx| *idx != one_idx && *idx != or_idx)?;
-
-    let a = addends[a_idx].expr;
-    let or_node = addends[or_idx].expr;
-    if or_node.children.len() != 2 {
-        return None;
-    }
-    let lhs = &or_node.children[0];
-    let rhs = &or_node.children[1];
-    if is_not_of(lhs, a) {
-        Some((a, rhs))
-    } else if is_not_of(rhs, a) {
-        Some((a, lhs))
-    } else {
-        None
-    }
-}
-
-fn xor_via_or_not_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
-    let mut addends = Vec::new();
-    flatten_signed_addends(expr, false, &mut addends);
-    if addends.len() != 4 {
-        return None;
-    }
-
-    let neg_two_idx = addends
-        .iter()
-        .position(|a| a.negated && is_const_value(a.expr, 2))?;
-    let two_or = addends.iter().enumerate().find_map(|(idx, a)| {
-        if idx == neg_two_idx || !a.negated || !matches!(a.expr.kind, Kind::Mul) {
-            return None;
-        }
-        let lhs = &a.expr.children[0];
-        let rhs = &a.expr.children[1];
-        if is_const_value(lhs, 2) && matches!(rhs.kind, Kind::Or) {
-            Some((idx, rhs.as_ref()))
-        } else if is_const_value(rhs, 2) && matches!(lhs.kind, Kind::Or) {
-            Some((idx, lhs.as_ref()))
-        } else {
-            None
-        }
-    })?;
-
-    let (mul_idx, or_node) = two_or;
-    if or_node.children.len() != 2 {
-        return None;
-    }
-    let remaining: Vec<_> = (0..4)
-        .filter(|idx| *idx != neg_two_idx && *idx != mul_idx)
-        .collect();
-    if remaining.len() != 2 {
-        return None;
-    }
-    let (a_idx, b_idx) = match (addends[remaining[0]].negated, addends[remaining[1]].negated) {
-        (false, true) => (remaining[0], remaining[1]),
-        (true, false) => (remaining[1], remaining[0]),
-        _ => return None,
-    };
-    let a = addends[a_idx].expr;
-    let b = addends[b_idx].expr;
-    let lhs = &or_node.children[0];
-    let rhs = &or_node.children[1];
-    if (expr_eq(lhs, a) && is_not_of(rhs, b)) || (expr_eq(rhs, a) && is_not_of(lhs, b)) {
-        Some((a, b))
-    } else {
-        None
-    }
-}
-
 fn not_of_and_or(expr: &Expr) -> Option<(&Expr, &Expr, bool)> {
     if !matches!(expr.kind, Kind::And | Kind::Or) || expr.children.len() != 2 {
         return None;
@@ -831,36 +653,8 @@ fn is_neg_add_all_ones_of(expr: &Expr, inner: &Expr) -> bool {
     (is_neg_of(lhs, inner) && is_all_ones(rhs)) || (is_neg_of(rhs, inner) && is_all_ones(lhs))
 }
 
-fn is_not_of(expr: &Expr, inner: &Expr) -> bool {
-    matches!(expr.kind, Kind::Not) && expr.children.len() == 1 && expr_eq(&expr.children[0], inner)
-}
-
 fn is_neg_of(expr: &Expr, inner: &Expr) -> bool {
     matches!(expr.kind, Kind::Neg) && expr.children.len() == 1 && expr_eq(&expr.children[0], inner)
-}
-
-fn unordered_pair_eq(a: &Expr, b: &Expr, x: &Expr, y: &Expr) -> bool {
-    (expr_eq(a, x) && expr_eq(b, y)) || (expr_eq(a, y) && expr_eq(b, x))
-}
-
-fn expr_eq(lhs: &Expr, rhs: &Expr) -> bool {
-    lhs == rhs
-}
-
-fn is_zero(expr: &Expr) -> bool {
-    matches!(expr.kind, Kind::Constant(0))
-}
-
-fn is_one(expr: &Expr) -> bool {
-    matches!(expr.kind, Kind::Constant(1))
-}
-
-fn is_const_value(expr: &Expr, value: u64) -> bool {
-    matches!(expr.kind, Kind::Constant(v) if v == value)
-}
-
-fn is_all_ones(expr: &Expr) -> bool {
-    matches!(expr.kind, Kind::Constant(u64::MAX))
 }
 
 /// One theorem-backed local rewrite.

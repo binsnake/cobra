@@ -10,6 +10,7 @@ use cobra_core::expr::Expr;
 
 pub mod lean_cert;
 pub mod lean_emit;
+mod lean_match;
 pub mod null;
 #[cfg(feature = "z3")]
 pub mod z3_backend;
