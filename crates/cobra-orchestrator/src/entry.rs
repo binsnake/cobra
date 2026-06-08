@@ -6,7 +6,7 @@
 
 use cobra_core::expr::Expr;
 use cobra_core::expr_rewrite::{cleanup_final_expr, try_build_var_support};
-use cobra_core::expr_utils::remap_var_indices;
+use cobra_core::expr_utils::{collect_vars, remap_var_indices};
 use cobra_core::pass_contract::{PassOutcome, VerificationState};
 use cobra_core::result::Result;
 use cobra_core::simplify_outcome::{
@@ -56,46 +56,64 @@ pub fn to_simplify_outcome(
             verification,
             ..
         } => {
-            outcome.kind = SimplifyOutcomeKind::Simplified;
             let cleaned_expr = cleanup_final_expr(expr, bitwidth);
-            let has_matching_lean_certificate = result
-                .metadata
-                .lean_certificate
-                .as_ref()
-                .is_some_and(|cert| {
-                    original_expr.is_some_and(|original| {
-                        certificate_matches_public_output(
-                            cert,
-                            bitwidth,
-                            original,
-                            &cleaned_expr,
-                            &real_vars,
-                            original_vars,
-                        )
-                    })
-                });
-            let has_matching_signature_certificate = original_expr.is_none()
-                && result
+            // Defense-in-depth: the public output's variables must be a
+            // subset of the original problem's input variables. A surviving
+            // lifted/aux var (index >= number of original input vars) means a
+            // nested-lift leak (see resolve_lifted_substitute); rather than
+            // returning a leaked-var expression, reject this candidate and
+            // fall through to the echo-input path with a clear diagnostic.
+            let original_var_count = original_vars.len() as u32;
+            let mut output_vars = Vec::new();
+            collect_vars(&cleaned_expr, &mut output_vars);
+            if output_vars.iter().any(|&v| v >= original_var_count) {
+                outcome.kind = SimplifyOutcomeKind::UnchangedUnsupported;
+                outcome.expr = original_expr.map(|e| Box::new(e.clone()));
+                outcome.diag.reason =
+                    "rejected: simplified expression references a lifted/aux variable \
+                     not present in the original input (nested-lift leak)"
+                        .to_owned();
+            } else {
+                outcome.kind = SimplifyOutcomeKind::Simplified;
+                let has_matching_lean_certificate = result
                     .metadata
-                    .lean_signature_certificate
+                    .lean_certificate
                     .as_ref()
                     .is_some_and(|cert| {
-                        cert.matches_signature(
-                            bitwidth,
-                            real_vars.len() as u32,
-                            &result.metadata.sig_vector,
-                            &cleaned_expr,
-                        )
+                        original_expr.is_some_and(|original| {
+                            certificate_matches_public_output(
+                                cert,
+                                bitwidth,
+                                original,
+                                &cleaned_expr,
+                                &real_vars,
+                                original_vars,
+                            )
+                        })
                     });
-            let has_matching_lean_evidence =
-                has_matching_lean_certificate || has_matching_signature_certificate;
-            outcome.expr = Some(cleaned_expr);
-            outcome.real_vars = real_vars;
-            outcome.verified =
-                verification == VerificationState::Verified && has_matching_lean_evidence;
-            outcome.proof_level =
-                proof_level_for_verification(verification, has_matching_lean_evidence);
-            outcome.sig_vector = result.metadata.sig_vector;
+                let has_matching_signature_certificate = original_expr.is_none()
+                    && result
+                        .metadata
+                        .lean_signature_certificate
+                        .as_ref()
+                        .is_some_and(|cert| {
+                            cert.matches_signature(
+                                bitwidth,
+                                real_vars.len() as u32,
+                                &result.metadata.sig_vector,
+                                &cleaned_expr,
+                            )
+                        });
+                let has_matching_lean_evidence =
+                    has_matching_lean_certificate || has_matching_signature_certificate;
+                outcome.expr = Some(cleaned_expr);
+                outcome.real_vars = real_vars;
+                outcome.verified =
+                    verification == VerificationState::Verified && has_matching_lean_evidence;
+                outcome.proof_level =
+                    proof_level_for_verification(verification, has_matching_lean_evidence);
+                outcome.sig_vector = result.metadata.sig_vector;
+            }
         }
         other => {
             outcome.kind = SimplifyOutcomeKind::UnchangedUnsupported;
@@ -236,7 +254,10 @@ mod tests {
             telemetry: OrchestratorTelemetry::default(),
         };
 
-        let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into()]);
+        // Use a two-variable input space so `Variable(1)` is a legitimate
+        // input var (not a lifted/aux leak) — this test exercises
+        // certificate-mismatch handling, not the nested-lift leak guard.
+        let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into(), "y".into()]);
         assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
         assert!(!outcome.verified);
     }
