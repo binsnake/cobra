@@ -1,10 +1,11 @@
 //! Dataset harness for the `CoBRA` pipeline.
 //!
 //! - [`parse_dataset`] splits a `.txt` file into `(input, expected)`
-//!   pairs. Comments (`#`) and blank lines are skipped. The separator
-//!   `find_separator` behaviour (respecting parens and brackets).
+//!   pairs. Comments (`#`) and blank lines are skipped; the separator
+//!   search respects parens and brackets.
 //! - [`run_case`] drives one expression through the Rust pipeline and
-//!   (simplified ≡ expected) and a safety check (simplified ≡ input).
+//!   checks both correctness (simplified ≡ expected) and safety
+//!   (simplified ≡ input).
 //! - [`Report`] aggregates a batch of [`CaseReport`]s for a sweep.
 //!
 //! The harness is deliberately small — dataset streaming and the
@@ -137,8 +138,9 @@ pub struct CaseReport {
     pub error: Option<String>,
 }
 
-/// Drive one `Case` through the pipeline and compare against both the
-/// using a 256-sample full-width probe.
+/// Drive one `Case` through the pipeline and compare the simplified result
+/// against both the input and the expected expression, using a 256-sample
+/// full-width probe.
 #[must_use]
 pub fn run_case(case: &Case, bitwidth: u32) -> CaseReport {
     let Ok(parsed_input) = parse_to_ast(&case.input, bitwidth) else {

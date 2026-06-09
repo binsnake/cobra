@@ -24,13 +24,13 @@ enum Direction {
 
 fn transform_basis(input: &CoeffMap, num_vars: u8, bitwidth: u32, dir: &Direction) -> CoeffMap {
     let mask = bitmask(bitwidth);
-    let mut current: CoeffMap = input.clone();
 
-    let max_deg = current
+    let max_deg = input
         .keys()
         .map(|k| k.max_degree(num_vars))
         .max()
         .unwrap_or(0);
+    let mut current: CoeffMap = input.clone();
     if max_deg <= 1 {
         return current;
     }

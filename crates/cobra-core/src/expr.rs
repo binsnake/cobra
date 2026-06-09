@@ -351,8 +351,10 @@ mod tests {
         assert_eq!(a, b);
         // `clone_tree` allocates a fresh root node...
         assert!(!std::ptr::eq(a.as_ref(), b.as_ref()));
-        // ...but the children are shared (`Arc`), not deep-copied — that is the
-        // allocation win. Cloning a tree is O(1) in the number of nodes.
+        // ...but the children are shared (`Arc`), not deep-copied — that is
+        // the allocation win. Cloning a tree allocates only the root node
+        // (O(direct children) for the `Arc` refcount bumps), independent of
+        // the total node count of the tree.
         assert!(std::ptr::eq(a.children[0].as_ref(), b.children[0].as_ref()));
         // Sharing stays sound via copy-on-write: mutating `b`'s root through
         // `Arc::make_mut` does not affect `a`.

@@ -1,8 +1,8 @@
 //! Pass registry: function-pointer table of every pass.
 //!
-//! arrive in the `cobra-passes` crate; this module owns the trait-
-//! object-free dispatch types and exposes an initially-empty registry
-//! that passes will register into as they're ported.
+//! Pass implementations live in the `cobra-passes` crate; this module owns
+//! the trait-object-free dispatch types and exposes an initially-empty
+//! registry that passes will register into as they're ported.
 
 use cobra_core::result::Result;
 
@@ -34,14 +34,13 @@ impl std::fmt::Debug for PassDescriptor {
     }
 }
 
-/// Global registry. Filled in once `cobra-passes` exists; until then
-/// the slice is empty and the orchestrator's scheduler cannot select
-/// anything. Keeping the registry here (rather than on `cobra-passes`)
-/// the scheduler `#include "OrchestratorPasses.h"`.
+/// Global registry. Currently empty: the orchestrator scheduler cannot
+/// select any pass through this table yet — `cobra-passes` is invoked
+/// directly (see `cobra-testkit`) rather than via registry dispatch.
+/// Entries are to be appended here in `PassId` order as passes are wired
+/// into the scheduler.
 #[must_use]
 pub const fn pass_registry() -> &'static [PassDescriptor] {
-    // Empty for now — populated in the passes session via a
-    // follow-up PR that appends entries in PassId order.
     &[]
 }
 /// Size of the pass-index lookup table. Matches the 64-bit

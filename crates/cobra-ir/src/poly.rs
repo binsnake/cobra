@@ -1,7 +1,8 @@
 //! `PolyIR` — multivariate polynomial keyed by `MonomialKey`.
 //!
 //! `NormalizedPoly` hold a map from `MonomialKey` to `Coeff` (`u64`); the
-//! under `ahash::RandomState` for fast deterministic hashing.
+//! map uses `ahash::RandomState` with fixed seeds so hashing (and thus
+//! iteration order) is deterministic across runs.
 
 use std::collections::HashMap;
 
@@ -22,12 +23,18 @@ pub type CoeffMap = HashMap<MonomialKey, Coeff, RandomState>;
 /// Raw polynomial. No invariants beyond `2 <= bitwidth <= 64`; callers are
 /// responsible for ensuring that coefficients are already reduced modulo
 /// `2^bitwidth` if they want the canonical form.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct PolyIR {
     pub num_vars: u8,
     /// Required range: `2..=64`.
     pub bitwidth: u32,
     pub terms: CoeffMap,
+}
+
+impl Default for PolyIR {
+    fn default() -> Self {
+        Self::empty(0, 0)
+    }
 }
 
 impl PolyIR {
@@ -36,7 +43,7 @@ impl PolyIR {
         Self {
             num_vars,
             bitwidth,
-            terms: CoeffMap::with_hasher(RandomState::new()),
+            terms: CoeffMap::with_hasher(RandomState::with_seeds(1, 2, 3, 4)),
         }
     }
 }
@@ -44,12 +51,18 @@ impl PolyIR {
 /// Normalized polynomial — stores the factorial-basis coefficients of the
 /// underlying multivariate power series. Invariants are checked by
 /// [`NormalizedPoly::is_valid`].
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct NormalizedPoly {
     pub num_vars: u8,
     /// Required range: `2..=64`.
     pub bitwidth: u32,
     pub coeffs: CoeffMap,
+}
+
+impl Default for NormalizedPoly {
+    fn default() -> Self {
+        Self::empty(0, 0)
+    }
 }
 
 impl NormalizedPoly {
@@ -58,7 +71,7 @@ impl NormalizedPoly {
         Self {
             num_vars,
             bitwidth,
-            coeffs: CoeffMap::with_hasher(RandomState::new()),
+            coeffs: CoeffMap::with_hasher(RandomState::with_seeds(1, 2, 3, 4)),
         }
     }
 

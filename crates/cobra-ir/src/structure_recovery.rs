@@ -147,8 +147,12 @@ fn rebuild_terms_from_groups(
             new_terms.push(*t);
         }
     }
-    for entries in basis_groups.values() {
-        for e in entries {
+    // Iterate groups in sorted-key order: `HashMap` iteration order is
+    // non-deterministic and must not influence which entries land first.
+    let mut group_keys: Vec<u64> = basis_groups.keys().copied().collect();
+    group_keys.sort_unstable();
+    for key in group_keys {
+        for e in &basis_groups[&key] {
             if e.consumed || e.coeff == 0 {
                 continue;
             }
@@ -412,8 +416,11 @@ pub fn coalesce_terms(ir: &mut SemilinearIR) {
             new_terms.push(*t);
         }
     }
-    for entries in basis_groups.values() {
-        for e in entries {
+    // Sorted-key iteration keeps the rebuild order deterministic.
+    let mut group_keys: Vec<u64> = basis_groups.keys().copied().collect();
+    group_keys.sort_unstable();
+    for key in group_keys {
+        for e in &basis_groups[&key] {
             if e.atom_id == SENTINEL_REMOVED || e.coeff == 0 {
                 continue;
             }

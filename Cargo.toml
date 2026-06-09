@@ -5,12 +5,16 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.82"
+# Matches the toolchain pin in rust-toolchain.toml; older releases are untested.
+rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/local/cobra-rs"
 
 [workspace.dependencies]
 smallvec = { version = "1.13", features = ["union"] }
+# Exact pin: fixed-seed hashing (`RandomState::with_seeds`) must hash
+# identically across builds; a patch upgrade changing the algorithm would
+# silently break deterministic iteration-order expectations.
 ahash = "=0.8.11"
 hashbrown = "0.14"
 indexmap = "2"

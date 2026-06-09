@@ -44,7 +44,9 @@ pub struct CompiledExpr {
     pub bitwidth: u32,
     pub mask: u64,
     pub arity: u32,
-    /// Minimum stack depth required for evaluation. Always `>= 1`.
+    /// Minimum stack depth required for evaluation. `compile` always sets
+    /// this to `>= 1`; a `CompiledExpr::default()` has `stack_size == 0`
+    /// (and an empty program, which `eval` handles by returning 0).
     pub stack_size: usize,
     pub program: Vec<EvalInstr>,
 }
@@ -186,6 +188,11 @@ pub fn compile(expr: &Expr, bitwidth: u32) -> CompiledExpr {
 /// scratch buffer (will be grown if too small). Returns the top-of-stack.
 ///
 pub fn eval(compiled: &CompiledExpr, var_values: &[u64], stack: &mut Vec<u64>) -> u64 {
+    // An empty program (e.g. `CompiledExpr::default()`) leaves nothing on the
+    // stack; indexing `stack[sp - 1]` below would underflow and panic.
+    if compiled.program.is_empty() {
+        return 0;
+    }
     if stack.len() < compiled.stack_size {
         stack.resize(compiled.stack_size, 0);
     }

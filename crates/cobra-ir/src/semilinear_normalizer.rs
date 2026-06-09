@@ -239,9 +239,16 @@ fn register_atom(ctx: &mut CollectCtx, expr: &Expr) -> AtomId {
 
     let struct_hash = structural_hash(expr);
 
-    if let Some(&existing) = ctx.hash_cache.get(&(struct_hash, support.clone())) {
-        return existing;
+    let cache_key = (struct_hash, support);
+    if let Some(&existing) = ctx.hash_cache.get(&cache_key) {
+        // Guard against 64-bit structural-hash collisions: only reuse the
+        // cached atom if the expression is genuinely structurally identical;
+        // otherwise fall through to the truth-table path.
+        if *ctx.atom_table[existing as usize].original_subtree == *expr {
+            return existing;
+        }
     }
+    let support = cache_key.1;
 
     let tt = compute_atom_truth_table(expr, &support, ctx.bitwidth);
     let key = AtomKey {

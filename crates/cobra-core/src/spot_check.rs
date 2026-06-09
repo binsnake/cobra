@@ -136,11 +136,9 @@ pub fn full_width_check_eval(
 
     // Reject expressions wider than the caller's variable space — matches
     // the C++ arity guard.
-    let original_arity = if eval_original.has_compiled() {
-        eval_original.input_arity()
-    } else {
-        0
-    };
+    // `input_arity` is tracked for compiled and remapped-closure evaluators;
+    // plain closures report 0 ("unknown"), which skips the guard.
+    let original_arity = eval_original.input_arity();
     if original_arity > num_vars || simplified_prog.arity > num_vars {
         return CheckResult::default();
     }
@@ -478,9 +476,16 @@ fn splitmix64(state: &mut u64) -> u64 {
 }
 
 fn seed_for(num_vars: u32, bitwidth: u32, num_samples: u32) -> u64 {
-    (u64::from(num_vars)).wrapping_mul(2_654_435_761)
-        ^ (u64::from(bitwidth)).wrapping_mul(40_503)
-        ^ (u64::from(num_samples)).wrapping_mul(0xDEAD_BEEF)
+    // Run each parameter through splitmix64 before combining so distinct
+    // (num_vars, bitwidth, num_samples) triples get well-separated seeds;
+    // plain multiply-xor mixing let nearby configurations collide.
+    let mut s = u64::from(num_vars);
+    let a = splitmix64(&mut s);
+    s ^= u64::from(bitwidth) << 8;
+    let b = splitmix64(&mut s);
+    s ^= u64::from(num_samples) << 16;
+    let c = splitmix64(&mut s);
+    a ^ b.rotate_left(21) ^ c.rotate_left(42)
 }
 
 #[cfg(test)]

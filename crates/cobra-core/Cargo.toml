@@ -7,6 +7,7 @@ license.workspace = true
 description = "CoBRA core types: Expr IR, modular arithmetic, compiled bytecode, evaluator"
 
 [dependencies]
+ahash = { workspace = true }
 smallvec = { workspace = true }
 thiserror = { workspace = true }
 

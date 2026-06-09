@@ -3,6 +3,9 @@ default: test
 fmt:
     cargo fmt --all
 
+fmt-check:
+    cargo fmt --all -- --check
+
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
 
@@ -21,4 +24,5 @@ build-release:
 clean:
     cargo clean
 
-ci: fmt lint test
+# Mirrors CI: checks formatting instead of mutating files.
+ci: fmt-check lint test

@@ -5,7 +5,6 @@
 #![allow(clippy::vec_box)]
 
 use std::collections::HashMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use crate::arith::{bitmask, mod_add};
@@ -391,9 +390,9 @@ fn extract_common_factor(mut expr: Arc<Expr>) -> Arc<Expr> {
 }
 
 fn expr_hash(e: &Expr) -> u64 {
-    let mut h = DefaultHasher::new();
-    e.hash(&mut h);
-    h.finish()
+    // Fixed-seed hasher: stable across processes and Rust releases, unlike
+    // `std::hash::DefaultHasher` whose algorithm is unspecified.
+    ahash::RandomState::with_seeds(1, 2, 3, 4).hash_one(e)
 }
 
 #[cfg(test)]

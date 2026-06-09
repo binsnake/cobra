@@ -47,7 +47,7 @@ jobs:
 
       - name: Build Lean verification layer
         working-directory: formal/lean
-        run: lake -R build
+        run: lake build
 
       - name: Replay generated Lean certificates from real pass outputs
         env:
@@ -59,9 +59,7 @@ jobs:
         run: |
           if rg -n '\b(sorry|admit)\b' \
             formal/lean \
-            crates/cobra-verify/src \
-            crates/cobra-passes/src \
-            crates/cobra-orchestrator/src
+            crates
           then
             echo "::error::Lean verification placeholders are not allowed"
             exit 1

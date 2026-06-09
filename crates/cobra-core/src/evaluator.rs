@@ -1,10 +1,9 @@
 //! Type-erased callable for evaluating an expression.
 //!
-//! `shared_ptr<const CompiledExpr>` (fast path) or a `std::function` (fallback
-//! for arbitrary callables and for the variable-remapping case that the
-//! compiled path can't cover directly).
-//!
-//! `Arc<dyn Fn(&[u64]) -> u64 + Send + Sync>` arms. Clones are cheap.
+//! An [`Evaluator`] wraps either an `Arc<CompiledExpr>` (fast path) or an
+//! `Arc<dyn Fn(&[u64]) -> u64 + Send + Sync>` closure (fallback for arbitrary
+//! callables and for variable-remapping cases the compiled path can't cover
+//! directly). Clones are cheap.
 
 use std::sync::Arc;
 
@@ -227,18 +226,23 @@ impl Evaluator {
                 // `idx_map`.
                 let base = self.clone();
                 let idx_map = idx_map.to_vec();
+                let remapped_arity = u32::try_from(idx_map.len()).unwrap_or(u32::MAX);
                 let mut buf_size = source_arity as usize;
                 for &idx in &idx_map {
                     buf_size = buf_size.max(idx as usize + 1);
                 }
-                Evaluator::from_closure(move |reduced: &[u64]| {
+                let mut remapped = Evaluator::from_closure(move |reduced: &[u64]| {
                     let mut original_vals = vec![0u64; buf_size];
                     for (i, &dst) in idx_map.iter().enumerate() {
                         original_vals[dst as usize] = reduced[i];
                     }
                     base.eval(&original_vals)
                 })
-                .with_trace(trace_kind)
+                .with_trace(trace_kind);
+                // Preserve the reduced arity so arity guards (e.g. in
+                // `spot_check`) still apply to closure-backed evaluators.
+                remapped.input_arity = remapped_arity;
+                remapped
             }
         }
     }
