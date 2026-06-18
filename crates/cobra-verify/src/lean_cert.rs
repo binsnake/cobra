@@ -11,9 +11,10 @@ use cobra_core::width::is_uniform_width;
 use std::sync::Arc;
 
 use crate::lean_match::{
-    add_with_neg_operands, and_or_sum_operands, expr_eq, is_all_ones, is_const_value, is_not_of,
-    is_one, is_zero, not_or_add_self_add_one_operands, not_or_minus_not_operands,
-    same_or_and_operands, scaled_and_or_sum_operands, unordered_pair_eq, xor_via_or_not_operands,
+    add_with_neg_operands, and_or_sum_operands, expr_eq, is_all_ones, is_and_not_of,
+    is_const_value, is_not_of, is_one, is_zero, not_or_add_self_add_one_operands,
+    not_or_minus_not_operands, same_or_and_operands, scaled_and_or_sum_operands, unordered_pair_eq,
+    xor_and_absorb_operands, xor_via_or_not_operands,
 };
 
 /// Theorem identifiers exported by `formal/lean/Cobra/Core.lean`.
@@ -32,6 +33,7 @@ pub enum LeanTheorem {
     NotOrSubNotEqAnd64,
     NotOrAddSelfAddOneEqAnd64,
     XorViaOrNot64,
+    XorAndEqAndNot64,
     AddComm64,
     AddAssoc64,
     MulComm64,
@@ -86,6 +88,7 @@ impl LeanTheorem {
         Self::NotOrSubNotEqAnd64,
         Self::NotOrAddSelfAddOneEqAnd64,
         Self::XorViaOrNot64,
+        Self::XorAndEqAndNot64,
         Self::AddComm64,
         Self::AddAssoc64,
         Self::MulComm64,
@@ -132,6 +135,7 @@ impl LeanTheorem {
         Self::TwoMulAndOrSumEqTwoMulAdd64,
         Self::NotOrAddSelfAddOneEqAnd64,
         Self::XorViaOrNot64,
+        Self::XorAndEqAndNot64,
         Self::NotOrSubNotEqAnd64,
         Self::AddZero64,
         Self::MulZero64,
@@ -180,6 +184,7 @@ impl LeanTheorem {
             Self::NotOrSubNotEqAnd64 => "Cobra.not_or_sub_not_eq_and_64",
             Self::NotOrAddSelfAddOneEqAnd64 => "Cobra.not_or_add_self_add_one_eq_and_64",
             Self::XorViaOrNot64 => "Cobra.xor_via_or_not_64",
+            Self::XorAndEqAndNot64 => "Cobra.xor_and_eq_and_not_64",
             Self::AddComm64 => "Cobra.add_comm_64",
             Self::AddAssoc64 => "Cobra.add_assoc_64",
             Self::MulComm64 => "Cobra.mul_comm_64",
@@ -483,6 +488,11 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
             }
             if is_zero(lhs) && expr_eq(rhs, after) {
                 return Some(Thm::ZeroXor64);
+            }
+            if let Some((x, y)) = xor_and_absorb_operands(before) {
+                if is_and_not_of(after, x, y) {
+                    return Some(Thm::XorAndEqAndNot64);
+                }
             }
         }
         Kind::Not if before.children.len() == 1 => {

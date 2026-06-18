@@ -11,7 +11,8 @@ use crate::lean_cert::{
 };
 use crate::lean_match::{
     add_with_neg_operands, not_or_add_self_add_one_operands, not_or_minus_not_operands,
-    same_or_and_operands, scaled_and_or_sum_operands, xor_via_or_not_operands,
+    same_or_and_operands, scaled_and_or_sum_operands, xor_and_absorb_operands,
+    xor_via_or_not_operands,
 };
 
 #[must_use]
@@ -233,6 +234,7 @@ fn theorem_eval_args(bitwidth: u32, theorem: LeanTheorem, before: &Expr) -> Opti
             not_or_add_self_add_one_operands(before).map(|(x, y)| vec![x, y])?
         }
         Thm::XorViaOrNot64 => xor_via_or_not_operands(before).map(|(x, y)| vec![x, y])?,
+        Thm::XorAndEqAndNot64 => xor_and_absorb_operands(before).map(|(x, y)| vec![x, y])?,
         Thm::AddComm64 | Thm::MulComm64 | Thm::AndComm64 | Thm::OrComm64 | Thm::XorComm64 => {
             return None;
         }
