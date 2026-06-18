@@ -416,6 +416,7 @@ fn theorem_arity(theorem: LeanTheorem) -> usize {
         | LeanTheorem::NotOrSubNotEqAnd64
         | LeanTheorem::NotOrAddSelfAddOneEqAnd64
         | LeanTheorem::XorViaOrNot64
+        | LeanTheorem::XorAndEqAndNot64
         | LeanTheorem::AddComm64
         | LeanTheorem::MulComm64
         | LeanTheorem::AndComm64
@@ -817,6 +818,13 @@ fn local_rewrite_theorem_matrix_replays_in_lean() {
         Expr::not(x.clone_tree()),
         Expr::add(Expr::neg(x.clone_tree()), Expr::constant(u64::MAX)),
         LeanTheorem::BnotEqNegAddAllOnes64,
+    );
+    replay_local_rewrite_seen(
+        &mut seen,
+        "local_xor_and_absorb_replay",
+        Expr::xor(x.clone_tree(), Expr::and(x.clone_tree(), y.clone_tree())),
+        Expr::and(x.clone_tree(), Expr::not(y.clone_tree())),
+        LeanTheorem::XorAndEqAndNot64,
     );
     replay_local_rewrite_seen(
         &mut seen,

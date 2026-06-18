@@ -225,6 +225,9 @@ fn rewrite_at_site(
 #[allow(clippy::vec_box)] // Candidate expressions are owned boxed trees throughout the pass.
 fn try_match_all(node: &Expr, bitwidth: u32) -> Vec<Arc<Expr>> {
     let mut out = Vec::new();
+    if let Some(c) = match_xor_and_absorb(node) {
+        out.push(c);
+    }
     if let Some(c) = match_xor_via_or_minus_and(node) {
         out.push(c);
     }
@@ -247,6 +250,37 @@ fn try_match_all(node: &Expr, bitwidth: u32) -> Vec<Arc<Expr>> {
     match_and_via_ornot_lax(node, &addends, &mut out);
     match_xor_via_ornot_lax(node, &addends, &mut out);
     out
+}
+
+/// `x ^ (x & y)  →  x & ~y`  (matching either XOR operand order and either
+/// AND operand order). Per-bit Boolean identity — for each bit,
+/// `b ^ (b & c) = b & !c` — so it holds at every width for arbitrary integer
+/// operands. Width-independent, which is exactly why it recovers the wide
+/// bitwise atoms the truth-table path (capped at 5-var support) leaves opaque.
+fn match_xor_and_absorb(node: &Expr) -> Option<Arc<Expr>> {
+    if !matches!(node.kind, Kind::Xor) || node.children.len() != 2 {
+        return None;
+    }
+    let (c0, c1) = (&node.children[0], &node.children[1]);
+    xor_absorb_one(c0, c1).or_else(|| xor_absorb_one(c1, c0))
+}
+
+/// Helper for [`match_xor_and_absorb`]: given the plain operand `x` and the
+/// candidate `And` node, return `x & ~y` when the `And` is `x & y` (either
+/// order).
+fn xor_absorb_one(x: &Arc<Expr>, and_node: &Arc<Expr>) -> Option<Arc<Expr>> {
+    if !matches!(and_node.kind, Kind::And) || and_node.children.len() != 2 {
+        return None;
+    }
+    let (a, b) = (&and_node.children[0], &and_node.children[1]);
+    let other = if a == x {
+        b
+    } else if b == x {
+        a
+    } else {
+        return None;
+    };
+    Some(Expr::and(x.clone_tree(), Expr::not(other.clone_tree())))
 }
 
 /// `(A | B) - (A & B)  →  A ^ B`
@@ -660,6 +694,44 @@ mod tests {
     fn no_match_on_plain_add() {
         let e = Expr::add(Expr::variable(0), Expr::variable(1));
         assert!(try_match_all(&e, 64).is_empty());
+    }
+
+    #[test]
+    fn xor_and_absorb_matches_and_certifies() {
+        // a ^ (a & (b|c|d|e|f))  ->  a & ~(b|c|d|e|f), width-independent.
+        let m = Expr::or(
+            Expr::or(
+                Expr::or(
+                    Expr::or(Expr::variable(1), Expr::variable(2)),
+                    Expr::variable(3),
+                ),
+                Expr::variable(4),
+            ),
+            Expr::variable(5),
+        );
+        let e = Expr::xor(
+            Expr::variable(0),
+            Expr::and(Expr::variable(0), m.clone_tree()),
+        );
+        let out = apply_atom_identities(e.clone_tree(), 64);
+        // Expect And(a, Not(M)).
+        assert!(
+            matches!(out.kind, Kind::And),
+            "expected And root, got {out:?}"
+        );
+        assert!(matches!(out.children[1].kind, Kind::Not));
+
+        // The rewrite is theorem-certifiable end to end.
+        let cert = cobra_orchestrator::LeanCertificate::try_single_rewrite_between_64(
+            64,
+            e.clone_tree(),
+            out.clone_tree(),
+        )
+        .expect("xor-absorb rewrite must be certifiable");
+        assert_eq!(
+            cert.steps.iter().map(|s| s.theorem).collect::<Vec<_>>(),
+            vec![cobra_orchestrator::LeanTheorem::XorAndEqAndNot64]
+        );
     }
 
     #[test]

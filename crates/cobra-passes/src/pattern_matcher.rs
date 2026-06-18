@@ -1168,7 +1168,16 @@ pub fn canonicalize_scaled_boolean_sum(expr: Arc<Expr>, bitwidth: u32) -> Arc<Ex
 #[must_use]
 pub fn normalize_late_candidate_expr(expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
     let expr = canonicalize_scaled_boolean_sum(expr, bitwidth);
-    simplify_pattern_subtrees(expr, bitwidth)
+    let expr = simplify_pattern_subtrees(expr, bitwidth);
+    // Apply width-independent atom-level bitwise identities (e.g.
+    // `x ^ (x & y) → x & ~y`) to reconstructed candidates. The signature
+    // pattern matcher canonicalises some wide bitwise functions to a
+    // non-minimal `x ^ (x & y)` shape; without this the reconstructed
+    // candidate would be returned in that bloated form. Each identity is
+    // full-width verified and cost-gated inside `apply_atom_identities`, and
+    // the caller re-derives the signature certificate from the normalized
+    // expression, so this stays sound.
+    crate::atom_identity_rewrite::apply_atom_identities(expr, bitwidth)
 }
 
 #[cfg(test)]

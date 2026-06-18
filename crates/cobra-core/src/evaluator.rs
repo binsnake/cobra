@@ -33,6 +33,18 @@ pub struct Workspace {
     pub stack: Vec<u64>,
 }
 
+/// One splitmix64 mixing step folding `value` into `state`. Deterministic;
+/// used for structural fingerprints (no random state).
+#[must_use]
+fn mix64(state: u64, value: u64) -> u64 {
+    let mut z = state
+        .wrapping_add(value)
+        .wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
 type Closure = dyn Fn(&[u64]) -> u64 + Send + Sync + 'static;
 
 #[derive(Clone)]
@@ -131,6 +143,36 @@ impl Evaluator {
     #[must_use]
     pub fn trace_kind(&self) -> TraceKind {
         self.trace_kind
+    }
+
+    /// Deterministic structural fingerprint of the evaluated program,
+    /// including every constant it embeds. Used to bind the spot-check probe
+    /// seed to the expression under test, so probe points cannot be
+    /// precomputed without knowing the expression itself (closing the
+    /// fixed-seed verifier-evasion hole; see `cobra-core::spot_check`).
+    ///
+    /// Returns a fixed sentinel for closure-backed evaluators, whose body is
+    /// opaque — callers binding to such an evaluator gain no constant-level
+    /// entropy from it.
+    #[must_use]
+    pub fn structural_fingerprint(&self) -> u64 {
+        let mut acc: u64 = 0x243F_6A88_85A3_08D3;
+        acc = mix64(acc, u64::from(self.input_arity));
+        for &m in &self.input_map {
+            acc = mix64(acc, u64::from(m));
+        }
+        match &self.body {
+            Some(EvalBody::Compiled(c)) => {
+                acc = mix64(acc, u64::from(c.bitwidth));
+                for instr in &c.program {
+                    acc = mix64(acc, instr.op as u64);
+                    acc = mix64(acc, instr.operand);
+                }
+            }
+            Some(EvalBody::Closure(_)) => acc = mix64(acc, 0xC105_05E1_0C05_0DE5),
+            None => acc = mix64(acc, 0),
+        }
+        acc
     }
 
     /// Evaluate with a fresh internal workspace. For repeated calls on the

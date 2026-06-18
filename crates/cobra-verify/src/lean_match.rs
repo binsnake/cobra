@@ -107,6 +107,41 @@ pub(crate) fn add_with_neg_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
     }
 }
 
+/// `x ^ (x & y)` (either XOR operand order, either AND operand order) →
+/// `(x, y)`. Used to recognise the `XorAndEqAndNot64` rewrite
+/// `x ^ (x & y) = x & ~y`.
+#[must_use]
+pub(crate) fn xor_and_absorb_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
+    let lhs = binary_child(expr, &Kind::Xor, 0)?;
+    let rhs = binary_child(expr, &Kind::Xor, 1)?;
+    fn split<'a>(x: &'a Expr, and_node: &'a Expr) -> Option<(&'a Expr, &'a Expr)> {
+        let a = binary_child(and_node, &Kind::And, 0)?;
+        let b = binary_child(and_node, &Kind::And, 1)?;
+        if expr_eq(a, x) {
+            Some((x, b))
+        } else if expr_eq(b, x) {
+            Some((x, a))
+        } else {
+            None
+        }
+    }
+    split(lhs, rhs).or_else(|| split(rhs, lhs))
+}
+
+/// `after == x & ~y` (either AND operand order; the complemented side must be
+/// `~y`). Companion check for [`xor_and_absorb_operands`].
+#[must_use]
+pub(crate) fn is_and_not_of(after: &Expr, x: &Expr, y: &Expr) -> bool {
+    let Some(a) = binary_child(after, &Kind::And, 0) else {
+        return false;
+    };
+    let Some(b) = binary_child(after, &Kind::And, 1) else {
+        return false;
+    };
+    let is_not_y = |e: &Expr| unary_child(e, &Kind::Not).is_some_and(|inner| expr_eq(inner, y));
+    (expr_eq(a, x) && is_not_y(b)) || (expr_eq(b, x) && is_not_y(a))
+}
+
 /// `(a | b)` and `(a & b)` over the same unordered operand pair → `(a, b)`.
 #[must_use]
 pub(crate) fn same_or_and_operands<'a>(

@@ -71,6 +71,10 @@ theorem xor_via_or_not_64 (x y : BitVec 64) :
     x - y - (2#64 * (x ||| (~~~y))) - 2#64 = x ^^^ y := by
   bv_decide
 
+theorem xor_and_eq_and_not_64 (x y : BitVec 64) :
+    x ^^^ (x &&& y) = x &&& (~~~y) := by
+  bv_decide
+
 theorem add_comm_64 (x y : BitVec 64) :
     x + y = y + x := by
   bv_decide (config := { acNf := true })

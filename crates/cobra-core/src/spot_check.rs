@@ -86,11 +86,13 @@ pub fn full_width_check(
     let mut simplified_stack = Vec::with_capacity(simplified_prog.stack_size);
     let mut simplified_inputs = vec![0u64; simplified_num_vars as usize];
 
+    let expr_salt = expr_fingerprint(original) ^ expr_fingerprint(simplified).rotate_left(32);
     let failing = for_each_full_width_probe(
         original_num_vars,
         bitwidth,
         num_samples,
         &expr_constants,
+        expr_salt,
         |original_inputs| {
             for (v, slot) in simplified_inputs.iter_mut().enumerate() {
                 let original_index = if var_map.is_empty() {
@@ -147,8 +149,19 @@ pub fn full_width_check_eval(
     let mut simplified_stack: Vec<u64> = Vec::with_capacity(simplified_prog.stack_size);
     let mut original_workspace = Workspace::default();
 
-    let failing =
-        for_each_full_width_probe(num_vars, bitwidth, num_samples, &expr_constants, |inputs| {
+    // Bind the seed to the ORIGINAL (via its compiled fingerprint, which
+    // embeds every constant) as well as the candidate. The original carries
+    // any adversarial trap constants, so they feed back into the seed and a
+    // fixed-seed evasion cannot be constructed.
+    let expr_salt =
+        eval_original.structural_fingerprint() ^ expr_fingerprint(simplified).rotate_left(32);
+    let failing = for_each_full_width_probe(
+        num_vars,
+        bitwidth,
+        num_samples,
+        &expr_constants,
+        expr_salt,
+        |inputs| {
             probe_point(
                 eval_original,
                 &simplified_prog,
@@ -158,7 +171,8 @@ pub fn full_width_check_eval(
                 &mut simplified_stack,
             )
             .is_none()
-        });
+        },
+    );
 
     match failing {
         Some(failing_input) => CheckResult {
@@ -231,6 +245,7 @@ fn for_each_full_width_probe(
     bitwidth: u32,
     num_samples: u32,
     expr_constants: &[u64],
+    expr_salt: u64,
     mut probe_fn: impl FnMut(&[u64]) -> bool,
 ) -> Option<Vec<u64>> {
     let mask = bitmask(bitwidth);
@@ -299,7 +314,7 @@ fn for_each_full_width_probe(
         }
     }
 
-    let mut rng_state = seed_for(num_vars, bitwidth, num_samples);
+    let mut rng_state = seed_for(num_vars, bitwidth, num_samples, expr_salt);
     for _ in 0..num_samples {
         for slot in &mut inputs {
             *slot = splitmix64(&mut rng_state) & mask;
@@ -467,6 +482,40 @@ fn adversarial_values(bitwidth: u32) -> Vec<u64> {
     vals
 }
 
+/// Deterministic structural fingerprint of an expression tree, folding in
+/// every kind discriminant, variable index, and constant value. Used to salt
+/// the probe seed (see [`seed_for`]).
+fn expr_fingerprint(expr: &Expr) -> u64 {
+    fn fold(expr: &Expr, acc: &mut u64) {
+        let step = |tag: u64, payload: u64, acc: &mut u64| {
+            let mut s = acc.wrapping_add(tag).wrapping_add(0x9E37_79B9_7F4A_7C15);
+            *acc = splitmix64(&mut s).wrapping_add(payload);
+        };
+        match &expr.kind {
+            Kind::Constant(v) => step(1, *v, acc),
+            Kind::Variable(i) => step(2, u64::from(*i), acc),
+            Kind::Add => step(3, 0, acc),
+            Kind::Mul => step(4, 0, acc),
+            Kind::And => step(5, 0, acc),
+            Kind::Or => step(6, 0, acc),
+            Kind::Xor => step(7, 0, acc),
+            Kind::Not => step(8, 0, acc),
+            Kind::Neg => step(9, 0, acc),
+            Kind::Shr(k) => step(10, u64::from(*k), acc),
+            Kind::ZExt(w) => step(11, u64::from(*w), acc),
+            Kind::SExt(w) => step(12, u64::from(*w), acc),
+            Kind::Trunc(w) => step(13, u64::from(*w), acc),
+            Kind::Concat => step(14, 0, acc),
+        }
+        for child in &expr.children {
+            fold(child, acc);
+        }
+    }
+    let mut acc = 0x2545_F491_4F6C_DD1Du64;
+    fold(expr, &mut acc);
+    acc
+}
+
 fn splitmix64(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
     let mut z = *state;
@@ -475,17 +524,28 @@ fn splitmix64(state: &mut u64) -> u64 {
     z ^ (z >> 31)
 }
 
-fn seed_for(num_vars: u32, bitwidth: u32, num_samples: u32) -> u64 {
+fn seed_for(num_vars: u32, bitwidth: u32, num_samples: u32, expr_salt: u64) -> u64 {
     // Run each parameter through splitmix64 before combining so distinct
     // (num_vars, bitwidth, num_samples) triples get well-separated seeds;
     // plain multiply-xor mixing let nearby configurations collide.
+    //
+    // `expr_salt` binds the seed to a structural fingerprint of the
+    // expression(s) under test (including every embedded constant). This keeps
+    // the schedule fully deterministic for reproducibility, while preventing an
+    // attacker from precomputing the random probe points: a difference term
+    // engineered to vanish on the points would have to embed constants that, in
+    // turn, change `expr_salt` and thus the points — a fixpoint that does not
+    // exist in practice. See the verifier-evasion analysis in
+    // `tools/adversarial/ATTACKS.md`.
     let mut s = u64::from(num_vars);
     let a = splitmix64(&mut s);
     s ^= u64::from(bitwidth) << 8;
     let b = splitmix64(&mut s);
     s ^= u64::from(num_samples) << 16;
     let c = splitmix64(&mut s);
-    a ^ b.rotate_left(21) ^ c.rotate_left(42)
+    s ^= expr_salt;
+    let d = splitmix64(&mut s);
+    a ^ b.rotate_left(21) ^ c.rotate_left(42) ^ d.rotate_left(11)
 }
 
 #[cfg(test)]
