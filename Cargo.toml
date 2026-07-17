@@ -69,7 +69,7 @@ clap = { version = "4", features = ["derive"] }
 hashbrown = "0.14"
 indexmap = "2"
 smallvec = { version = "1.13", features = ["union"] }
-thiserror = "1"
+thiserror = "2"
 wide = { version = "0.7", optional = true }
 z3 = { version = "0.12", optional = true }
 
