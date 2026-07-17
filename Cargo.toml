@@ -64,7 +64,7 @@ z3 = ["dep:z3"]
 [dependencies]
 # Exact pin: fixed-seed hashing (`RandomState::with_seeds`) must hash
 # identically across builds.
-ahash = "=0.8.11"
+ahash = "=0.8.12"
 clap = { version = "4", features = ["derive"] }
 hashbrown = "0.14"
 indexmap = "2"
