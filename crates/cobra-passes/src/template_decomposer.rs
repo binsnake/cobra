@@ -27,15 +27,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use cobra_core::arith::bitmask;
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::{compute_cost, is_better, ExprCost};
-use cobra_core::pass_contract::{
+use crate::core::arith::bitmask;
+use crate::core::evaluator::Evaluator;
+use crate::core::expr::Expr;
+use crate::core::expr_cost::{compute_cost, is_better, ExprCost};
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
 };
 
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 const N_PROBES: usize = 16;
 const MAX_VARS: u32 = 6;
@@ -412,7 +412,7 @@ fn collect_mul_probe0_candidates(
     let base_solution: u64 = if reduced_bits > 0 {
         let odd_part = lhs0 >> twos;
         let reduced_target = tgt0 >> twos;
-        let inv = cobra_ir::math_utils::mod_inverse_odd(odd_part, reduced_bits);
+        let inv = crate::ir::math_utils::mod_inverse_odd(odd_part, reduced_bits);
         (inv.wrapping_mul(reduced_target)) & bitmask(reduced_bits)
     } else {
         0
@@ -1135,7 +1135,7 @@ mod tests {
         let SolverResult::Success(r) = try_template_decomposition(Some(&eval), 0, 64, None) else {
             panic!("expected success");
         };
-        assert!(matches!(r.expr.kind, cobra_core::expr::Kind::Constant(_)));
+        assert!(matches!(r.expr.kind, crate::core::expr::Kind::Constant(_)));
     }
 
     #[test]

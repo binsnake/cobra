@@ -18,9 +18,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use cobra_core::expr::{Expr, Kind};
+use crate::core::expr::{Expr, Kind};
 
-use crate::packed_anf::PackedAnf;
+use crate::ir::packed_anf::PackedAnf;
 
 /// Mid-level ANF representation consumed by [`cleanup_anf`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -594,10 +594,10 @@ pub fn build_anf_expr(anf: &PackedAnf, num_vars: u32) -> Arc<Expr> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluate_boolean_signature;
+    use crate::core::evaluate_boolean_signature;
 
     fn form_from_sig(sig: &[u64], num_vars: u32) -> AnfForm {
-        let anf = crate::anf_transform::compute_anf(sig, num_vars);
+        let anf = crate::ir::anf_transform::compute_anf(sig, num_vars);
         AnfForm::from_anf_coeffs(&anf, num_vars)
     }
 

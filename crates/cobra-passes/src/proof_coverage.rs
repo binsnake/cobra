@@ -5,7 +5,7 @@
 //! cannot appear without an explicit statement of how proof metadata is
 //! produced, preserved, or invalidated.
 
-use cobra_orchestrator::PassId;
+use crate::orchestrator::PassId;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LeanProofCoverage {
@@ -894,10 +894,10 @@ pub fn replay_evidence_for(pass: PassId) -> Option<&'static PassReplayEvidence> 
 mod tests {
     use std::collections::HashSet;
 
-    use cobra_orchestrator::PassTag;
+    use crate::orchestrator::PassTag;
 
     use super::*;
-    use crate::PASS_REGISTRY;
+    use crate::passes::PASS_REGISTRY;
 
     const ALL_PASS_IDS: [PassId; PassId::COUNT as usize] = [
         PassId::LowerNotOverArith,
@@ -1022,8 +1022,7 @@ mod tests {
 
         assert!(
             declared.is_empty(),
-            "proof coverage declares unregistered passes: {:?}",
-            declared
+            "proof coverage declares unregistered passes: {declared:?}"
         );
     }
 

@@ -155,7 +155,7 @@ pub enum PassTag {
 
 // ----- Remainder → extractor projection -----
 
-use crate::stubs::ExtractorKind;
+use crate::orchestrator::stubs::ExtractorKind;
 
 #[inline]
 #[must_use]

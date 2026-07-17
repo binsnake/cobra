@@ -4,6 +4,14 @@
 //! `COBRA_LEAN_REPLAY=1` is set, they also write the generated Lean source to
 //! a temporary file and run `lake env lean` against the formal model.
 
+#![allow(
+    clippy::checked_conversions,
+    clippy::many_single_char_names,
+    clippy::needless_pass_by_value,
+    clippy::too_many_lines,
+    clippy::too_many_arguments
+)]
+
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,15 +19,15 @@ use std::process::Command;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use cobra_core::classification::{Classification, SemanticClass, StructuralFlag};
-use cobra_core::evaluate_boolean_signature;
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::expr_rewrite::cleanup_final_expr;
-use cobra_core::pass_contract::VerificationState;
-use cobra_core::simplify_outcome::Options;
-use cobra_ir::{interpolate_coefficients, normalize_to_semilinear};
-use cobra_orchestrator::{
+use cobra::core::classification::{Classification, SemanticClass, StructuralFlag};
+use cobra::core::evaluate_boolean_signature;
+use cobra::core::evaluator::Evaluator;
+use cobra::core::expr::{Expr, Kind};
+use cobra::core::expr_rewrite::cleanup_final_expr;
+use cobra::core::pass_contract::VerificationState;
+use cobra::core::simplify_outcome::Options;
+use cobra::ir::{interpolate_coefficients, normalize_to_semilinear};
+use cobra::orchestrator::{
     create_group, create_join, expr_identity_hash, AstPayload, BitwiseComposeCont,
     CandidatePayload, CandidateRecord, CompetitionResolvedPayload, ContinuationData,
     CoreCandidatePayload, EliminationResult, ExtractOp, ExtractorKind, FactorRole, GateKind,
@@ -30,7 +38,7 @@ use cobra_orchestrator::{
     SemilinearContext, SignatureCoeffStatePayload, SignatureStatePayload,
     SignatureSubproblemContext, StateData, WorkItem, Worklist,
 };
-use cobra_verify::{
+use cobra::verify::{
     emit_bv_decide_certificate, emit_constant_signature_certificate,
     emit_signature_certificate_model, emit_step_chain_certificate, ExprPath, LeanCertificate,
     LeanSignatureCertificate, LeanTheorem,
@@ -143,11 +151,7 @@ fn mk_remainder_payload(
 }
 
 fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .expect("workspace root")
-        .to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
 }
 
 fn replay_enabled() -> bool {
@@ -374,8 +378,8 @@ fn replay_direct_rewrite_theorem(name: &str, cert: &LeanCertificate, theorem: Le
          \x20 simpa [Cobra.Expr.eval, Cobra.allOnes, BitVec.sub_eq_add_neg] using {}{}\n\n\
          end Cobra.Generated\n",
         cert.bitwidth,
-        cobra_verify::emit_expr(&cert.original),
-        cobra_verify::emit_expr(&cert.simplified),
+        cobra::verify::emit_expr(&cert.original),
+        cobra::verify::emit_expr(&cert.simplified),
         theorem.lean_name(),
         args,
     );
@@ -861,7 +865,7 @@ fn replay_lower_not_over_arith_case(name: &str, expr: Arc<Expr>, vars: Vec<Strin
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
     let item = mk_ast_item(expr, Provenance::Original);
 
-    let pr = cobra_passes::lower_not_over_arith::run_lower_not_over_arith(&item, &mut ctx)
+    let pr = cobra::passes::lower_not_over_arith::run_lower_not_over_arith(&item, &mut ctx)
         .expect("lowering pass");
     assert_eq!(pr.decision, PassDecision::Advance, "{name}");
     assert_eq!(pr.disposition, ItemDisposition::RetainCurrent, "{name}");
@@ -904,7 +908,7 @@ fn signature_pattern_match_generated_certificate_replays_in_lean() {
     let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
     let item = mk_signature_item(vec![0, 1, 1, 0], vec!["x".into(), "y".into()]);
 
-    let pr = cobra_passes::signature_pattern_match::run_signature_pattern_match(&item, &mut ctx)
+    let pr = cobra::passes::signature_pattern_match::run_signature_pattern_match(&item, &mut ctx)
         .expect("signature pattern pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate);
 
@@ -920,7 +924,7 @@ fn replay_signature_pattern_case(name: &str, sig: Vec<u64>, vars: Vec<String>) {
     let mut ctx = OrchestratorContext::new(Options::default(), vars.clone(), 64);
     let item = mk_signature_item(sig, vars);
 
-    let pr = cobra_passes::signature_pattern_match::run_signature_pattern_match(&item, &mut ctx)
+    let pr = cobra::passes::signature_pattern_match::run_signature_pattern_match(&item, &mut ctx)
         .expect("signature pattern pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate);
 
@@ -939,7 +943,7 @@ fn signature_pattern_match_grouped_candidate_generated_certificate_replays_in_le
     let group_id = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
     item.group_id = Some(group_id);
 
-    let pr = cobra_passes::signature_pattern_match::run_signature_pattern_match(&item, &mut ctx)
+    let pr = cobra::passes::signature_pattern_match::run_signature_pattern_match(&item, &mut ctx)
         .expect("signature pattern pass");
     assert_eq!(pr.decision, PassDecision::Advance);
     assert!(pr.next.is_empty());
@@ -964,7 +968,7 @@ fn replay_build_signature_state_flow(name: &str, expr: Arc<Expr>, vars: Vec<Stri
     item.metadata.lean_signature_certificate =
         LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
 
-    let built = cobra_passes::build_signature_state::run_build_signature_state(&item, &mut ctx)
+    let built = cobra::passes::build_signature_state::run_build_signature_state(&item, &mut ctx)
         .expect("build signature state pass");
     assert_eq!(built.decision, PassDecision::Advance, "{name}");
     assert_eq!(built.next.len(), 1, "{name}");
@@ -979,7 +983,7 @@ fn replay_build_signature_state_flow(name: &str, expr: Arc<Expr>, vars: Vec<Stri
     );
 
     let group_id = built.next[0].group_id.expect("signature group");
-    let matched = cobra_passes::signature_pattern_match::run_signature_pattern_match(
+    let matched = cobra::passes::signature_pattern_match::run_signature_pattern_match(
         &built.next[0],
         &mut ctx,
     )
@@ -1001,7 +1005,7 @@ fn replay_normalized_candidate_signature_case(
     source_pass: PassId,
 ) {
     let sig = evaluate_boolean_signature(&expr, vars.len() as u32, 64);
-    let original_cost = cobra_core::expr_cost::compute_cost(&expr).cost;
+    let original_cost = cobra::core::expr_cost::compute_cost(&expr).cost;
     let record = CandidateRecord {
         expr,
         cost: original_cost,
@@ -1014,9 +1018,9 @@ fn replay_normalized_candidate_signature_case(
         lean_signature_certificate: None,
     };
 
-    let normalized = cobra_passes::candidate_normalize::normalize_candidate_record(record, 64);
+    let normalized = cobra::passes::candidate_normalize::normalize_candidate_record(record, 64);
     assert!(
-        cobra_core::expr_cost::is_better(&normalized.cost, &original_cost),
+        cobra::core::expr_cost::is_better(&normalized.cost, &original_cost),
         "{name}: normalization should produce fresh candidate evidence"
     );
     assert_eq!(normalized.sig_vector, sig, "{name}");
@@ -1055,7 +1059,7 @@ fn seed_pattern_rewrite_generated_certificate_replays_in_lean() {
     );
     let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
     let mut worklist = Worklist::new();
-    cobra_passes::seed_with_ast(&expr, &mut ctx, &mut worklist).expect("seed with AST");
+    cobra::passes::seed_with_ast(&expr, &mut ctx, &mut worklist).expect("seed with AST");
 
     let mut cert = None;
     while let Some(item) = worklist.pop() {
@@ -1084,14 +1088,14 @@ fn pattern_matcher_scaled_pattern_sum_theorem_replays_in_lean() {
             Expr::or(Expr::variable(0), Expr::variable(1)),
         ),
     );
-    let (rewritten, cert) = cobra_passes::pattern_matcher::simplify_pattern_subtrees_certified(
+    let (rewritten, cert) = cobra::passes::pattern_matcher::simplify_pattern_subtrees_certified(
         original.clone_tree(),
         64,
     );
     assert!(
-        cobra_core::expr_cost::is_better(
-            &cobra_core::expr_cost::compute_cost(&rewritten).cost,
-            &cobra_core::expr_cost::compute_cost(&original).cost,
+        cobra::core::expr_cost::is_better(
+            &cobra::core::expr_cost::compute_cost(&rewritten).cost,
+            &cobra::core::expr_cost::compute_cost(&original).cost,
         ),
         "scaled pattern-sum fallback must exercise a real simplification"
     );
@@ -1112,7 +1116,7 @@ fn pattern_matcher_demorgan_table_theorem_replays_in_lean() {
         Expr::not(Expr::variable(0)),
         Expr::not(Expr::variable(1)),
     ));
-    let (rewritten, cert) = cobra_passes::pattern_matcher::simplify_pattern_subtrees_certified(
+    let (rewritten, cert) = cobra::passes::pattern_matcher::simplify_pattern_subtrees_certified(
         original.clone_tree(),
         64,
     );
@@ -1134,7 +1138,7 @@ fn pattern_matcher_demorgan_dual_table_theorem_replays_in_lean() {
         Expr::not(Expr::variable(0)),
         Expr::not(Expr::variable(1)),
     ));
-    let (rewritten, cert) = cobra_passes::pattern_matcher::simplify_pattern_subtrees_certified(
+    let (rewritten, cert) = cobra::passes::pattern_matcher::simplify_pattern_subtrees_certified(
         original.clone_tree(),
         64,
     );
@@ -1265,7 +1269,7 @@ fn signature_anf_generated_certificate_replays_in_lean() {
     ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
     let item = mk_signature_item(sig, vars);
 
-    let pr = cobra_passes::signature_anf::run_signature_anf(&item, &mut ctx).expect("ANF pass");
+    let pr = cobra::passes::signature_anf::run_signature_anf(&item, &mut ctx).expect("ANF pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate);
 
     let cert = pr.next[0]
@@ -1288,7 +1292,7 @@ fn replay_signature_anf_case(
     }
     let item = mk_signature_item(sig, vars);
 
-    let pr = cobra_passes::signature_anf::run_signature_anf(&item, &mut ctx).expect("ANF pass");
+    let pr = cobra::passes::signature_anf::run_signature_anf(&item, &mut ctx).expect("ANF pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate);
 
     let cert = pr.next[0]
@@ -1308,7 +1312,7 @@ fn signature_anf_grouped_candidate_generated_certificate_replays_in_lean() {
     let group_id = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
     item.group_id = Some(group_id);
 
-    let pr = cobra_passes::signature_anf::run_signature_anf(&item, &mut ctx).expect("ANF pass");
+    let pr = cobra::passes::signature_anf::run_signature_anf(&item, &mut ctx).expect("ANF pass");
     assert_eq!(pr.decision, PassDecision::Advance);
     assert!(pr.next.is_empty());
 
@@ -1331,7 +1335,7 @@ fn signature_anf_product_shadow_repair_generated_certificate_replays_in_lean() {
     ));
     let item = mk_signature_item(sig, vars);
 
-    let pr = cobra_passes::signature_anf::run_signature_anf(&item, &mut ctx).expect("ANF pass");
+    let pr = cobra::passes::signature_anf::run_signature_anf(&item, &mut ctx).expect("ANF pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate);
     let StateData::Candidate(candidate) = &pr.next[0].payload else {
         panic!("ANF product-shadow repair must emit a candidate");
@@ -1411,7 +1415,7 @@ fn signature_cob_candidate_generated_certificate_replays_in_lean() {
     let item = mk_signature_coeff_item(sig, vars, &mut ctx);
     let group_id = item.group_id.expect("group id");
 
-    let pr = cobra_passes::signature_cob_candidate::run_signature_cob_candidate(&item, &mut ctx)
+    let pr = cobra::passes::signature_cob_candidate::run_signature_cob_candidate(&item, &mut ctx)
         .expect("COB pass");
     assert_eq!(pr.decision, PassDecision::Advance);
 
@@ -1428,7 +1432,7 @@ fn replay_signature_cob_case(name: &str, sig: Vec<u64>, vars: Vec<String>) {
     let item = mk_signature_coeff_item(sig, vars, &mut ctx);
     let group_id = item.group_id.expect("group id");
 
-    let pr = cobra_passes::signature_cob_candidate::run_signature_cob_candidate(&item, &mut ctx)
+    let pr = cobra::passes::signature_cob_candidate::run_signature_cob_candidate(&item, &mut ctx)
         .expect("COB pass");
     assert_eq!(pr.decision, PassDecision::Advance);
 
@@ -1460,7 +1464,7 @@ fn replay_signature_cob_override_case(
     item.evaluator_override_arity = arity;
     let group_id = item.group_id.expect("group id");
 
-    let pr = cobra_passes::signature_cob_candidate::run_signature_cob_candidate(&item, &mut ctx)
+    let pr = cobra::passes::signature_cob_candidate::run_signature_cob_candidate(&item, &mut ctx)
         .expect("COB override pass");
     assert_eq!(pr.decision, PassDecision::Advance);
 
@@ -1490,7 +1494,7 @@ fn replay_prepare_coeff_model_flow(name: &str, expr: Arc<Expr>, vars: Vec<String
     let group_id = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
     item.group_id = Some(group_id);
 
-    let prepared = cobra_passes::prepare_coeff_model::run_prepare_coeff_model(&item, &mut ctx)
+    let prepared = cobra::passes::prepare_coeff_model::run_prepare_coeff_model(&item, &mut ctx)
         .expect("prepare coeff model pass");
     assert_eq!(prepared.decision, PassDecision::Advance, "{name}");
     assert_eq!(prepared.next.len(), 1, "{name}");
@@ -1510,7 +1514,7 @@ fn replay_prepare_coeff_model_flow(name: &str, expr: Arc<Expr>, vars: Vec<String
         "{name}"
     );
 
-    let solved = cobra_passes::signature_cob_candidate::run_signature_cob_candidate(
+    let solved = cobra::passes::signature_cob_candidate::run_signature_cob_candidate(
         &prepared.next[0],
         &mut ctx,
     )
@@ -1598,7 +1602,7 @@ fn replay_xor_lowering_case(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let item = mk_ast_item(expr, Provenance::Original);
 
     let pr =
-        cobra_passes::xor_lowering::run_xor_lowering(&item, &mut ctx).expect("xor lowering pass");
+        cobra::passes::xor_lowering::run_xor_lowering(&item, &mut ctx).expect("xor lowering pass");
     assert_eq!(pr.decision, PassDecision::Advance, "{name}");
     assert_eq!(pr.disposition, ItemDisposition::ReplaceCurrent, "{name}");
 
@@ -1663,7 +1667,7 @@ fn semilinear_reconstruct_generated_certificate_replays_in_lean() {
         },
     )));
 
-    let pr = cobra_passes::semilinear_reconstruct::run_semilinear_reconstruct(&item, &mut ctx)
+    let pr = cobra::passes::semilinear_reconstruct::run_semilinear_reconstruct(&item, &mut ctx)
         .expect("semilinear reconstruct pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate);
 
@@ -1684,21 +1688,21 @@ fn replay_semilinear_flow_case(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
     let item = mk_classified_ast_item(expr, Provenance::Original, classification);
 
-    let normalized = cobra_passes::semilinear_normalize::run_semilinear_normalize(&item, &mut ctx)
+    let normalized = cobra::passes::semilinear_normalize::run_semilinear_normalize(&item, &mut ctx)
         .expect("semilinear normalize pass");
     assert_eq!(normalized.decision, PassDecision::Advance);
 
     let checked =
-        cobra_passes::semilinear_check::run_semilinear_check(&normalized.next[0], &mut ctx)
+        cobra::passes::semilinear_check::run_semilinear_check(&normalized.next[0], &mut ctx)
             .expect("semilinear check pass");
     assert_eq!(checked.decision, PassDecision::Advance);
 
     let rewritten =
-        cobra_passes::semilinear_rewrite::run_semilinear_rewrite(&checked.next[0], &mut ctx)
+        cobra::passes::semilinear_rewrite::run_semilinear_rewrite(&checked.next[0], &mut ctx)
             .expect("semilinear rewrite pass");
     assert_eq!(rewritten.decision, PassDecision::Advance);
 
-    let reconstructed = cobra_passes::semilinear_reconstruct::run_semilinear_reconstruct(
+    let reconstructed = cobra::passes::semilinear_reconstruct::run_semilinear_reconstruct(
         &rewritten.next[0],
         &mut ctx,
     )
@@ -1752,7 +1756,7 @@ fn semilinear_family_generated_certificate_replays_in_lean() {
 fn atom_simplifier_constant_fold_generated_certificate_replays_in_lean() {
     let original = Expr::and(Expr::constant(3), Expr::constant(1));
     let (simplified, cert) =
-        cobra_passes::atom_simplifier::simplify_atom_certified(original.clone_tree(), 64);
+        cobra::passes::atom_simplifier::simplify_atom_certified(original.clone_tree(), 64);
     assert_eq!(*simplified, *Expr::constant(1));
     let cert = cert.expect("constant fold endpoint certificate");
     assert_eq!(cert.steps.len(), 1);
@@ -1786,7 +1790,7 @@ fn residual_recombine_generated_certificate_replays_in_lean() {
     let parent = WorkItem::new(StateData::Remainder(Box::new(residual.clone())));
     let ctx = OrchestratorContext::new(Options::default(), vars.clone(), 64);
 
-    let pr = cobra_passes::residual_common::try_recombine_and_emit(
+    let pr = cobra::passes::residual_common::try_recombine_and_emit(
         &residual,
         Expr::variable(0),
         &vars,
@@ -1838,7 +1842,7 @@ fn residual_recombine_context_target_generated_certificate_replays_in_lean() {
     };
     let parent = WorkItem::new(StateData::Remainder(Box::new(residual.clone())));
 
-    let pr = cobra_passes::residual_common::try_recombine_and_emit(
+    let pr = cobra::passes::residual_common::try_recombine_and_emit(
         &residual,
         Expr::variable(0),
         &["y".to_owned()],
@@ -1892,7 +1896,7 @@ fn residual_recombine_remapped_vars_generated_certificate_replays_in_lean() {
     let parent = WorkItem::new(StateData::Remainder(Box::new(residual.clone())));
     let ctx = OrchestratorContext::new(Options::default(), vars, 64);
 
-    let pr = cobra_passes::residual_common::try_recombine_and_emit(
+    let pr = cobra::passes::residual_common::try_recombine_and_emit(
         &residual,
         Expr::variable(0),
         &["z".to_owned()],
@@ -1928,7 +1932,7 @@ fn residual_poly_recovery_generated_certificate_replays_in_lean() {
     let item = WorkItem::new(StateData::Remainder(Box::new(residual)));
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
 
-    let pr = cobra_passes::residual_poly_recovery::run_residual_poly_recovery(&item, &mut ctx)
+    let pr = cobra::passes::residual_poly_recovery::run_residual_poly_recovery(&item, &mut ctx)
         .expect("residual poly recovery pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate);
 
@@ -1953,7 +1957,7 @@ fn replay_residual_poly_case(name: &str, target: Arc<Expr>, vars: Vec<String>, d
     let item = WorkItem::new(StateData::Remainder(Box::new(residual)));
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
 
-    let pr = cobra_passes::residual_poly_recovery::run_residual_poly_recovery(&item, &mut ctx)
+    let pr = cobra::passes::residual_poly_recovery::run_residual_poly_recovery(&item, &mut ctx)
         .expect("residual poly recovery pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate, "{name}");
 
@@ -2011,7 +2015,7 @@ fn residual_ghost_generated_certificate_replays_in_lean() {
     let item = WorkItem::new(StateData::Remainder(Box::new(residual)));
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
 
-    let pr = cobra_passes::residual_ghost::run_residual_ghost(&item, &mut ctx)
+    let pr = cobra::passes::residual_ghost::run_residual_ghost(&item, &mut ctx)
         .expect("residual ghost pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate);
 
@@ -2034,14 +2038,14 @@ fn prepare_direct_remainder_recombine_generated_certificate_replays_in_lean() {
     let item = mk_ast_item(expr.clone_tree(), Provenance::Original);
 
     let prepared =
-        cobra_passes::prepare_direct_remainder::run_prepare_direct_remainder(&item, &mut ctx)
+        cobra::passes::prepare_direct_remainder::run_prepare_direct_remainder(&item, &mut ctx)
             .expect("prepare direct remainder pass");
     assert_eq!(prepared.decision, PassDecision::Advance);
 
     let StateData::Remainder(residual) = &prepared.next[0].payload else {
         panic!("expected direct remainder payload");
     };
-    let solved = cobra_passes::residual_common::try_recombine_and_emit(
+    let solved = cobra::passes::residual_common::try_recombine_and_emit(
         residual,
         expr,
         &ctx.original_vars,
@@ -2074,7 +2078,7 @@ fn replay_prepare_direct_remainder_ghost_flow(name: &str, expr: Arc<Expr>, vars:
         LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
 
     let prepared =
-        cobra_passes::prepare_direct_remainder::run_prepare_direct_remainder(&item, &mut ctx)
+        cobra::passes::prepare_direct_remainder::run_prepare_direct_remainder(&item, &mut ctx)
             .expect("prepare direct remainder pass");
     assert_eq!(prepared.decision, PassDecision::Advance, "{name}");
     assert_eq!(prepared.next.len(), 1, "{name}");
@@ -2094,7 +2098,7 @@ fn replay_prepare_direct_remainder_ghost_flow(name: &str, expr: Arc<Expr>, vars:
         "{name}"
     );
 
-    let solved = cobra_passes::residual_ghost::run_residual_ghost(&prepared.next[0], &mut ctx)
+    let solved = cobra::passes::residual_ghost::run_residual_ghost(&prepared.next[0], &mut ctx)
         .expect("residual ghost pass after direct remainder");
     assert_eq!(solved.decision, PassDecision::SolvedCandidate, "{name}");
 
@@ -2159,7 +2163,7 @@ fn replay_residual_ghost_case(
     let item = WorkItem::new(StateData::Remainder(Box::new(residual)));
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
 
-    let pr = cobra_passes::residual_ghost::run_residual_ghost(&item, &mut ctx)
+    let pr = cobra::passes::residual_ghost::run_residual_ghost(&item, &mut ctx)
         .expect("residual ghost pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate, "{name}");
 
@@ -2232,11 +2236,11 @@ fn replay_residual_factored_ghost_case(
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
 
     let pr = if escalated {
-        cobra_passes::residual_factored_ghost::run_residual_factored_ghost_escalated(
+        cobra::passes::residual_factored_ghost::run_residual_factored_ghost_escalated(
             &item, &mut ctx,
         )
     } else {
-        cobra_passes::residual_factored_ghost::run_residual_factored_ghost(&item, &mut ctx)
+        cobra::passes::residual_factored_ghost::run_residual_factored_ghost(&item, &mut ctx)
     }
     .expect("residual factored ghost pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate, "{name}");
@@ -2297,7 +2301,7 @@ fn residual_template_generated_certificate_replays_in_lean() {
     let item = WorkItem::new(StateData::Remainder(Box::new(residual)));
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
 
-    let pr = cobra_passes::residual_template::run_residual_template(&item, &mut ctx)
+    let pr = cobra::passes::residual_template::run_residual_template(&item, &mut ctx)
         .expect("residual template pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate);
 
@@ -2327,7 +2331,7 @@ fn replay_residual_template_case(
     let item = WorkItem::new(StateData::Remainder(Box::new(residual)));
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
 
-    let pr = cobra_passes::residual_template::run_residual_template(&item, &mut ctx)
+    let pr = cobra::passes::residual_template::run_residual_template(&item, &mut ctx)
         .expect("residual template pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate, "{name}");
 
@@ -2429,7 +2433,7 @@ fn replay_bitwise_compose_custom_case(
         let child = ctx.competition_groups.get_mut(&child_gid).unwrap();
         child.best = Some(CandidateRecord {
             expr: child_expr.clone_tree(),
-            cost: cobra_core::expr_cost::compute_cost(&child_expr).cost,
+            cost: cobra::core::expr_cost::compute_cost(&child_expr).cost,
             verification: VerificationState::Verified,
             real_vars: child_vars,
             source_pass: PassId::SignaturePatternMatch,
@@ -2455,7 +2459,7 @@ fn replay_bitwise_compose_custom_case(
         )));
     }
 
-    let pr = cobra_passes::resolve_competition::run_resolve_competition(
+    let pr = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(child_gid),
         &mut ctx,
     )
@@ -2486,7 +2490,7 @@ fn bitwise_compose_without_parent_eval_generated_certificate_replays_in_lean() {
         let child = ctx.competition_groups.get_mut(&child_gid).unwrap();
         child.best = Some(CandidateRecord {
             expr: Expr::variable(0),
-            cost: cobra_core::expr_cost::ExprCost::default(),
+            cost: cobra::core::expr_cost::ExprCost::default(),
             verification: VerificationState::Verified,
             real_vars: vec!["y".into()],
             source_pass: PassId::SignaturePatternMatch,
@@ -2512,7 +2516,7 @@ fn bitwise_compose_without_parent_eval_generated_certificate_replays_in_lean() {
         )));
     }
 
-    let pr = cobra_passes::resolve_competition::run_resolve_competition(
+    let pr = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(child_gid),
         &mut ctx,
     )
@@ -2585,9 +2589,10 @@ fn signature_bitwise_decompose_direct_generated_certificate_replays_in_lean() {
     let group_id = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
     item.group_id = Some(group_id);
 
-    let pr =
-        cobra_passes::signature_bitwise_decompose::run_signature_bitwise_decompose(&item, &mut ctx)
-            .expect("signature bitwise decompose pass");
+    let pr = cobra::passes::signature_bitwise_decompose::run_signature_bitwise_decompose(
+        &item, &mut ctx,
+    )
+    .expect("signature bitwise decompose pass");
     assert_eq!(pr.decision, PassDecision::Advance);
 
     let cert = ctx.competition_groups[&group_id]
@@ -2606,9 +2611,10 @@ fn replay_signature_bitwise_decompose_child_flow(name: &str, expr: Arc<Expr>, va
     let parent_group_id = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
     item.group_id = Some(parent_group_id);
 
-    let decomposed =
-        cobra_passes::signature_bitwise_decompose::run_signature_bitwise_decompose(&item, &mut ctx)
-            .expect("signature bitwise decompose pass");
+    let decomposed = cobra::passes::signature_bitwise_decompose::run_signature_bitwise_decompose(
+        &item, &mut ctx,
+    )
+    .expect("signature bitwise decompose pass");
     assert_eq!(decomposed.decision, PassDecision::Advance, "{name}");
 
     let mut resolved_child = false;
@@ -2622,13 +2628,13 @@ fn replay_signature_bitwise_decompose_child_flow(name: &str, expr: Arc<Expr>, va
         let child_group_id = child.group_id.expect("child group id");
 
         let matched =
-            cobra_passes::signature_pattern_match::run_signature_pattern_match(child, &mut ctx)
+            cobra::passes::signature_pattern_match::run_signature_pattern_match(child, &mut ctx)
                 .expect("signature pattern pass for bitwise child");
         if matched.decision != PassDecision::Advance {
             continue;
         }
 
-        let resolved = cobra_passes::resolve_competition::run_resolve_competition(
+        let resolved = cobra::passes::resolve_competition::run_resolve_competition(
             &mk_resolve_item(child_group_id),
             &mut ctx,
         )
@@ -2682,7 +2688,7 @@ fn resolve_none_carry_generated_certificate_replays_in_lean() {
         .expect("signature certificate");
     ctx.competition_groups.get_mut(&group_id).unwrap().best = Some(CandidateRecord {
         expr: expr.clone_tree(),
-        cost: cobra_core::expr_cost::compute_cost(&expr).cost,
+        cost: cobra::core::expr_cost::compute_cost(&expr).cost,
         verification: VerificationState::Verified,
         real_vars: vec!["x".into(), "y".into()],
         source_pass: PassId::SignaturePatternMatch,
@@ -2692,7 +2698,7 @@ fn resolve_none_carry_generated_certificate_replays_in_lean() {
         lean_signature_certificate: Some(cert),
     });
 
-    let pr = cobra_passes::resolve_competition::run_resolve_competition(
+    let pr = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(group_id),
         &mut ctx,
     )
@@ -2723,7 +2729,7 @@ fn resolve_none_endpoint_carry_generated_certificate_replays_in_lean() {
             .expect("endpoint certificate");
     ctx.competition_groups.get_mut(&group_id).unwrap().best = Some(CandidateRecord {
         expr: simplified.clone_tree(),
-        cost: cobra_core::expr_cost::compute_cost(&simplified).cost,
+        cost: cobra::core::expr_cost::compute_cost(&simplified).cost,
         verification: VerificationState::Verified,
         real_vars: vec!["x".into(), "y".into()],
         source_pass: PassId::AtomIdentityRewrite,
@@ -2733,7 +2739,7 @@ fn resolve_none_endpoint_carry_generated_certificate_replays_in_lean() {
         lean_signature_certificate: None,
     });
 
-    let pr = cobra_passes::resolve_competition::run_resolve_competition(
+    let pr = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(group_id),
         &mut ctx,
     )
@@ -2795,13 +2801,13 @@ fn replay_hybrid_compose_custom_case(
         let child = ctx.competition_groups.get_mut(&child_gid).unwrap();
         child.best = Some(CandidateRecord {
             expr: child_expr.clone_tree(),
-            cost: cobra_core::expr_cost::compute_cost(&child_expr).cost,
+            cost: cobra::core::expr_cost::compute_cost(&child_expr).cost,
             verification: VerificationState::Verified,
             real_vars: parent_vars.clone(),
             source_pass: PassId::SignaturePatternMatch,
             needs_original_space_verification: false,
             sig_vector: child_signature,
-            lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+            lean_certificate: Some(cobra::orchestrator::LeanCertificate::new(
                 64,
                 child_expr.clone_tree(),
                 child_expr,
@@ -2823,7 +2829,7 @@ fn replay_hybrid_compose_custom_case(
         )));
     }
 
-    let pr = cobra_passes::resolve_competition::run_resolve_competition(
+    let pr = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(child_gid),
         &mut ctx,
     )
@@ -2854,7 +2860,7 @@ fn hybrid_compose_without_parent_eval_generated_certificate_replays_in_lean() {
         let child = ctx.competition_groups.get_mut(&child_gid).unwrap();
         child.best = Some(CandidateRecord {
             expr: Expr::variable(1),
-            cost: cobra_core::expr_cost::ExprCost::default(),
+            cost: cobra::core::expr_cost::ExprCost::default(),
             verification: VerificationState::Verified,
             real_vars: parent_vars.clone(),
             source_pass: PassId::SignaturePatternMatch,
@@ -2878,7 +2884,7 @@ fn hybrid_compose_without_parent_eval_generated_certificate_replays_in_lean() {
         )));
     }
 
-    let pr = cobra_passes::resolve_competition::run_resolve_competition(
+    let pr = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(child_gid),
         &mut ctx,
     )
@@ -2934,7 +2940,7 @@ fn signature_hybrid_decompose_flow_generated_certificate_replays_in_lean() {
     item.group_id = Some(parent_group_id);
 
     let pr =
-        cobra_passes::signature_hybrid_decompose::run_signature_hybrid_decompose(&item, &mut ctx)
+        cobra::passes::signature_hybrid_decompose::run_signature_hybrid_decompose(&item, &mut ctx)
             .expect("signature hybrid decompose pass");
     assert_eq!(pr.decision, PassDecision::Advance);
     assert!(!pr.next.is_empty());
@@ -2954,13 +2960,13 @@ fn signature_hybrid_decompose_flow_generated_certificate_replays_in_lean() {
         }
 
         let matched =
-            cobra_passes::signature_pattern_match::run_signature_pattern_match(child, &mut ctx)
+            cobra::passes::signature_pattern_match::run_signature_pattern_match(child, &mut ctx)
                 .expect("signature pattern pass for hybrid child");
         if matched.decision != PassDecision::Advance {
             continue;
         }
 
-        cobra_passes::resolve_competition::run_resolve_competition(
+        cobra::passes::resolve_competition::run_resolve_competition(
             &mk_resolve_item(child_group_id),
             &mut ctx,
         )
@@ -3042,7 +3048,7 @@ fn replay_lifted_substitute_direct_case(
         let group = ctx.competition_groups.get_mut(&group_id).unwrap();
         group.best = Some(CandidateRecord {
             expr: winner_expr.clone_tree(),
-            cost: cobra_core::expr_cost::ExprCost::default(),
+            cost: cobra::core::expr_cost::ExprCost::default(),
             verification: VerificationState::Verified,
             real_vars: winner_real_vars,
             source_pass: PassId::SignaturePatternMatch,
@@ -3064,7 +3070,7 @@ fn replay_lifted_substitute_direct_case(
         )));
     }
 
-    let pr = cobra_passes::resolve_competition::run_resolve_competition(
+    let pr = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(group_id),
         &mut ctx,
     )
@@ -3085,17 +3091,17 @@ fn replay_lifted_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>, repeated: 
     let item = mk_ast_item(expr, Provenance::Original);
 
     let lift = if repeated {
-        cobra_passes::lift_repeated_subexpressions::run_lift_repeated_subexpressions(
+        cobra::passes::lift_repeated_subexpressions::run_lift_repeated_subexpressions(
             &item, &mut ctx,
         )
         .expect("lift repeated subexpressions pass")
     } else {
-        cobra_passes::lift_arithmetic_atoms::run_lift_arithmetic_atoms(&item, &mut ctx)
+        cobra::passes::lift_arithmetic_atoms::run_lift_arithmetic_atoms(&item, &mut ctx)
             .expect("lift arithmetic atoms pass")
     };
     assert_eq!(lift.decision, PassDecision::Advance);
 
-    let prepared = cobra_passes::prepare_lifted_outer_solve::run_prepare_lifted_outer_solve(
+    let prepared = cobra::passes::prepare_lifted_outer_solve::run_prepare_lifted_outer_solve(
         &lift.next[0],
         &mut ctx,
     )
@@ -3118,26 +3124,28 @@ fn replay_lifted_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>, repeated: 
         "{name}"
     );
 
-    let signature =
-        cobra_passes::build_signature_state::run_build_signature_state(&prepared.next[0], &mut ctx)
-            .expect("build signature state for lifted outer");
+    let signature = cobra::passes::build_signature_state::run_build_signature_state(
+        &prepared.next[0],
+        &mut ctx,
+    )
+    .expect("build signature state for lifted outer");
     assert_eq!(signature.decision, PassDecision::Advance, "{name}");
     assert_eq!(signature.next.len(), 1, "{name}");
 
-    let matched = cobra_passes::signature_pattern_match::run_signature_pattern_match(
+    let matched = cobra::passes::signature_pattern_match::run_signature_pattern_match(
         &signature.next[0],
         &mut ctx,
     )
     .expect("signature pattern match lifted outer");
     if matched.decision != PassDecision::Advance {
-        let prepared_coeff = cobra_passes::prepare_coeff_model::run_prepare_coeff_model(
+        let prepared_coeff = cobra::passes::prepare_coeff_model::run_prepare_coeff_model(
             &signature.next[0],
             &mut ctx,
         )
         .expect("prepare coeff model for lifted outer");
         assert_eq!(prepared_coeff.decision, PassDecision::Advance, "{name}");
         let recovered =
-            cobra_passes::signature_singleton_poly_recovery::run_signature_singleton_poly_recovery(
+            cobra::passes::signature_singleton_poly_recovery::run_signature_singleton_poly_recovery(
                 &prepared_coeff.next[0],
                 &mut ctx,
             )
@@ -3145,7 +3153,7 @@ fn replay_lifted_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>, repeated: 
         assert_eq!(recovered.decision, PassDecision::Advance, "{name}");
     }
 
-    let resolved = cobra_passes::resolve_competition::run_resolve_competition(
+    let resolved = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(group_id),
         &mut ctx,
     )
@@ -3198,9 +3206,9 @@ fn lift_arithmetic_atoms_family_generated_certificate_replays_in_lean() {
 
 #[test]
 fn prepare_lifted_outer_pattern_certificate_replays_in_lean() {
-    let payload = cobra_orchestrator::LiftedSkeletonPayload {
+    let payload = cobra::orchestrator::LiftedSkeletonPayload {
         outer_expr: Expr::add(Expr::variable(2), Expr::constant(0)),
-        outer_ctx: cobra_orchestrator::AstSolveContext {
+        outer_ctx: cobra::orchestrator::AstSolveContext {
             vars: vec!["x".into(), "y".into(), "v0".into()],
             evaluator: None,
             input_sig: vec![0, 0, 0, 1, 0, 0, 0, 1],
@@ -3213,15 +3221,15 @@ fn prepare_lifted_outer_pattern_certificate_replays_in_lean() {
             original_support: vec![0, 1],
         }],
         original_var_count: 2,
-        baseline_cost: cobra_core::expr_cost::ExprCost::default(),
+        baseline_cost: cobra::core::expr_cost::ExprCost::default(),
         source_sig: Vec::new(),
-        original_ctx: cobra_orchestrator::AstSolveContext::default(),
+        original_ctx: cobra::orchestrator::AstSolveContext::default(),
     };
     let item = WorkItem::new(StateData::LiftedSkeleton(Box::new(payload)));
     let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
 
     let pr =
-        cobra_passes::prepare_lifted_outer_solve::run_prepare_lifted_outer_solve(&item, &mut ctx)
+        cobra::passes::prepare_lifted_outer_solve::run_prepare_lifted_outer_solve(&item, &mut ctx)
             .expect("prepare lifted outer solve pass");
     assert_eq!(pr.decision, PassDecision::Advance);
     let cert = pr.next[0]
@@ -3300,7 +3308,7 @@ fn operand_join_rewrite_generated_certificate_replays_in_lean() {
         full_ast: original_mul.clone_tree(),
         original_mul: original_mul.clone_tree(),
         target_hash: expr_identity_hash(&original_mul),
-        baseline_cost: cobra_core::expr_cost::compute_cost(&original_mul).cost,
+        baseline_cost: cobra::core::expr_cost::compute_cost(&original_mul).cost,
         vars: vec!["x".into(), "y".into()],
         parent_group_id: None,
         has_solve_ctx: false,
@@ -3324,7 +3332,7 @@ fn operand_join_rewrite_generated_certificate_replays_in_lean() {
         let lhs = ctx.competition_groups.get_mut(&lhs_group).unwrap();
         lhs.best = Some(CandidateRecord {
             expr: Expr::variable(0),
-            cost: cobra_core::expr_cost::compute_cost(&Expr::variable(0)).cost,
+            cost: cobra::core::expr_cost::compute_cost(&Expr::variable(0)).cost,
             verification: VerificationState::Verified,
             real_vars: vec!["x".into(), "y".into()],
             source_pass: PassId::SignaturePatternMatch,
@@ -3346,7 +3354,7 @@ fn operand_join_rewrite_generated_certificate_replays_in_lean() {
         role: OperandRole::Rhs,
     }));
 
-    let first = cobra_passes::resolve_competition::run_resolve_competition(
+    let first = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(lhs_group),
         &mut ctx,
     )
@@ -3354,7 +3362,7 @@ fn operand_join_rewrite_generated_certificate_replays_in_lean() {
     assert_eq!(first.decision, PassDecision::Advance);
     assert!(first.next.is_empty());
 
-    let second = cobra_passes::resolve_competition::run_resolve_competition(
+    let second = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(rhs_group),
         &mut ctx,
     )
@@ -3380,7 +3388,7 @@ fn replay_operand_simplify_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>) 
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
     let item = mk_ast_item(expr, Provenance::Original);
 
-    let fanned = cobra_passes::operand_simplify::run_operand_simplify(&item, &mut ctx)
+    let fanned = cobra::passes::operand_simplify::run_operand_simplify(&item, &mut ctx)
         .expect("operand simplify pass");
     assert_eq!(fanned.decision, PassDecision::Advance, "{name}");
     assert!(!fanned.next.is_empty(), "{name}");
@@ -3389,11 +3397,11 @@ fn replay_operand_simplify_flow(name: &str, expr: Arc<Expr>, vars: Vec<String>) 
     for child in &fanned.next {
         let group_id = child.group_id.expect("operand child group");
         let matched =
-            cobra_passes::signature_pattern_match::run_signature_pattern_match(child, &mut ctx)
+            cobra::passes::signature_pattern_match::run_signature_pattern_match(child, &mut ctx)
                 .expect("signature pattern match operand child");
         assert_eq!(matched.decision, PassDecision::Advance, "{name}");
 
-        let resolved = cobra_passes::resolve_competition::run_resolve_competition(
+        let resolved = cobra::passes::resolve_competition::run_resolve_competition(
             &mk_resolve_item(group_id),
             &mut ctx,
         )
@@ -3469,7 +3477,7 @@ fn replay_product_join_rewrite_case(
         x_resolved: false,
         y_resolved: false,
         original_expr: original_expr.clone_tree(),
-        baseline_cost: cobra_core::expr_cost::compute_cost(&original_expr).cost,
+        baseline_cost: cobra::core::expr_cost::compute_cost(&original_expr).cost,
         vars: vars.clone(),
         parent_group_id: None,
         has_solve_ctx,
@@ -3506,7 +3514,7 @@ fn replay_product_join_rewrite_case(
         let group = ctx.competition_groups.get_mut(&group_id).unwrap();
         group.best = Some(CandidateRecord {
             expr: expr.clone_tree(),
-            cost: cobra_core::expr_cost::compute_cost(&expr).cost,
+            cost: cobra::core::expr_cost::compute_cost(&expr).cost,
             verification: VerificationState::Verified,
             real_vars: vars.clone(),
             source_pass: PassId::SignaturePatternMatch,
@@ -3527,7 +3535,7 @@ fn replay_product_join_rewrite_case(
         (x_group, "x", y_group, "y")
     };
 
-    let first = cobra_passes::resolve_competition::run_resolve_competition(
+    let first = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(first_group),
         &mut ctx,
     )
@@ -3535,7 +3543,7 @@ fn replay_product_join_rewrite_case(
     assert_eq!(first.decision, PassDecision::Advance);
     assert!(first.next.is_empty());
 
-    let second = cobra_passes::resolve_competition::run_resolve_competition(
+    let second = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(second_group),
         &mut ctx,
     )
@@ -3632,7 +3640,7 @@ fn product_identity_collapse_flow_generated_certificate_replays_in_lean() {
     let item = mk_ast_item(expr, Provenance::Original);
 
     let pr =
-        cobra_passes::product_identity_collapse::run_product_identity_collapse(&item, &mut ctx)
+        cobra::passes::product_identity_collapse::run_product_identity_collapse(&item, &mut ctx)
             .expect("product identity collapse pass");
     assert_eq!(pr.decision, PassDecision::Advance);
     assert_eq!(pr.disposition, ItemDisposition::ConsumeCurrent);
@@ -3652,11 +3660,11 @@ fn product_identity_collapse_flow_generated_certificate_replays_in_lean() {
         assert!(child.metadata.lean_signature_certificate.is_none());
 
         let matched =
-            cobra_passes::signature_pattern_match::run_signature_pattern_match(child, &mut ctx)
+            cobra::passes::signature_pattern_match::run_signature_pattern_match(child, &mut ctx)
                 .expect("signature pattern match product-collapse child");
         assert_eq!(matched.decision, PassDecision::Advance);
 
-        let resolved = cobra_passes::resolve_competition::run_resolve_competition(
+        let resolved = cobra::passes::resolve_competition::run_resolve_competition(
             &mk_resolve_item(group_id),
             &mut ctx,
         )
@@ -3680,7 +3688,7 @@ fn replay_product_identity_collapse_pattern_flow(name: &str, expr: Arc<Expr>, va
     let item = mk_ast_item(expr, Provenance::Original);
 
     let pr =
-        cobra_passes::product_identity_collapse::run_product_identity_collapse(&item, &mut ctx)
+        cobra::passes::product_identity_collapse::run_product_identity_collapse(&item, &mut ctx)
             .expect("product identity collapse pass");
     assert_eq!(pr.decision, PassDecision::Advance, "{name}");
     assert_eq!(pr.disposition, ItemDisposition::ConsumeCurrent, "{name}");
@@ -3690,11 +3698,11 @@ fn replay_product_identity_collapse_pattern_flow(name: &str, expr: Arc<Expr>, va
     for child in &pr.next {
         let group_id = child.group_id.expect("product child group");
         let matched =
-            cobra_passes::signature_pattern_match::run_signature_pattern_match(child, &mut ctx)
+            cobra::passes::signature_pattern_match::run_signature_pattern_match(child, &mut ctx)
                 .expect("signature pattern match product child");
         assert_eq!(matched.decision, PassDecision::Advance, "{name}");
 
-        let resolved = cobra_passes::resolve_competition::run_resolve_competition(
+        let resolved = cobra::passes::resolve_competition::run_resolve_competition(
             &mk_resolve_item(group_id),
             &mut ctx,
         )
@@ -3773,7 +3781,7 @@ fn replay_atom_identity_case(name: &str, expr: Arc<Expr>, vars: Vec<String>) {
     let item = mk_ast_item(expr, Provenance::Original);
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
 
-    let pr = cobra_passes::atom_identity_rewrite::run_atom_identity_rewrite(&item, &mut ctx)
+    let pr = cobra::passes::atom_identity_rewrite::run_atom_identity_rewrite(&item, &mut ctx)
         .expect("atom identity rewrite pass");
     assert_eq!(pr.decision, PassDecision::Advance, "{name}");
 
@@ -3852,9 +3860,10 @@ fn prepare_remainder_constant_generated_certificate_replays_in_lean() {
     })));
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
 
-    let pr =
-        cobra_passes::prepare_remainder_from_core::run_prepare_remainder_from_core(&item, &mut ctx)
-            .expect("prepare remainder pass");
+    let pr = cobra::passes::prepare_remainder_from_core::run_prepare_remainder_from_core(
+        &item, &mut ctx,
+    )
+    .expect("prepare remainder pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate);
 
     let cert = pr.next[0]
@@ -3884,26 +3893,27 @@ fn prepare_remainder_supported_flow_generated_certificate_replays_in_lean() {
     })));
     let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
 
-    let prepared =
-        cobra_passes::prepare_remainder_from_core::run_prepare_remainder_from_core(&item, &mut ctx)
-            .expect("prepare remainder pass");
+    let prepared = cobra::passes::prepare_remainder_from_core::run_prepare_remainder_from_core(
+        &item, &mut ctx,
+    )
+    .expect("prepare remainder pass");
     assert_eq!(prepared.decision, PassDecision::Advance);
 
     let supported =
-        cobra_passes::residual_supported::run_residual_supported(&prepared.next[0], &mut ctx)
+        cobra::passes::residual_supported::run_residual_supported(&prepared.next[0], &mut ctx)
             .expect("residual supported pass");
     assert_eq!(supported.decision, PassDecision::Advance);
     assert_eq!(supported.next.len(), 1);
 
     let child_group = supported.next[0].group_id.expect("residual child group");
-    let matched = cobra_passes::signature_pattern_match::run_signature_pattern_match(
+    let matched = cobra::passes::signature_pattern_match::run_signature_pattern_match(
         &supported.next[0],
         &mut ctx,
     )
     .expect("signature pattern match residual");
     assert_eq!(matched.decision, PassDecision::Advance);
 
-    let resolved = cobra_passes::resolve_competition::run_resolve_competition(
+    let resolved = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(child_group),
         &mut ctx,
     )
@@ -3935,7 +3945,7 @@ fn replay_extract_product_core_case(name: &str, expr: Arc<Expr>, num_vars: u32) 
     ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
     let item = mk_ast_item(expr, Provenance::Original);
 
-    let pr = cobra_passes::extract_product_core::run_extract_product_core(&item, &mut ctx)
+    let pr = cobra::passes::extract_product_core::run_extract_product_core(&item, &mut ctx)
         .expect("extract product core pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate);
 
@@ -3987,9 +3997,9 @@ fn replay_poly_core(name: &str, expr: Arc<Expr>, degree: u8, num_vars: u32) {
     let item = mk_ast_item(expr, Provenance::Original);
 
     let pr = match degree {
-        2 => cobra_passes::extract_poly_core::run_extract_poly_core_d2(&item, &mut ctx),
-        3 => cobra_passes::extract_poly_core::run_extract_poly_core_d3(&item, &mut ctx),
-        4 => cobra_passes::extract_poly_core::run_extract_poly_core_d4(&item, &mut ctx),
+        2 => cobra::passes::extract_poly_core::run_extract_poly_core_d2(&item, &mut ctx),
+        3 => cobra::passes::extract_poly_core::run_extract_poly_core_d3(&item, &mut ctx),
+        4 => cobra::passes::extract_poly_core::run_extract_poly_core_d4(&item, &mut ctx),
         _ => panic!("unsupported replay degree"),
     }
     .expect("extract polynomial core pass");
@@ -4125,7 +4135,7 @@ fn replay_extract_template_core_case(name: &str, expr: Arc<Expr>, num_vars: u32)
     ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
     let item = mk_classified_ast_item(expr, Provenance::Original, classification);
 
-    let pr = cobra_passes::extract_template_core::run_extract_template_core(&item, &mut ctx)
+    let pr = cobra::passes::extract_template_core::run_extract_template_core(&item, &mut ctx)
         .expect("extract template core pass");
     assert_eq!(pr.decision, PassDecision::SolvedCandidate);
 
@@ -4172,12 +4182,12 @@ fn verify_candidate_generated_certificate_replays_in_lean() {
     let item = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
         expr: simplified,
         real_vars: vec!["x".into(), "y".into()],
-        cost: cobra_core::expr_cost::ExprCost::default(),
+        cost: cobra::core::expr_cost::ExprCost::default(),
         producing_pass: PassId::VerifyCandidate,
         needs_original_space_verification: true,
     })));
 
-    let pr = cobra_passes::verify_candidate::run_verify_candidate(&item, &mut ctx)
+    let pr = cobra::passes::verify_candidate::run_verify_candidate(&item, &mut ctx)
         .expect("verify candidate pass");
     assert_eq!(pr.decision, PassDecision::Advance);
 
@@ -4208,12 +4218,12 @@ fn replay_verify_candidate_case(
     let item = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
         expr: simplified,
         real_vars,
-        cost: cobra_core::expr_cost::ExprCost::default(),
+        cost: cobra::core::expr_cost::ExprCost::default(),
         producing_pass: PassId::VerifyCandidate,
         needs_original_space_verification: true,
     })));
 
-    let pr = cobra_passes::verify_candidate::run_verify_candidate(&item, &mut ctx)
+    let pr = cobra::passes::verify_candidate::run_verify_candidate(&item, &mut ctx)
         .expect("verify candidate pass");
     assert_eq!(pr.decision, PassDecision::Advance, "{name}");
 
@@ -4278,7 +4288,7 @@ fn signature_multivar_poly_generated_certificate_replays_in_lean() {
         flags: StructuralFlag::HAS_MUL | StructuralFlag::HAS_MULTIVAR_HIGH_POWER,
     });
 
-    let pr = cobra_passes::signature_multivar_poly_recovery::run_signature_multivar_poly_recovery(
+    let pr = cobra::passes::signature_multivar_poly_recovery::run_signature_multivar_poly_recovery(
         &item, &mut ctx,
     )
     .expect("multivar poly recovery pass");
@@ -4304,7 +4314,7 @@ fn replay_signature_multivar_poly_case(name: &str, expr: Arc<Expr>, vars: Vec<St
         flags: StructuralFlag::HAS_MUL | StructuralFlag::HAS_MULTIVAR_HIGH_POWER,
     });
 
-    let pr = cobra_passes::signature_multivar_poly_recovery::run_signature_multivar_poly_recovery(
+    let pr = cobra::passes::signature_multivar_poly_recovery::run_signature_multivar_poly_recovery(
         &item, &mut ctx,
     )
     .expect("multivar poly recovery pass");
@@ -4336,7 +4346,7 @@ fn replay_signature_multivar_poly_override_case(name: &str, expr: Arc<Expr>, var
         flags: StructuralFlag::HAS_MUL | StructuralFlag::HAS_MULTIVAR_HIGH_POWER,
     });
 
-    let pr = cobra_passes::signature_multivar_poly_recovery::run_signature_multivar_poly_recovery(
+    let pr = cobra::passes::signature_multivar_poly_recovery::run_signature_multivar_poly_recovery(
         &item, &mut ctx,
     )
     .expect("multivar poly recovery override pass");
@@ -4396,7 +4406,7 @@ fn signature_singleton_poly_generated_certificate_replays_in_lean() {
     let group_id = item.group_id.expect("group id");
 
     let pr =
-        cobra_passes::signature_singleton_poly_recovery::run_signature_singleton_poly_recovery(
+        cobra::passes::signature_singleton_poly_recovery::run_signature_singleton_poly_recovery(
             &item, &mut ctx,
         )
         .expect("singleton poly recovery pass");
@@ -4418,7 +4428,7 @@ fn replay_signature_singleton_poly_case(name: &str, expr: Arc<Expr>, vars: Vec<S
     let group_id = item.group_id.expect("group id");
 
     let pr =
-        cobra_passes::signature_singleton_poly_recovery::run_signature_singleton_poly_recovery(
+        cobra::passes::signature_singleton_poly_recovery::run_signature_singleton_poly_recovery(
             &item, &mut ctx,
         )
         .expect("singleton poly recovery pass");
@@ -4440,7 +4450,7 @@ fn replay_signature_singleton_poly_remainder_flow(name: &str, expr: Arc<Expr>, v
     let parent_group_id = item.group_id.expect("parent group id");
 
     let lowered =
-        cobra_passes::signature_singleton_poly_recovery::run_signature_singleton_poly_recovery(
+        cobra::passes::signature_singleton_poly_recovery::run_signature_singleton_poly_recovery(
             &item, &mut ctx,
         )
         .expect("singleton poly recovery pass");
@@ -4452,20 +4462,20 @@ fn replay_signature_singleton_poly_remainder_flow(name: &str, expr: Arc<Expr>, v
     );
 
     let supported =
-        cobra_passes::residual_supported::run_residual_supported(&lowered.next[0], &mut ctx)
+        cobra::passes::residual_supported::run_residual_supported(&lowered.next[0], &mut ctx)
             .expect("residual supported pass");
     assert_eq!(supported.decision, PassDecision::Advance, "{name}");
     assert_eq!(supported.next.len(), 1, "{name}");
     let child_group_id = supported.next[0].group_id.expect("residual child group");
 
-    let matched = cobra_passes::signature_pattern_match::run_signature_pattern_match(
+    let matched = cobra::passes::signature_pattern_match::run_signature_pattern_match(
         &supported.next[0],
         &mut ctx,
     )
     .expect("signature pattern match residual child");
     assert_eq!(matched.decision, PassDecision::Advance, "{name}");
 
-    let solved = cobra_passes::resolve_competition::run_resolve_competition(
+    let solved = cobra::passes::resolve_competition::run_resolve_competition(
         &mk_resolve_item(child_group_id),
         &mut ctx,
     )
@@ -4497,7 +4507,7 @@ fn replay_signature_singleton_poly_inline_override_case(
     item.evaluator_override_arity = arity;
 
     let pr =
-        cobra_passes::signature_singleton_poly_recovery::run_signature_singleton_poly_recovery(
+        cobra::passes::signature_singleton_poly_recovery::run_signature_singleton_poly_recovery(
             &item, &mut ctx,
         )
         .expect("singleton poly recovery inline override pass");

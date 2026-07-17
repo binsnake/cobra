@@ -7,18 +7,18 @@
 //! to 3 when the residual support fits in two variables, trading
 //! solve time for a wider basis.
 
-use cobra_core::pass_contract::{
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     ItemDisposition, OrchestratorContext, PassDecision, PassId, PassResult, ResidualSolverKind,
     StateData, WorkItem,
 };
 
-use crate::ghost_residual_solver::solve_factored_ghost_residual;
-use crate::residual_common::try_recombine_and_emit;
+use crate::passes::ghost_residual_solver::solve_factored_ghost_residual;
+use crate::passes::residual_common::try_recombine_and_emit;
 
 const RESIDUAL_FAILED: u16 = 50;
 

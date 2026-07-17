@@ -3,20 +3,20 @@
 //! a polynomial core was extracted but the residual is itself
 //! polynomial at a higher degree.
 
-use cobra_core::expr::Expr;
-use cobra_core::pass_contract::{
+use crate::core::expr::Expr;
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_ir::{recover_and_verify_poly, PolyRecoveryResult};
-use cobra_orchestrator::{
+use crate::ir::{recover_and_verify_poly, PolyRecoveryResult};
+use crate::orchestrator::{
     ItemDisposition, OrchestratorContext, PassDecision, PassId, PassResult, ResidualSolverKind,
     StateData, WorkItem,
 };
 
-use crate::residual_common::try_recombine_and_emit;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::residual_common::try_recombine_and_emit;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 fn fail(msg: &'static str) -> ReasonDetail {
     ReasonDetail {
@@ -64,7 +64,7 @@ pub fn run_residual_poly_recovery(
     let num_vars = target_vars.len() as u32;
 
     let verify =
-        |eval: &cobra_core::evaluator::Evaluator, arity: u32, candidate: &Expr, bw: u32| {
+        |eval: &crate::core::evaluator::Evaluator, arity: u32, candidate: &Expr, bw: u32| {
             full_width_check_eval(eval, arity, candidate, bw, DEFAULT_NUM_SAMPLES).passed
         };
 

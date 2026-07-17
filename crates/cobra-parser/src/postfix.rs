@@ -2,9 +2,9 @@
 //! validation of shift/exponent operands.
 //!
 
-use cobra_core::result::{err, CobraError, Result};
+use crate::core::result::{err, CobraError, Result};
 
-use crate::token::{Token, TokenType};
+use crate::parser::token::{Token, TokenType};
 
 /// a new operator pops from the stack while the top is an operator and
 /// either (tok is right-assoc and top's prec < tok's prec) or (tok is
@@ -121,7 +121,7 @@ pub fn collect_sorted_vars(tokens: &[Token]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::token::tokenize;
+    use crate::parser::token::tokenize;
 
     fn rpn(input: &str) -> Vec<String> {
         let toks = tokenize(input).unwrap();

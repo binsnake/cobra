@@ -1,14 +1,14 @@
 //! Late candidate normalization before competition submission.
 
-use cobra_core::evaluate_boolean_signature;
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::pass_contract::VerificationState;
-use cobra_orchestrator::{
+use crate::core::evaluate_boolean_signature;
+use crate::core::expr::Expr;
+use crate::core::expr_cost::compute_cost;
+use crate::core::pass_contract::VerificationState;
+use crate::orchestrator::{
     submit_candidate, CandidateRecord, GroupId, GroupMap, LeanCertificate, LeanSignatureCertificate,
 };
 
-use crate::pattern_matcher::normalize_late_candidate_expr;
+use crate::passes::pattern_matcher::normalize_late_candidate_expr;
 
 /// Append `next` onto an optional Lean certificate chain, seeding the
 /// chain when it is empty. Wraps [`LeanCertificate::merge_step_chain`]
@@ -83,16 +83,16 @@ mod tests {
     #[test]
     fn verified_normalized_candidate_requires_proof_metadata() {
         let mut groups = GroupMap::default();
-        groups.insert(0, cobra_orchestrator::CompetitionGroup::default());
+        groups.insert(0, crate::orchestrator::CompetitionGroup::default());
         let submitted = submit_normalized_candidate(
             &mut groups,
             0,
             CandidateRecord {
                 expr: Expr::variable(0),
-                cost: cobra_core::expr_cost::ExprCost::default(),
+                cost: crate::core::expr_cost::ExprCost::default(),
                 verification: VerificationState::Verified,
                 real_vars: vec!["x".to_owned()],
-                source_pass: cobra_orchestrator::PassId::SignaturePatternMatch,
+                source_pass: crate::orchestrator::PassId::SignaturePatternMatch,
                 needs_original_space_verification: false,
                 sig_vector: vec![1, 0],
                 lean_certificate: None,
@@ -108,19 +108,19 @@ mod tests {
     #[test]
     fn verified_normalized_candidate_requires_matching_signature_certificate() {
         let mut groups = GroupMap::default();
-        groups.insert(0, cobra_orchestrator::CompetitionGroup::default());
+        groups.insert(0, crate::orchestrator::CompetitionGroup::default());
         let submitted = submit_normalized_candidate(
             &mut groups,
             0,
             CandidateRecord {
                 expr: Expr::variable(0),
-                cost: cobra_core::expr_cost::ExprCost::default(),
+                cost: crate::core::expr_cost::ExprCost::default(),
                 verification: VerificationState::Verified,
                 real_vars: vec!["x".to_owned()],
-                source_pass: cobra_orchestrator::PassId::SignaturePatternMatch,
+                source_pass: crate::orchestrator::PassId::SignaturePatternMatch,
                 needs_original_space_verification: false,
                 sig_vector: vec![1, 0],
-                lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+                lean_certificate: Some(crate::orchestrator::LeanCertificate::new(
                     64,
                     Expr::variable(0),
                     Expr::variable(0),

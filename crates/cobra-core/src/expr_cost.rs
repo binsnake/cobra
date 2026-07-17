@@ -3,7 +3,7 @@
 //! weighted size (favour small trees), non-linear mul count (favour
 //! fewer `var * var`), and maximum depth (favour shallow).
 
-use crate::expr::{Expr, Kind};
+use crate::core::expr::{Expr, Kind};
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ExprCost {

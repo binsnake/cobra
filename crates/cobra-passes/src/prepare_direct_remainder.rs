@@ -6,19 +6,19 @@
 //! Gated on an available evaluator — without one, there's no way to
 //! probe full-width equality.
 
-use cobra_core::evaluate_boolean_signature;
-use cobra_core::expr_rewrite::build_var_support;
-use cobra_core::pass_contract::{
+use crate::core::evaluate_boolean_signature;
+use crate::core::expr_rewrite::build_var_support;
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     ItemDisposition, OrchestratorContext, PassDecision, PassResult, RemainderOrigin,
     RemainderStatePayload, RemainderTargetContext, StateData, WorkItem,
 };
 
-use crate::aux_var::eliminate_aux_vars_fw;
+use crate::passes::aux_var::eliminate_aux_vars_fw;
 
 fn reason(msg: &'static str, category: ReasonCategory, subcode: u16) -> ReasonDetail {
     ReasonDetail {
@@ -88,7 +88,7 @@ pub fn run_prepare_direct_remainder(
 
     let payload = RemainderStatePayload {
         origin: RemainderOrigin::DirectBooleanNull,
-        prefix_expr: cobra_core::expr::Expr::constant(0),
+        prefix_expr: crate::core::expr::Expr::constant(0),
         prefix_degree: 0,
         remainder_eval: eval.clone(),
         source_sig: decomp_sig.clone(),

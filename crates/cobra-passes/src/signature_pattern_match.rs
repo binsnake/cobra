@@ -3,21 +3,21 @@
 //! worklist push (groups will be wired through the signature passes
 //! in a later session).
 
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::pass_contract::{ReasonDetail, VerificationState};
-use cobra_core::result::Result;
+use crate::core::expr_cost::compute_cost;
+use crate::core::pass_contract::{ReasonDetail, VerificationState};
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     CandidatePayload, CandidateRecord, ItemDisposition, OrchestratorContext, PassDecision, PassId,
     PassResult, StateData, WorkItem,
 };
 
-use crate::candidate_normalize::{
+use crate::passes::candidate_normalize::{
     signature_certificate_for_candidate, submit_normalized_candidate,
 };
-use crate::mapped_evaluator::build_mapped_evaluator;
-use crate::pattern_matcher::match_pattern;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::mapped_evaluator::build_mapped_evaluator;
+use crate::passes::pattern_matcher::match_pattern;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 /// look up the reduced sig in the pattern table; on a hit, build a
 /// `Candidate` work item carrying the simplified expression. The
@@ -148,10 +148,10 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::{Expr, Kind};
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::{Expr, Kind};
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{
         EliminationResult, SignatureStatePayload, SignatureSubproblemContext,
     };
 
@@ -179,7 +179,7 @@ mod tests {
         let mut ctx =
             OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
         let mut item = mk_sig_item(vec![0, 1, 1, 0], vec!["x".into(), "y".into()], false);
-        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        item.metadata.lean_certificate = Some(crate::orchestrator::LeanCertificate::new(
             64,
             Expr::constant(0),
             Expr::constant(0),
@@ -269,7 +269,7 @@ mod tests {
         let item = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
             expr: Expr::variable(0),
             real_vars: Vec::new(),
-            cost: cobra_core::expr_cost::ExprCost::default(),
+            cost: crate::core::expr_cost::ExprCost::default(),
             producing_pass: PassId::VerifyCandidate,
             needs_original_space_verification: false,
         })));

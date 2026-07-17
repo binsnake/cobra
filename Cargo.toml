@@ -1,25 +1,77 @@
-[workspace]
-resolver = "2"
-members = ["crates/*"]
-
-[workspace.package]
+[package]
+name = "cobra-mba"
 version = "0.1.0"
 edition = "2021"
-# Matches the toolchain pin in rust-toolchain.toml; older releases are untested.
 rust-version = "1.88"
 license = "Apache-2.0"
-repository = "https://github.com/local/cobra-rs"
+description = "CoBRA mixed Boolean-arithmetic simplifier"
+repository = "https://github.com/binsnake/cobra"
+readme = "README.md"
+keywords = ["bitvector", "mba", "simplifier", "deobfuscation"]
+categories = ["algorithms", "development-tools", "command-line-utilities"]
+publish = ["crates-io"]
+autobins = false
+# Local developer-only probes and Windows-reserved scratch entries are not
+# release artifacts.
+exclude = ["nul", "crates/cobra-testkit/src/bin/allocprobe.rs"]
 
-[workspace.dependencies]
-smallvec = { version = "1.13", features = ["union"] }
+[lib]
+name = "cobra"
+path = "crates/cobra/src/lib.rs"
+# `rlib` is the normal static Rust dependency. `dylib` enables development
+# builds with `-C prefer-dynamic` without introducing another Cargo package.
+crate-type = ["rlib", "dylib"]
+
+[[bin]]
+name = "cobra-cli"
+path = "crates/cobra-cli/src/main.rs"
+
+[[bin]]
+name = "cobra-sweep"
+path = "crates/cobra-testkit/src/bin/sweep.rs"
+
+[[test]]
+name = "main_loop"
+path = "crates/cobra-orchestrator/tests/main_loop.rs"
+
+[[test]]
+name = "adversarial_corpus"
+path = "crates/cobra-passes/tests/adversarial_corpus.rs"
+
+[[test]]
+name = "generated_lean_replay"
+path = "crates/cobra-passes/tests/generated_lean_replay.rs"
+
+[[test]]
+name = "pipeline"
+path = "crates/cobra-passes/tests/pipeline.rs"
+
+[[test]]
+name = "upstream_simplifier"
+path = "crates/cobra-passes/tests/upstream_simplifier.rs"
+
+[[test]]
+name = "datasets"
+path = "crates/cobra-testkit/tests/datasets.rs"
+
+[features]
+default = ["simd"]
+# Enable the portable-SIMD (`wide`) gate-kernel backend.
+simd = ["dep:wide"]
+# Enable the optional Z3 verifier backend. Z3 must be available to the linker.
+z3 = ["dep:z3"]
+
+[dependencies]
 # Exact pin: fixed-seed hashing (`RandomState::with_seeds`) must hash
-# identically across builds; a patch upgrade changing the algorithm would
-# silently break deterministic iteration-order expectations.
+# identically across builds.
 ahash = "=0.8.11"
+clap = { version = "4", features = ["derive"] }
 hashbrown = "0.14"
 indexmap = "2"
+smallvec = { version = "1.13", features = ["union"] }
 thiserror = "1"
-wide = "0.7"
+wide = { version = "0.7", optional = true }
+z3 = { version = "0.12", optional = true }
 
 [profile.release]
 lto = "thin"
@@ -29,3 +81,13 @@ debug = 1
 [profile.bench]
 lto = "thin"
 codegen-units = 1
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"

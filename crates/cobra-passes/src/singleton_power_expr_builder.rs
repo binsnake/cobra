@@ -8,12 +8,12 @@
 //! Output is `None` if no variable contributes a non-zero monomial
 //! (caller interprets `None` as "no singleton-power lift applicable").
 
-use cobra_core::arith::bitmask;
-use cobra_core::expr::Expr;
-use cobra_core::expr_rewrite::apply_coefficient;
+use crate::core::arith::bitmask;
+use crate::core::expr::Expr;
+use crate::core::expr_rewrite::apply_coefficient;
 use std::sync::Arc;
 
-use cobra_ir::{SingletonPowerResult, UnivariateTerm};
+use crate::ir::{SingletonPowerResult, UnivariateTerm};
 
 /// Convert a factorial-basis univariate polynomial into its monomial
 /// coefficient vector: `mono[j] = Σ h[k] * s(k, j)` where `s` is the
@@ -118,8 +118,8 @@ pub fn build_singleton_power_expr(powers: &SingletonPowerResult) -> Option<Arc<E
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_ir::{recover_singleton_powers, UnivariateNormalizedPoly};
+    use crate::core::evaluator::Evaluator;
+    use crate::ir::{recover_singleton_powers, UnivariateNormalizedPoly};
 
     #[test]
     fn x_squared_factorial_to_monomial_is_x_squared() {

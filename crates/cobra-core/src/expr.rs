@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use smallvec::SmallVec;
 
-use crate::arith::{bitmask, sign_bit_mask};
+use crate::core::arith::{bitmask, sign_bit_mask};
 
 /// Node kind. Variants that carry payload (`Constant`, `Variable`, `Shr`)
 /// store it inline instead of in a side channel on the struct.

@@ -9,33 +9,35 @@
 //! runs it to either a verified candidate or an exhausted-worklist
 //! result.
 
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::{compute_cost, is_better, ExprCost};
-use cobra_core::expr_rewrite::try_build_var_support;
-use cobra_core::expr_utils::remap_var_indices;
-use cobra_core::pass_contract::{
+use crate::core::expr::Expr;
+use crate::core::expr_cost::{compute_cost, is_better, ExprCost};
+use crate::core::expr_rewrite::try_build_var_support;
+use crate::core::expr_utils::remap_var_indices;
+use crate::core::pass_contract::{
     PassOutcome, ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
     VerificationState,
 };
-use cobra_core::result::Result;
-use cobra_core::spot_check::full_width_check_eval;
+use crate::core::result::Result;
+use crate::core::spot_check::full_width_check_eval;
 use std::sync::Arc;
 
-use crate::attempt_cache::PassAttemptCache;
-use crate::competition::{
+use crate::orchestrator::attempt_cache::PassAttemptCache;
+use crate::orchestrator::competition::{
     endpoint_certificate_matches_candidate_signature, release_handle, submit_candidate,
     CandidateRecord,
 };
-use crate::context::{OrchestratorContext, OrchestratorPolicy, OrchestratorTelemetry, RunMetadata};
-use crate::enums::{ItemDisposition, PassDecision, PassId};
-use crate::ranker::{terminal_rank, unsupported_rank_better};
-use crate::registry::{build_pass_index, PassDescriptor};
-use crate::scheduler::select_next_pass;
-use crate::state::StateData;
-use crate::work_item::{
+use crate::orchestrator::context::{
+    OrchestratorContext, OrchestratorPolicy, OrchestratorTelemetry, RunMetadata,
+};
+use crate::orchestrator::enums::{ItemDisposition, PassDecision, PassId};
+use crate::orchestrator::ranker::{terminal_rank, unsupported_rank_better};
+use crate::orchestrator::registry::{build_pass_index, PassDescriptor};
+use crate::orchestrator::scheduler::select_next_pass;
+use crate::orchestrator::state::StateData;
+use crate::orchestrator::work_item::{
     ItemMetadata, PassResult, TransformTerminalSignal, UnsupportedCandidate, WorkItem,
 };
-use crate::worklist::Worklist;
+use crate::orchestrator::worklist::Worklist;
 
 /// Result of one invocation of [`run_main_loop`]: either the outcome
 /// emitted by a pass (typically `Success`) or a `Blocked` reason
@@ -63,7 +65,7 @@ struct BestRewrite {
     real_vars: Vec<String>,
     /// Existing theorem-backed certificate for this rewrite, when the
     /// producing pass attached one.
-    lean_certificate: Option<cobra_verify::LeanCertificate>,
+    lean_certificate: Option<crate::verify::LeanCertificate>,
 }
 
 /// Bit-partition reconstruction passes: they rebuild a bitwise function from
@@ -458,7 +460,7 @@ fn try_promote_best_rewrite(
         })
         .cloned()
         .or_else(|| {
-            cobra_verify::LeanCertificate::try_single_rewrite_between_64(
+            crate::verify::LeanCertificate::try_single_rewrite_between_64(
                 ctx.bitwidth,
                 original_expr.clone_tree(),
                 best.expr.clone_tree(),
@@ -625,8 +627,8 @@ fn proof_backed_group_verification(
     expr: &Expr,
     real_vars: &[String],
     sig_vector: &[u64],
-    lean_certificate: Option<&cobra_verify::LeanCertificate>,
-    lean_signature_certificate: Option<&cobra_verify::LeanSignatureCertificate>,
+    lean_certificate: Option<&crate::verify::LeanCertificate>,
+    lean_signature_certificate: Option<&crate::verify::LeanSignatureCertificate>,
 ) -> VerificationState {
     if verification != VerificationState::Verified {
         return verification;
@@ -664,7 +666,7 @@ fn build_exhaustion_result(
             top: ReasonFrame {
                 code: ReasonCode {
                     category: ReasonCategory::SearchExhausted,
-                    domain: cobra_core::pass_contract::ReasonDomain::Orchestrator,
+                    domain: crate::core::pass_contract::ReasonDomain::Orchestrator,
                     subcode: 0,
                 },
                 message: "Worklist exhausted".to_string(),
@@ -678,7 +680,7 @@ fn build_exhaustion_result(
 
     // Derive structural-transform terminal reason code from
     let used_folded_ast_exploration =
-        cobra_core::classification::is_folded_ast_exploration_candidate(
+        crate::core::classification::is_folded_ast_exploration_candidate(
             ctx.run_metadata.input_classification.flags,
         ) || final_meta.structural_transform_rounds > 0
             || final_meta.transform_produced_candidate
@@ -689,7 +691,7 @@ fn build_exhaustion_result(
             let cat = sig.category;
             final_meta.reason_code = Some(ReasonCode {
                 category: cat,
-                domain: cobra_core::pass_contract::ReasonDomain::StructuralTransform,
+                domain: crate::core::pass_contract::ReasonDomain::StructuralTransform,
                 subcode: 0,
             });
             match cat {
@@ -719,7 +721,7 @@ fn build_exhaustion_result(
 
     // Non-exploration inputs: propagate semilinear failure as the cause.
     if final_meta.cause_chain.is_empty()
-        && !cobra_core::classification::is_folded_ast_exploration_candidate(
+        && !crate::core::classification::is_folded_ast_exploration_candidate(
             ctx.run_metadata.input_classification.flags,
         )
         && ctx.run_metadata.semilinear_failure.is_some()
@@ -752,7 +754,7 @@ fn build_exhaustion_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_verify::LeanCertificate;
+    use crate::verify::LeanCertificate;
 
     #[test]
     fn proof_backed_group_verification_rejects_endpoint_with_wrong_source_signature() {

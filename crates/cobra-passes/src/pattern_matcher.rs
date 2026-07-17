@@ -9,21 +9,21 @@
 //! and every 2-variable Boolean function — which covers the bulk of
 //! the README's smaller MBA examples.
 
-use cobra_core::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_sub};
-use cobra_core::evaluate_boolean_signature;
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::expr_cost::{compute_cost, is_better, ExprCost};
-use cobra_core::expr_rewrite::apply_coefficient;
-use cobra_core::expr_utils::{collect_vars, remap_var_indices};
-use cobra_core::is_boolean_valued;
-use cobra_orchestrator::{ExprPath, LeanCertificate};
+use crate::core::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_sub};
+use crate::core::evaluate_boolean_signature;
+use crate::core::evaluator::Evaluator;
+use crate::core::expr::{Expr, Kind};
+use crate::core::expr_cost::{compute_cost, is_better, ExprCost};
+use crate::core::expr_rewrite::apply_coefficient;
+use crate::core::expr_utils::{collect_vars, remap_var_indices};
+use crate::core::is_boolean_valued;
+use crate::orchestrator::{ExprPath, LeanCertificate};
 use std::sync::Arc;
 
-use crate::atom_simplifier::simplify_atom;
-use crate::candidate_normalize::merge_certificate;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
-use crate::weighted_poly_fit::solve_2adic_fixed;
+use crate::passes::atom_simplifier::simplify_atom;
+use crate::passes::candidate_normalize::merge_certificate;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::weighted_poly_fit::solve_2adic_fixed;
 
 /// True when every entry of `sig` is the same value.
 #[must_use]
@@ -439,8 +439,8 @@ fn collapse_double_not(expr: Arc<Expr>) -> Arc<Expr> {
         let child = std::mem::replace(&mut e.children[i], Expr::constant(0));
         e.children[i] = collapse_double_not(child);
     }
-    if matches!(e.kind, cobra_core::expr::Kind::Not) && !e.children.is_empty() {
-        if let cobra_core::expr::Kind::Not = e.children[0].kind {
+    if matches!(e.kind, crate::core::expr::Kind::Not) && !e.children.is_empty() {
+        if let crate::core::expr::Kind::Not = e.children[0].kind {
             // Take grandchild out — Not(Not(x)) → x.
             let mut inner = std::mem::replace(&mut e.children[0], Expr::constant(0));
             return std::mem::replace(
@@ -458,8 +458,8 @@ fn collapse_double_not(expr: Arc<Expr>) -> Arc<Expr> {
 /// transform the canonical expression back to it.
 #[must_use]
 pub fn match_4var_npn(key: u16) -> Option<Arc<Expr>> {
-    let entry = &crate::npn4_table::KNPN4_TABLE[key as usize];
-    let perm = &crate::npn4_table::KPERMS4[entry.perm_idx as usize];
+    let entry = &crate::passes::npn4_table::KNPN4_TABLE[key as usize];
+    let perm = &crate::passes::npn4_table::KPERMS4[entry.perm_idx as usize];
 
     let mut inv = [0u32; 4];
     for (i, &p) in perm.iter().enumerate() {
@@ -476,7 +476,7 @@ pub fn match_4var_npn(key: u16) -> Option<Arc<Expr>> {
         e
     };
 
-    let mut result = crate::npn4_canonical::build_npn4_canonical(entry.class_id, var_fn)?;
+    let mut result = crate::passes::npn4_canonical::build_npn4_canonical(entry.class_id, var_fn)?;
     if entry.neg_output != 0 {
         result = Expr::not(result);
     }
@@ -655,7 +655,7 @@ fn build_two_var_basis_patterns(bitwidth: u32) -> Vec<TwoVarBasisPattern> {
         let Some(expr) = match_2var_boolean(key) else {
             continue;
         };
-        let sig = cobra_core::evaluate_boolean_signature(&expr, 2, bitwidth);
+        let sig = crate::core::evaluate_boolean_signature(&expr, 2, bitwidth);
         out.push(TwoVarBasisPattern { expr, sig });
     }
     out
@@ -721,8 +721,8 @@ fn build_affine_basis_expr(constant: u64, first: Arc<Expr>, second: Arc<Expr>) -
 /// `sig` must be the 4-entry Boolean signature of the original
 /// expression at `bitwidth`. The caller is responsible for the
 /// full-width verification (typically via
-/// [`crate::spot_check::verify_in_original_space`] or
-/// [`crate::spot_check::full_width_check_eval`]).
+/// [`crate::passes::spot_check::verify_in_original_space`] or
+/// [`crate::passes::spot_check::full_width_check_eval`]).
 #[must_use]
 pub fn try_simplify_two_var_pattern_sum(
     sig: &[u64],
@@ -1177,13 +1177,13 @@ pub fn normalize_late_candidate_expr(expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr
     // full-width verified and cost-gated inside `apply_atom_identities`, and
     // the caller re-derives the signature certificate from the normalized
     // expression, so this stays sound.
-    crate::atom_identity_rewrite::apply_atom_identities(expr, bitwidth)
+    crate::passes::atom_identity_rewrite::apply_atom_identities(expr, bitwidth)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::expr::Kind;
+    use crate::core::expr::Kind;
 
     fn sig_of(expr: &Expr, num_vars: u32, bitwidth: u32) -> Vec<u64> {
         evaluate_boolean_signature(expr, num_vars, bitwidth)
@@ -1372,14 +1372,14 @@ mod tests {
         );
         let sig = sig_of(&original, 2, 64);
         let baseline = compute_cost(&original).cost;
-        let eval = cobra_core::evaluator::Evaluator::from_expr(&original, 64);
+        let eval = crate::core::evaluator::Evaluator::from_expr(&original, 64);
         let m = try_simplify_two_var_pattern_sum(&sig, 64, baseline, |cand| {
-            crate::spot_check::full_width_check_eval(
+            crate::passes::spot_check::full_width_check_eval(
                 &eval,
                 2,
                 cand,
                 64,
-                crate::spot_check::DEFAULT_NUM_SAMPLES,
+                crate::passes::spot_check::DEFAULT_NUM_SAMPLES,
             )
             .passed
         })
@@ -1435,13 +1435,13 @@ mod tests {
             &compute_cost(&input).cost
         ));
         // Full-width equivalence to x + y.
-        let eval_input = cobra_core::evaluator::Evaluator::from_expr(&input, 64);
-        let check = crate::spot_check::full_width_check_eval(
+        let eval_input = crate::core::evaluator::Evaluator::from_expr(&input, 64);
+        let check = crate::passes::spot_check::full_width_check_eval(
             &eval_input,
             2,
             &rewritten,
             64,
-            crate::spot_check::DEFAULT_NUM_SAMPLES,
+            crate::passes::spot_check::DEFAULT_NUM_SAMPLES,
         );
         assert!(check.passed);
     }
@@ -1468,11 +1468,11 @@ mod tests {
         assert_eq!(cert.steps.len(), 2);
         assert_eq!(
             cert.steps[0].theorem,
-            cobra_orchestrator::LeanTheorem::AddZero64
+            crate::orchestrator::LeanTheorem::AddZero64
         );
         assert_eq!(
             cert.steps[1].theorem,
-            cobra_orchestrator::LeanTheorem::MulOne64
+            crate::orchestrator::LeanTheorem::MulOne64
         );
     }
 
@@ -1498,7 +1498,7 @@ mod tests {
         assert!(cert.matches_endpoints(64, &input, &out));
         assert!(
             cert.steps.iter().any(|step| {
-                step.theorem == cobra_orchestrator::LeanTheorem::TwoMulAndOrSumEqTwoMulAdd64
+                step.theorem == crate::orchestrator::LeanTheorem::TwoMulAndOrSumEqTwoMulAdd64
             }),
             "scaled pattern-sum should use its named theorem"
         );
@@ -1512,7 +1512,7 @@ mod tests {
         );
 
         let out = normalize_late_candidate_expr(input, 64);
-        let rendered = cobra_core::expr::render(&out, &["a".to_owned(), "y".to_owned()], 64);
+        let rendered = crate::core::expr::render(&out, &["a".to_owned(), "y".to_owned()], 64);
 
         assert_eq!(rendered, "-(a | ~y)");
     }
@@ -1528,7 +1528,7 @@ mod tests {
         );
 
         let out = normalize_late_candidate_expr(input, 64);
-        let rendered = cobra_core::expr::render(&out, &["x".to_owned()], 64);
+        let rendered = crate::core::expr::render(&out, &["x".to_owned()], 64);
 
         assert_eq!(rendered, "-3 * (-6 ^ x)");
     }

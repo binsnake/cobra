@@ -1,19 +1,19 @@
 //! Shared helper: combine a solved residual expression with the
 //! remainder's prefix, verify at full width, and emit a candidate.
 
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::pass_contract::{DecompositionMeta, VerificationState};
+use crate::core::expr::Expr;
+use crate::core::expr_cost::compute_cost;
+use crate::core::pass_contract::{DecompositionMeta, VerificationState};
 use std::sync::Arc;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     project_extractor_kind, CandidatePayload, ItemDisposition, OrchestratorContext, PassDecision,
     PassId, PassResult, RemainderStatePayload, ResidualSolverKind, StateData, WorkItem,
 };
 
-use crate::bitwise_decomposer::remap_vars;
-use crate::candidate_normalize::signature_certificate_for_candidate;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::bitwise_decomposer::remap_vars;
+use crate::passes::candidate_normalize::signature_certificate_for_candidate;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 /// Emit a candidate by combining `residual.prefix_expr` with the
 /// caller's `solved_expr`. Returns `None` when the full-width check
@@ -52,7 +52,7 @@ pub fn try_recombine_and_emit(
     let combined = {
         let prefix_is_zero = matches!(
             residual.prefix_expr.kind,
-            cobra_core::expr::Kind::Constant(0)
+            crate::core::expr::Kind::Constant(0)
         );
         if prefix_is_zero {
             solved_expr
@@ -106,17 +106,17 @@ pub fn try_recombine_and_emit(
         decision: PassDecision::SolvedCandidate,
         disposition: ItemDisposition::ConsumeCurrent,
         next: vec![cand_item],
-        reason: cobra_core::pass_contract::ReasonDetail::default(),
+        reason: crate::core::pass_contract::ReasonDetail::default(),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{RemainderOrigin, RemainderTargetContext};
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Expr;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{RemainderOrigin, RemainderTargetContext};
 
     #[test]
     fn recombine_attaches_source_signature_certificate() {
@@ -130,7 +130,7 @@ mod tests {
             remainder_eval: eval.clone(),
             source_sig: vec![0, 1],
             remainder_sig: vec![0, 1],
-            remainder_elim: cobra_orchestrator::EliminationResult::default(),
+            remainder_elim: crate::orchestrator::EliminationResult::default(),
             remainder_support: vec![0],
             is_boolean_null: false,
             degree_floor: 0,

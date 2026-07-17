@@ -11,7 +11,7 @@
 //! isolating that variable's contribution. One pass per variable;
 //! `O(n · 2^n)` total work.
 
-use cobra_core::arith::{bitmask, mod_sub};
+use crate::core::arith::{bitmask, mod_sub};
 
 /// In-place interpolation. Overwrites `sig` with the `CoB` coefficient
 /// vector. `num_vars` must satisfy `sig.len() >= 1 << num_vars`.

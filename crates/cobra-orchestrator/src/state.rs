@@ -2,16 +2,16 @@
 //! identical field order. `StateData::kind()` returns the
 //! [`StateKind`] discriminator used by the scheduler.
 
-use cobra_core::classification::Classification;
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::ExprCost;
-use cobra_ir::semilinear::SemilinearIR;
+use crate::core::classification::Classification;
+use crate::core::evaluator::Evaluator;
+use crate::core::expr::Expr;
+use crate::core::expr_cost::ExprCost;
+use crate::ir::semilinear::SemilinearIR;
 use std::sync::Arc;
 
-use crate::continuation::GroupId;
-use crate::enums::{PassId, Provenance, RemainderOrigin, StateKind};
-use crate::stubs::{EliminationResult, ExtractorKind};
+use crate::orchestrator::continuation::GroupId;
+use crate::orchestrator::enums::{PassId, Provenance, RemainderOrigin, StateKind};
+use crate::orchestrator::stubs::{EliminationResult, ExtractorKind};
 
 // ----- AST / solve context -----
 
@@ -106,7 +106,7 @@ pub struct RemainderStatePayload {
 pub struct LiftedSkeletonPayload {
     pub outer_expr: Arc<Expr>,
     pub outer_ctx: AstSolveContext,
-    pub bindings: Vec<crate::continuation::LiftedBinding>,
+    pub bindings: Vec<crate::orchestrator::continuation::LiftedBinding>,
     pub original_var_count: u32,
     pub baseline_cost: ExprCost,
     pub source_sig: Vec<u64>,

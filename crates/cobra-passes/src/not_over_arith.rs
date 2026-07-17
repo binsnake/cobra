@@ -6,8 +6,8 @@
 //! expression without a special-case bitwise-over-arith path. Ported
 //! `HasNotOverArith`, `LowerNotOverArith`).
 
-use cobra_core::arith::bitmask;
-use cobra_core::expr::{Expr, Kind};
+use crate::core::arith::bitmask;
+use crate::core::expr::{Expr, Kind};
 use std::sync::Arc;
 
 /// True if every node in `e` is `Constant`, `Variable`, `Add`, `Mul`,
@@ -55,7 +55,7 @@ pub fn lower_not_over_arith(e: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluate_boolean_signature;
+    use crate::core::evaluate_boolean_signature;
 
     #[test]
     fn pure_arith_subtree_predicate() {

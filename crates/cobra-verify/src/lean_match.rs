@@ -4,9 +4,9 @@
 //! every theorem-backed local rewrite. Two sites consume it and they MUST stay
 //! in lock-step:
 //!
-//! * [`crate::lean_cert::identify_rewrite_theorem_64`] uses these matchers to
+//! * [`crate::verify::lean_cert::identify_rewrite_theorem_64`] uses these matchers to
 //!   *decide* which `LeanTheorem` fires for a `(before, after)` pair.
-//! * [`crate::lean_emit`]'s `theorem_eval_args` uses the same matchers to
+//! * [`crate::verify::lean_emit`]'s `theorem_eval_args` uses the same matchers to
 //!   *extract* the operands that instantiate that theorem in emitted Lean.
 //!
 //! If the decision matcher and the extraction matcher ever disagreed, the
@@ -19,7 +19,7 @@
 //! kind, so they are safe to call on an arbitrary node, not just one already
 //! known to be the expected shape.
 
-use cobra_core::expr::{Expr, Kind};
+use crate::core::expr::{Expr, Kind};
 
 // --- leaf predicates -------------------------------------------------------
 
@@ -111,6 +111,7 @@ pub(crate) fn add_with_neg_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
 /// `(x, y)`. Used to recognise the `XorAndEqAndNot64` rewrite
 /// `x ^ (x & y) = x & ~y`.
 #[must_use]
+#[allow(clippy::items_after_statements)]
 pub(crate) fn xor_and_absorb_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
     let lhs = binary_child(expr, &Kind::Xor, 0)?;
     let rhs = binary_child(expr, &Kind::Xor, 1)?;

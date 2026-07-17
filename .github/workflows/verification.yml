@@ -7,7 +7,40 @@ on:
       - master
   pull_request:
 
+concurrency:
+  group: verification-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
+  dynamic-linking:
+    name: Dynamic linking (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      RUSTFLAGS: -C prefer-dynamic
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal
+
+      - name: Build the single package in dynamic-linking mode
+        run: cargo build --lib --locked
+
+      - name: Run the dynamically linked CLI
+        run: cargo run --bin cobra-cli --locked -- --mba "(x ^ y) + 2 * (x & y)"
+
   rust-and-lean:
     name: Rust and Lean verification
     runs-on: ubuntu-latest
@@ -30,14 +63,26 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Check workspace
-        run: cargo check --workspace --all-targets
+      - name: Check all targets
+        run: cargo check --all-targets --locked
+
+      - name: Check release metadata
+        run: python tools/release.py check
+
+      - name: Lint all targets
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Check the publishable package
+        run: cargo package --locked
 
       - name: Check proof coverage invariants
-        run: cargo test -p cobra-passes proof_coverage::tests
+        run: cargo test proof_coverage::tests
 
-      - name: Test workspace
-        run: cargo test --workspace
+      - name: Test package
+        run: cargo test --locked
+
+      - name: Test scalar fallback
+        run: cargo test --no-default-features --locked
 
       - name: Install elan
         run: |
@@ -52,7 +97,7 @@ jobs:
       - name: Replay generated Lean certificates from real pass outputs
         env:
           COBRA_LEAN_REPLAY: "1"
-        run: cargo test -p cobra-passes --test generated_lean_replay
+        run: cargo test --test generated_lean_replay
 
       - name: Reject unchecked Lean placeholders
         shell: bash

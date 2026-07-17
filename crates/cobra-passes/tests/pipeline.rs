@@ -1,13 +1,13 @@
 //! End-to-end tests exercising the seed helper + scheduler dispatch
 //! through the current (partial) `PASS_REGISTRY`.
 
-use cobra_core::classification::{SemanticClass, StructuralFlag};
-use cobra_core::simplify_outcome::Options;
-use cobra_orchestrator::{
+use cobra::core::classification::{SemanticClass, StructuralFlag};
+use cobra::core::simplify_outcome::Options;
+use cobra::orchestrator::{
     simplify_from_worklist, OrchestratorContext, OrchestratorPolicy, Worklist,
 };
-use cobra_parser::parse_to_ast;
-use cobra_passes::seed_with_ast;
+use cobra::parser::parse_to_ast;
+use cobra::passes::seed_with_ast;
 
 #[test]
 fn seeding_classifies_input_and_survives_dispatch() {
@@ -40,7 +40,7 @@ fn seeding_classifies_input_and_survives_dispatch() {
         &mut ctx,
         worklist,
         policy,
-        cobra_passes::PASS_REGISTRY,
+        cobra::passes::PASS_REGISTRY,
         Some(&parsed.expr),
     )
     .unwrap();
@@ -78,7 +78,7 @@ fn lower_not_over_arith_fires_for_applicable_input() {
     // this to Add(Neg(x+1), 0xFF). We can't easily observe the lowered
     // AST via simplify_from_worklist (no pass returns it as a
     // Candidate), but we can verify the helpers directly.
-    use cobra_passes::{has_not_over_arith, lower_not_over_arith};
+    use cobra::passes::{has_not_over_arith, lower_not_over_arith};
 
     let parsed = parse_to_ast("~(x + 1)", 8).unwrap();
     assert!(has_not_over_arith(&parsed.expr));
@@ -89,8 +89,8 @@ fn lower_not_over_arith_fires_for_applicable_input() {
 
 #[test]
 fn registry_contains_expected_passes() {
-    use cobra_orchestrator::PassId;
-    let ids: Vec<PassId> = cobra_passes::PASS_REGISTRY.iter().map(|d| d.id).collect();
+    use cobra::orchestrator::PassId;
+    let ids: Vec<PassId> = cobra::passes::PASS_REGISTRY.iter().map(|d| d.id).collect();
     assert_eq!(
         ids,
         vec![
@@ -140,18 +140,18 @@ fn registry_contains_expected_passes() {
 /// `Xor(Variable(0), Variable(1))`.
 #[test]
 fn pipeline_simplifies_xor_via_pattern_match() {
-    use cobra_core::expr::Kind;
-    use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
+    use cobra::core::expr::Kind;
+    use cobra::core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
     let parsed = parse_to_ast("x ^ y", 64).unwrap();
     let mut ctx = OrchestratorContext::new(Options::default(), parsed.vars.clone(), 64);
-    ctx.evaluator = Some(cobra_core::evaluator::Evaluator::from_expr(
+    ctx.evaluator = Some(cobra::core::evaluator::Evaluator::from_expr(
         &parsed.expr,
         64,
     ));
 
     let mut worklist = Worklist::new();
-    cobra_passes::seed_with_ast(&parsed.expr, &mut ctx, &mut worklist).unwrap();
+    cobra::passes::seed_with_ast(&parsed.expr, &mut ctx, &mut worklist).unwrap();
 
     let policy = OrchestratorPolicy {
         max_expansions: 64,
@@ -161,7 +161,7 @@ fn pipeline_simplifies_xor_via_pattern_match() {
         &mut ctx,
         worklist,
         policy,
-        cobra_passes::PASS_REGISTRY,
+        cobra::passes::PASS_REGISTRY,
         Some(&parsed.expr),
     )
     .unwrap();
@@ -169,7 +169,7 @@ fn pipeline_simplifies_xor_via_pattern_match() {
     assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
     assert_eq!(
         outcome.verified,
-        outcome.proof_level == cobra_core::simplify_outcome::ProofLevel::LeanCertified
+        outcome.proof_level == cobra::core::simplify_outcome::ProofLevel::LeanCertified
     );
     assert_eq!(outcome.real_vars, vec!["x".to_owned(), "y".to_owned()]);
     let expr = outcome.expr.expect("simplified expression");
@@ -182,18 +182,18 @@ fn pipeline_simplifies_xor_via_pattern_match() {
 /// result carries Lean-certified evidence.
 #[test]
 fn pipeline_simplifies_scaled_boolean_xor() {
-    use cobra_core::expr::Kind;
-    use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
+    use cobra::core::expr::Kind;
+    use cobra::core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
     let parsed = parse_to_ast("5 + 2 * (x ^ y)", 64).unwrap();
     let mut ctx = OrchestratorContext::new(Options::default(), parsed.vars.clone(), 64);
-    ctx.evaluator = Some(cobra_core::evaluator::Evaluator::from_expr(
+    ctx.evaluator = Some(cobra::core::evaluator::Evaluator::from_expr(
         &parsed.expr,
         64,
     ));
 
     let mut worklist = Worklist::new();
-    cobra_passes::seed_with_ast(&parsed.expr, &mut ctx, &mut worklist).unwrap();
+    cobra::passes::seed_with_ast(&parsed.expr, &mut ctx, &mut worklist).unwrap();
 
     let policy = OrchestratorPolicy {
         // With upstream-style competition groups, the scaled form keeps
@@ -207,7 +207,7 @@ fn pipeline_simplifies_scaled_boolean_xor() {
         &mut ctx,
         worklist,
         policy,
-        cobra_passes::PASS_REGISTRY,
+        cobra::passes::PASS_REGISTRY,
         Some(&parsed.expr),
     )
     .unwrap();
@@ -215,13 +215,13 @@ fn pipeline_simplifies_scaled_boolean_xor() {
     assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
     assert_eq!(
         outcome.verified,
-        outcome.proof_level == cobra_core::simplify_outcome::ProofLevel::LeanCertified
+        outcome.proof_level == cobra::core::simplify_outcome::ProofLevel::LeanCertified
     );
     let expr = outcome.expr.expect("simplified expression");
     // Either Add(5, Mul(2, Xor)) directly, or potentially a tree the
     // cleanup pass canonicalised — assert via signature equivalence to
     // shield against later cleanup-rule changes.
-    let actual_sig = cobra_core::evaluate_boolean_signature(&expr, 2, 64);
+    let actual_sig = cobra::core::evaluate_boolean_signature(&expr, 2, 64);
     let expected_sig = vec![5u64, 7, 7, 5];
     assert_eq!(actual_sig, expected_sig);
     assert!(matches!(expr.kind, Kind::Add | Kind::Mul));
@@ -230,16 +230,16 @@ fn pipeline_simplifies_scaled_boolean_xor() {
 /// Pattern matcher recovers a constant from a constant signature.
 #[test]
 fn pipeline_simplifies_constant() {
-    use cobra_core::expr::{Expr, Kind};
-    use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
+    use cobra::core::expr::{Expr, Kind};
+    use cobra::core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
     // 7 & 14 = 6 — no variables; sig = [6].
     let expr = Expr::and(Expr::constant(7), Expr::constant(14));
     let mut ctx = OrchestratorContext::new(Options::default(), vec![], 64);
-    ctx.evaluator = Some(cobra_core::evaluator::Evaluator::from_expr(&expr, 64));
+    ctx.evaluator = Some(cobra::core::evaluator::Evaluator::from_expr(&expr, 64));
 
     let mut worklist = Worklist::new();
-    cobra_passes::seed_with_ast(&expr, &mut ctx, &mut worklist).unwrap();
+    cobra::passes::seed_with_ast(&expr, &mut ctx, &mut worklist).unwrap();
 
     let policy = OrchestratorPolicy {
         max_expansions: 32,
@@ -249,7 +249,7 @@ fn pipeline_simplifies_constant() {
         &mut ctx,
         worklist,
         policy,
-        cobra_passes::PASS_REGISTRY,
+        cobra::passes::PASS_REGISTRY,
         Some(&expr),
     )
     .unwrap();
@@ -261,24 +261,24 @@ fn pipeline_simplifies_constant() {
 
 /// Canonical README MBA: `(x & y) + (x | y)` must collapse to `x + y`
 /// at seeding time via `simplify_pattern_subtrees`, with the
-/// [`try_simplify_two_var_pattern_sum`][cobra_passes::try_simplify_two_var_pattern_sum]
+/// [`try_simplify_two_var_pattern_sum`][cobra::passes::try_simplify_two_var_pattern_sum]
 /// combinator filling the 3-valued-sig gap that the scaled-boolean
 /// lift can't reach. The input expression's signature is equal to
 /// `x + y`'s, so the full-width verifier accepts the rewrite.
 #[test]
 fn pipeline_collapses_and_plus_or_to_add_via_pattern_sum() {
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
+    use cobra::core::expr::Expr;
+    use cobra::core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
     let input = Expr::add(
         Expr::and(Expr::variable(0), Expr::variable(1)),
         Expr::or(Expr::variable(0), Expr::variable(1)),
     );
     let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
-    ctx.evaluator = Some(cobra_core::evaluator::Evaluator::from_expr(&input, 64));
+    ctx.evaluator = Some(cobra::core::evaluator::Evaluator::from_expr(&input, 64));
 
     let mut worklist = Worklist::new();
-    cobra_passes::seed_with_ast(&input, &mut ctx, &mut worklist).unwrap();
+    cobra::passes::seed_with_ast(&input, &mut ctx, &mut worklist).unwrap();
 
     // After seeding the input expression stored in the worklist's
     // AST item must already be signature-equivalent to `x + y`. The
@@ -293,7 +293,7 @@ fn pipeline_collapses_and_plus_or_to_add_via_pattern_sum() {
         &mut ctx,
         worklist,
         policy,
-        cobra_passes::PASS_REGISTRY,
+        cobra::passes::PASS_REGISTRY,
         Some(&input),
     )
     .unwrap();
@@ -302,14 +302,14 @@ fn pipeline_collapses_and_plus_or_to_add_via_pattern_sum() {
     // `x + y` (no linear solver is wired), but seed-time rewriting must
     // fire. Verify by running `simplify_pattern_subtrees` directly and
     // confirming it is signature-equivalent to the original at bw=64.
-    let rewritten = cobra_passes::simplify_pattern_subtrees(input.clone_tree(), 64);
-    let before = cobra_core::evaluate_boolean_signature(&input, 2, 64);
-    let after = cobra_core::evaluate_boolean_signature(&rewritten, 2, 64);
+    let rewritten = cobra::passes::simplify_pattern_subtrees(input.clone_tree(), 64);
+    let before = cobra::core::evaluate_boolean_signature(&input, 2, 64);
+    let after = cobra::core::evaluate_boolean_signature(&rewritten, 2, 64);
     assert_eq!(before, after);
     // Cost strictly improved.
-    assert!(cobra_core::is_better(
-        &cobra_core::expr_cost::compute_cost(&rewritten).cost,
-        &cobra_core::expr_cost::compute_cost(&input).cost,
+    assert!(cobra::core::is_better(
+        &cobra::core::expr_cost::compute_cost(&rewritten).cost,
+        &cobra::core::expr_cost::compute_cost(&input).cost,
     ));
     // The outcome itself is either Simplified or Unsupported, but must
     // not be a hard failure.
@@ -323,18 +323,18 @@ fn pipeline_collapses_and_plus_or_to_add_via_pattern_sum() {
 /// pattern-matcher and scaled-boolean lift both miss.
 #[test]
 fn pipeline_simplifies_three_var_xor_via_anf() {
-    use cobra_core::expr::Kind;
-    use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
+    use cobra::core::expr::Kind;
+    use cobra::core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
     let parsed = parse_to_ast("x ^ y ^ z", 64).unwrap();
     let mut ctx = OrchestratorContext::new(Options::default(), parsed.vars.clone(), 64);
-    ctx.evaluator = Some(cobra_core::evaluator::Evaluator::from_expr(
+    ctx.evaluator = Some(cobra::core::evaluator::Evaluator::from_expr(
         &parsed.expr,
         64,
     ));
 
     let mut worklist = Worklist::new();
-    cobra_passes::seed_with_ast(&parsed.expr, &mut ctx, &mut worklist).unwrap();
+    cobra::passes::seed_with_ast(&parsed.expr, &mut ctx, &mut worklist).unwrap();
 
     let policy = OrchestratorPolicy {
         max_expansions: 128,
@@ -344,7 +344,7 @@ fn pipeline_simplifies_three_var_xor_via_anf() {
         &mut ctx,
         worklist,
         policy,
-        cobra_passes::PASS_REGISTRY,
+        cobra::passes::PASS_REGISTRY,
         Some(&parsed.expr),
     )
     .unwrap();
@@ -352,15 +352,15 @@ fn pipeline_simplifies_three_var_xor_via_anf() {
     assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
     assert_eq!(
         outcome.verified,
-        outcome.proof_level == cobra_core::simplify_outcome::ProofLevel::LeanCertified
+        outcome.proof_level == cobra::core::simplify_outcome::ProofLevel::LeanCertified
     );
     let expr = outcome.expr.expect("simplified expression");
     // `x ^ y ^ z` — some XOR tree at the top. ANF build yields a
     // left-associative XOR chain.
     assert!(matches!(expr.kind, Kind::Xor));
     // Signature of the simplified expression must equal the input's.
-    let sig_in = cobra_core::evaluate_boolean_signature(&parsed.expr, 3, 64);
-    let sig_out = cobra_core::evaluate_boolean_signature(&expr, 3, 64);
+    let sig_in = cobra::core::evaluate_boolean_signature(&parsed.expr, 3, 64);
+    let sig_out = cobra::core::evaluate_boolean_signature(&expr, 3, 64);
     assert_eq!(sig_in, sig_out);
 }
 
@@ -370,15 +370,15 @@ fn pipeline_simplifies_three_var_xor_via_anf() {
 /// telemetry should reflect the expansions.
 #[test]
 fn pipeline_produces_signature_state_for_linear_add() {
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
+    use cobra::core::expr::Expr;
+    use cobra::core::simplify_outcome::Options;
 
     let expr = Expr::add(Expr::variable(0), Expr::variable(1));
     let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
-    ctx.evaluator = Some(cobra_core::evaluator::Evaluator::from_expr(&expr, 64));
+    ctx.evaluator = Some(cobra::core::evaluator::Evaluator::from_expr(&expr, 64));
 
     let mut worklist = Worklist::new();
-    cobra_passes::seed_with_ast(&expr, &mut ctx, &mut worklist).unwrap();
+    cobra::passes::seed_with_ast(&expr, &mut ctx, &mut worklist).unwrap();
 
     let policy = OrchestratorPolicy {
         max_expansions: 32,
@@ -388,7 +388,7 @@ fn pipeline_produces_signature_state_for_linear_add() {
         &mut ctx,
         worklist,
         policy,
-        cobra_passes::PASS_REGISTRY,
+        cobra::passes::PASS_REGISTRY,
         Some(&expr),
     )
     .unwrap();

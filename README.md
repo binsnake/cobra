@@ -1,74 +1,149 @@
-# Rust port of COBRA
+# CoBRA
 
-Original project: https://github.com/trailofbits/CoBRA
+[![CI](https://github.com/binsnake/cobra/actions/workflows/verification.yml/badge.svg)](https://github.com/binsnake/cobra/actions/workflows/verification.yml)
+[![crates.io](https://img.shields.io/crates/v/cobra-mba.svg)](https://crates.io/crates/cobra-mba)
+[![docs.rs](https://docs.rs/cobra-mba/badge.svg)](https://docs.rs/cobra-mba)
 
-All credits to kyle-elliot-tob and Trail of Bits.
+CoBRA is a Rust simplifier for mixed Boolean-arithmetic (MBA) expressions. It is
+a port of [Trail of Bits' CoBRA](https://github.com/trailofbits/CoBRA), with a
+worklist-driven simplification pipeline and a Lean verification layer for
+selected rewrites.
 
-## Lean Verification Status
+The project provides:
 
-This repository now contains a Lean verification layer for part of the Cobra simplification pipeline. It is useful and actively wired into tests/CI, but it is not a complete formal verification of every Cobra pass.
+- one `cobra-mba` Cargo package, imported as `cobra`;
+- the `cobra-cli` and `cobra-sweep` command-line programs from that package;
+- static and dynamic Rust library outputs for fast consumer rebuilds.
 
-Primary verification files:
+The minimum supported Rust version is 1.88.
 
-- `formal/lean/Cobra/Core.lean`: Lean expression semantics and theorem pack.
-- `crates/cobra-verify/src/lean_cert.rs`: Rust certificate model and theorem recognizer.
-- `crates/cobra-verify/src/lean_emit.rs`: generated Lean emitter.
-- `crates/cobra-passes/tests/generated_lean_replay.rs`: generated-proof replay tests.
-- `crates/cobra-passes/src/proof_coverage.rs`: proof coverage registry and drift guards.
-- `.github/workflows/verification.yml`: CI verification workflow.
+## Library
 
-The generated Lean replay suite currently lists 89 tests.
+The crates.io package is named `cobra-mba` because the `cobra` package name is
+owned by an unrelated project. Rename the dependency to keep the natural Rust
+crate name:
 
-## Formally Checked With Lean
+```toml
+[dependencies]
+cobra = { package = "cobra-mba", version = "0.1" }
+```
 
-The current Lean layer checks:
+```rust
+use cobra::{parse_to_ast, render, simplify_expr, Options};
 
-- Cobra expression evaluation semantics for the supported expression language.
-- Named 64-bit bit-vector rewrite theorems exported from `formal/lean/Cobra/Core.lean`.
-- Theorem-backed local rewrite certificates emitted by Rust.
-- Context-preserving rewrite-step chains, where a local theorem is applied inside an expression context.
-- Generated endpoint certificates, including fallback endpoint proofs replayed through Lean.
-- Generated finite Boolean-signature certificates.
-- Representative generated pass outputs across cleanup, atom rewrites, XOR lowering, pattern matching, seed rewriting, semilinear flows, residual recomposition, bitwise/hybrid recomposition, lifted substitution, direct extractor families, signature solver families, and candidate verification.
-- Proof coverage registry invariants that require registered passes and internal proof targets to declare replay evidence.
+fn main() -> cobra::Result<()> {
+    let parsed = parse_to_ast("(x ^ y) + 2 * (x & y)", 64)?;
+    let outcome = simplify_expr(&parsed.expr, &parsed.vars, Options::default())?;
+    let simplified = outcome.expr.as_deref().unwrap_or(&parsed.expr);
 
-Examples of theorem-backed simplifications now covered include:
+    println!("{}", render(simplified, &parsed.vars, 64));
+    Ok(())
+}
+```
 
-- `x ^ y = x + y - 2 * (x & y)`
-- `(x & y) + (x | y) = x + y`
-- `2 * (x & y) + 2 * (x | y) = 2 * x + 2 * y`
-- `3 & 1 = 1`
-- `~(~x | ~y) = x & y`
-- `~(~x & ~y) = x | y`
-- common identities such as add-zero, mul-one, xor-zero, double-not, De Morgan, and mask identities
+The package emits both an `rlib` and a Rust `dylib`. Rust selects the `rlib`
+by default, so normal builds retain static linkage.
 
-## What Is Not Fully Verified Yet
+## Dynamic linking
 
-Do not treat this repository as fully verified.
+During iterative development, ask rustc to prefer the package's dynamic output.
+Consumer-only changes then have substantially less CoBRA code to relink:
 
-Remaining gaps include:
+```powershell
+$env:RUSTFLAGS='-C prefer-dynamic'
+cargo run
+```
 
-- Some production paths still use endpoint `bv_decide` fallback certificates instead of named theorem chains.
-- `CoveredByDownstreamCertificate` entries mean the local transition is not directly proven; later accepted candidates must carry fresh evidence.
-- Finite Boolean-signature certificates prove truth-table agreement on Boolean inputs, not unrestricted full-width bit-vector equivalence.
-- Cleanup helper algorithms are covered by representative replay cases, but not yet by a complete generated trace proof for every helper rewrite.
-- Recomposition paths still need explicit contracts for residual recombine, bitwise compose, hybrid compose, lifted substitution, operand joins, and product joins.
-- Variable remapping/support-reduction logic still needs direct formal contracts.
-- Competition and public acceptance boundaries are hardened by Rust checks and replay cases, but still need a small formal acceptance model.
-- The replay suite is broad but curated; a systematic certificate generator for all pass traces is still needed.
+For a persistent consumer-project setting, add this to `.cargo/config.toml`:
 
-See `formal/lean/HANDOFF.md` for the detailed handoff, verified surface, remaining work, and last known gates.
+```toml
+[build]
+rustflags = ["-C", "prefer-dynamic"]
+```
 
-## Useful Verification Commands
+On Windows this uses `cobra.dll`; Linux and macOS use `libcobra.so` or
+`libcobra.dylib`. `cargo run` and `cargo test` configure their runtime search
+paths. The flag applies to the whole build, so Rust's dynamically linked
+standard library may also be used.
+
+This is a Rust `dylib`, not a C-compatible `cdylib`:
+
+- it does not expose a stable C ABI;
+- it must be built with the same Rust toolchain as the consumer;
+- the CoBRA dylib and the toolchain's dynamic Rust standard library must be on
+  the runtime library search path when launching a binary directly;
+- release/distribution builds should normally use the default static mode
+  unless those runtime libraries are deliberately shipped with the product.
+
+This repository exercises the mode with:
+
+```powershell
+cargo --config .cargo/dynamic.toml run --bin cobra-cli -- --mba "(x ^ y) + 2 * (x & y)"
+```
+
+## Command line
+
+Install or run the CLI:
+
+```powershell
+cargo install cobra-mba --bin cobra-cli
+cobra-cli --mba "(x ^ y) + 2 * (x & y)"
+```
+
+Useful flags include `--bitwidth`, `--max-vars`, `--verbose`, and `--verify`.
+The `--verify` flag uses Z3 only when the CLI was built with its `z3` feature.
+
+## Verification status
+
+The Lean layer is active in tests and CI, but it does not formally verify every
+CoBRA pass. It currently checks expression semantics, named 64-bit bit-vector
+rewrites, theorem-backed local rewrite certificates, context-preserving
+rewrite chains, generated endpoint certificates, finite Boolean signatures,
+and representative outputs across the major pass families.
+
+Important remaining limits:
+
+- some paths use endpoint `bv_decide` fallback certificates;
+- downstream-certificate coverage is not a local transition proof;
+- finite Boolean signatures cover Boolean inputs, not unrestricted full-width
+  bit-vector equivalence;
+- several recomposition and variable-remapping paths still need direct formal
+  contracts;
+- the replay suite is broad but curated rather than exhaustive.
+
+See the
+[Lean verification handoff](https://github.com/binsnake/cobra/blob/main/formal/lean/HANDOFF.md)
+for the detailed verified surface and remaining work.
+
+## Development
+
+The main checks are:
 
 ```powershell
 cargo fmt --all -- --check
-cargo check --workspace --all-targets
-cargo test -p cobra-passes proof_coverage -- --nocapture
-cargo test -p cobra-passes --test generated_lean_replay -- --nocapture
-$env:COBRA_LEAN_REPLAY='1'; cargo test -p cobra-passes --test generated_lean_replay -- --nocapture
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo --config .cargo/dynamic.toml run --bin cobra-cli -- --mba "x"
+```
+
+Lean verification:
+
+```powershell
+cargo test proof_coverage -- --nocapture
+cargo test --test generated_lean_replay -- --nocapture
+$env:COBRA_LEAN_REPLAY='1'; cargo test --test generated_lean_replay -- --nocapture
 Push-Location formal/lean; lake build; Pop-Location
 rg -n "\b(sorry|admit)\b" formal/lean -g "*.lean" crates -g "*.rs"
 ```
 
-Do not run generated Lean replay and standalone `lake build` concurrently. Clean `formal/lean/.lake` afterward if avoiding local artifact churn.
+Do not run generated Lean replay and standalone `lake build` concurrently.
+Clean `formal/lean/.lake` afterward if avoiding local artifact churn.
+
+Release maintainers should follow [RELEASING.md](RELEASING.md). Tagged releases
+publish the single Cargo package and attach checksummed static CLI archives to
+GitHub.
+
+## License and attribution
+
+Licensed under Apache-2.0. CoBRA was originally developed by Kyle Elliott and
+Trail of Bits; see the upstream project linked above.

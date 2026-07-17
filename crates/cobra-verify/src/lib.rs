@@ -6,7 +6,7 @@
 
 #![forbid(unsafe_code)]
 
-use cobra_core::expr::Expr;
+use crate::core::expr::Expr;
 
 pub mod lean_cert;
 pub mod lean_emit;
@@ -15,18 +15,18 @@ pub mod null;
 #[cfg(feature = "z3")]
 pub mod z3_backend;
 
-pub use crate::lean_cert::{
+pub use crate::verify::lean_cert::{
     context_from_path, identify_rewrite_theorem_64, CertStep, ContextFrame, ExprContext, ExprPath,
     LeanCertificate, LeanSignatureCertificate, LeanTheorem,
 };
-pub use crate::lean_emit::{
+pub use crate::verify::lean_emit::{
     emit_bv_decide_certificate, emit_certificate_header, emit_constant_signature_certificate,
     emit_context, emit_context_comment, emit_expr, emit_signature_certificate,
     emit_signature_certificate_model, emit_step_chain_certificate,
 };
-pub use crate::null::NullVerifier;
+pub use crate::verify::null::NullVerifier;
 #[cfg(feature = "z3")]
-pub use crate::z3_backend::Z3Verifier;
+pub use crate::verify::z3_backend::Z3Verifier;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VerifyOutcome {
@@ -112,7 +112,7 @@ pub trait Verifier: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::expr::Expr;
+    use crate::core::expr::Expr;
 
     #[test]
     fn verifier_usable_as_trait_object() {

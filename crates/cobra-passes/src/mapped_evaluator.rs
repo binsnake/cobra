@@ -13,9 +13,9 @@
 //! pitfall (`eval_compiled`'s shortcut path feeds the caller's slice
 //! straight into the compiled program when `input_map` is empty).
 
-use cobra_core::evaluator::{Evaluator, TraceKind};
+use crate::core::evaluator::{Evaluator, TraceKind};
 
-use cobra_orchestrator::{OrchestratorContext, SignatureSubproblemContext, WorkItem};
+use crate::orchestrator::{OrchestratorContext, SignatureSubproblemContext, WorkItem};
 
 fn is_identity_map(idx_map: &[u32], arity: u32) -> bool {
     idx_map.len() as u32 == arity && idx_map.iter().enumerate().all(|(i, &m)| m as usize == i)

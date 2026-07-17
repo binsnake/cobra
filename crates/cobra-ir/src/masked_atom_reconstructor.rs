@@ -10,11 +10,11 @@
 //! an empty partition list disables the OR-merging step and reduces to
 //! a straight weighted sum.
 
-use cobra_core::expr::Expr;
-use cobra_core::expr_rewrite::apply_coefficient;
+use crate::core::expr::Expr;
+use crate::core::expr_rewrite::apply_coefficient;
 use std::sync::Arc;
 
-use crate::semilinear::{AtomId, PartitionClass, SemilinearIR};
+use crate::ir::semilinear::{AtomId, PartitionClass, SemilinearIR};
 
 struct ReconstructEntry {
     expr: Arc<Expr>,
@@ -104,8 +104,8 @@ pub fn reconstruct_masked_atoms(ir: &SemilinearIR, partitions: &[PartitionClass]
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{normalize_to_semilinear, semilinear::PartitionClass};
-    use cobra_core::evaluator::Evaluator;
+    use crate::core::evaluator::Evaluator;
+    use crate::ir::{normalize_to_semilinear, semilinear::PartitionClass};
 
     #[test]
     fn empty_ir_returns_constant() {
@@ -116,7 +116,7 @@ mod tests {
         };
         let expr = reconstruct_masked_atoms(&ir, &[]);
         match expr.kind {
-            cobra_core::expr::Kind::Constant(42) => {}
+            crate::core::expr::Kind::Constant(42) => {}
             _ => panic!("expected constant 42"),
         }
     }

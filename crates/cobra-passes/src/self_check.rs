@@ -6,11 +6,11 @@
 //! semilinear rewrite chain — if a rewrite produces a representation
 //! that renormalises to a different coefficient map, it cannot be
 
-use cobra_core::arith::bitmask;
-use cobra_core::expr::Expr;
+use crate::core::arith::bitmask;
+use crate::core::expr::Expr;
 
-use cobra_ir::normalize_to_semilinear;
-use cobra_ir::semilinear::{AtomKey, SemilinearIR};
+use crate::ir::normalize_to_semilinear;
+use crate::ir::semilinear::{AtomKey, SemilinearIR};
 
 #[derive(Clone, Debug, Default)]
 pub struct SelfCheckResult {

@@ -3,10 +3,10 @@
 //! outer composition rewrites `f = x_k OP r(x)` for `OP ∈ {^, +}`.
 //! Sorted ascending by `active_count` so the smallest residual wins.
 
-use cobra_core::expr::Expr;
+use crate::core::expr::Expr;
 use std::sync::Arc;
 
-use cobra_orchestrator::ExtractOp;
+use crate::orchestrator::ExtractOp;
 
 #[derive(Clone, Debug)]
 pub struct HybridExtractionCandidate {
@@ -107,6 +107,6 @@ mod tests {
     fn compose_extraction_xor_builds_expected_shape() {
         let r = Expr::variable(1);
         let composed = compose_extraction(ExtractOp::Xor, 0, r);
-        assert!(matches!(composed.kind, cobra_core::expr::Kind::Xor));
+        assert!(matches!(composed.kind, crate::core::expr::Kind::Xor));
     }
 }

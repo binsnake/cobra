@@ -1,21 +1,21 @@
 //! The unit of work flowing through the orchestrator: a
 //! [`WorkItem`] carries a [`StateData`] payload plus scheduler-visible
 
-use cobra_core::evaluator::Evaluator;
-use cobra_core::pass_contract::{
+use crate::core::evaluator::Evaluator;
+use crate::core::pass_contract::{
     DecompositionMeta, ReasonCode, ReasonDetail, ReasonFrame, VerificationState,
 };
-use cobra_verify::{LeanCertificate, LeanSignatureCertificate};
+use crate::verify::{LeanCertificate, LeanSignatureCertificate};
 
-use crate::continuation::GroupId;
-use crate::enums::{ItemDisposition, PassDecision, PassId, Provenance};
-use crate::state::StateData;
+use crate::orchestrator::continuation::GroupId;
+use crate::orchestrator::enums::{ItemDisposition, PassDecision, PassId, Provenance};
+use crate::orchestrator::state::StateData;
 
 // ----- Feature tags + metadata -----
 
 #[derive(Clone, Debug, Default)]
 pub struct StateFeatures {
-    pub classification: Option<cobra_core::classification::Classification>,
+    pub classification: Option<crate::core::classification::Classification>,
     pub provenance: Provenance,
     pub needs_full_width_verification: bool,
 }
@@ -37,7 +37,7 @@ impl StateFeatures {
 #[derive(Copy, Clone, Debug)]
 pub struct TransformTerminalSignal {
     pub source_pass: PassId,
-    pub category: cobra_core::pass_contract::ReasonCategory,
+    pub category: crate::core::pass_contract::ReasonCategory,
 }
 
 /// Scheduler-visible metadata travelling alongside the payload.
@@ -126,11 +126,11 @@ impl WorkItem {
             if fp.bitwidth == bitwidth {
                 return std::borrow::Cow::Borrowed(fp);
             }
-            return std::borrow::Cow::Owned(crate::fingerprint::compute_fingerprint(
+            return std::borrow::Cow::Owned(crate::orchestrator::fingerprint::compute_fingerprint(
                 self, bitwidth,
             ));
         }
-        let fp = crate::fingerprint::compute_fingerprint(self, bitwidth);
+        let fp = crate::orchestrator::fingerprint::compute_fingerprint(self, bitwidth);
         // Ignore result of set — another caller may have raced us.
         let _ = self.fingerprint_cache.set(fp);
         std::borrow::Cow::Borrowed(self.fingerprint_cache.get().expect("just set"))
@@ -146,13 +146,13 @@ impl WorkItem {
 
 // ----- Fingerprints -----
 
-use cobra_ir::semilinear::{GlobalVarIdx, OperatorFamily};
+use crate::ir::semilinear::{GlobalVarIdx, OperatorFamily};
 
 /// directly from the `StateData` contents — here we only expose the
 /// struct shape.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct StateFingerprint {
-    pub kind: crate::enums::StateKind,
+    pub kind: crate::orchestrator::enums::StateKind,
     pub payload_hash: u64,
     pub vars_hash: u64,
     pub bitwidth: u32,
@@ -169,7 +169,7 @@ pub struct SemilinearTermKey {
     pub provenance: OperatorFamily,
 }
 
-/// Content-based fingerprint of a [`cobra_ir::semilinear::SemilinearIR`]
+/// Content-based fingerprint of a [`crate::ir::semilinear::SemilinearIR`]
 /// used by the pass-attempt cache.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct SemilinearFingerprintKey {
@@ -216,8 +216,8 @@ pub struct UnsupportedCandidate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{AstPayload, StateData};
-    use cobra_core::expr::Expr;
+    use crate::core::expr::Expr;
+    use crate::orchestrator::state::{AstPayload, StateData};
 
     #[test]
     fn record_attempt_sets_bitmask_and_appends_history() {

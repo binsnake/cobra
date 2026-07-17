@@ -11,13 +11,13 @@
 //! techniques run; the fallback creation path only protects direct
 //! pass-level callers.
 
-use cobra_core::pass_contract::{
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_ir::interpolate_coefficients;
-use cobra_orchestrator::{
+use crate::ir::interpolate_coefficients;
+use crate::orchestrator::{
     acquire_handle, create_group, ItemDisposition, OrchestratorContext, PassDecision, PassResult,
     SignatureCoeffStatePayload, StateData, WorkItem,
 };
@@ -106,8 +106,8 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{
         create_group, EliminationResult, SignatureStatePayload, SignatureSubproblemContext,
     };
 
@@ -141,17 +141,17 @@ mod tests {
         let mut ctx =
             OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
         let mut item = mk_sig_item(vec![0, 1, 1, 0], vec!["x".into(), "y".into()], &mut ctx);
-        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        item.metadata.lean_certificate = Some(crate::orchestrator::LeanCertificate::new(
             64,
-            cobra_core::expr::Expr::variable(0),
-            cobra_core::expr::Expr::variable(0),
+            crate::core::expr::Expr::variable(0),
+            crate::core::expr::Expr::variable(0),
         ));
         item.metadata.lean_signature_certificate =
-            cobra_orchestrator::LeanSignatureCertificate::new(
+            crate::orchestrator::LeanSignatureCertificate::new(
                 64,
                 1,
                 vec![0, 1],
-                cobra_core::expr::Expr::variable(0),
+                crate::core::expr::Expr::variable(0),
             );
         let gid_before = item.group_id.unwrap();
         let handles_before = ctx.competition_groups[&gid_before].open_handles;
@@ -211,7 +211,7 @@ mod tests {
     fn non_signature_payload_is_not_applicable() {
         let mut ctx = OrchestratorContext::new(Options::default(), vec![], 64);
         let item = WorkItem::new(StateData::CompetitionResolved(
-            cobra_orchestrator::CompetitionResolvedPayload { group_id: 0 },
+            crate::orchestrator::CompetitionResolvedPayload { group_id: 0 },
         ));
         let pr = run_prepare_coeff_model(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::NotApplicable);

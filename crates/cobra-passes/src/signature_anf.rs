@@ -1,6 +1,6 @@
 //! `SignatureAnf` pass — converts a Boolean-valued signature into its
 //! algebraic normal form, then cost-optimises the resulting XOR/AND
-//! tree via [`cobra_ir::cleanup_anf`]. Emits a verified
+//! tree via [`crate::ir::cleanup_anf`]. Emits a verified
 //! `CandidatePayload` on success.
 //!
 //! A spot-check against the signature vector runs before the
@@ -9,25 +9,25 @@
 //! pass retries with `repair_product_shadow` to account for the
 //! `AND == MUL` equivalence on `{0, 1}` not holding at full width.
 
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::expr_rewrite::repair_product_shadow;
-use cobra_core::is_boolean_valued;
-use cobra_core::pass_contract::{ReasonDetail, VerificationState};
-use cobra_core::result::Result;
+use crate::core::expr::Expr;
+use crate::core::expr_cost::compute_cost;
+use crate::core::expr_rewrite::repair_product_shadow;
+use crate::core::is_boolean_valued;
+use crate::core::pass_contract::{ReasonDetail, VerificationState};
+use crate::core::result::Result;
 use std::sync::Arc;
 
-use cobra_ir::{build_anf_expr, compute_anf};
-use cobra_orchestrator::{
+use crate::ir::{build_anf_expr, compute_anf};
+use crate::orchestrator::{
     CandidatePayload, CandidateRecord, ItemDisposition, OrchestratorContext, PassDecision, PassId,
     PassResult, StateData, WorkItem,
 };
 
-use crate::candidate_normalize::{
+use crate::passes::candidate_normalize::{
     signature_certificate_for_candidate, submit_normalized_candidate,
 };
-use crate::mapped_evaluator::build_mapped_evaluator;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::mapped_evaluator::build_mapped_evaluator;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 /// Pass body. Returns `NotApplicable` for non-signature payloads,
 /// `NoProgress` when the signature isn't Boolean or exceeds
@@ -61,7 +61,7 @@ pub fn run_signature_anf(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resu
     // Spot check against the signature vector — cheap, rejects any
     // ANF-builder bug before a candidate enters the verification budget.
     if ctx.opts.spot_check {
-        let emitted = cobra_core::evaluate_boolean_signature(&anf_expr, num_vars, ctx.bitwidth);
+        let emitted = crate::core::evaluate_boolean_signature(&anf_expr, num_vars, ctx.bitwidth);
         let matches = sig
             .iter()
             .zip(emitted.iter())
@@ -181,10 +181,10 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Kind;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Kind;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{
         EliminationResult, SignatureStatePayload, SignatureSubproblemContext,
     };
 
@@ -222,7 +222,7 @@ mod tests {
         );
         ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
         let mut item = mk_sig_item(sig, vec!["x".into(), "y".into(), "z".into()], false);
-        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        item.metadata.lean_certificate = Some(crate::orchestrator::LeanCertificate::new(
             64,
             Expr::constant(0),
             Expr::constant(0),
@@ -235,7 +235,7 @@ mod tests {
             panic!("expected Candidate payload");
         };
         // Signature must still match after recovery.
-        let recovered = cobra_core::evaluate_boolean_signature(&c.expr, 3, 64);
+        let recovered = crate::core::evaluate_boolean_signature(&c.expr, 3, 64);
         assert_eq!(recovered, vec![0, 1, 1, 0, 1, 0, 0, 1]);
         assert!(pr.next[0].metadata.lean_certificate.is_none());
         let cert = pr.next[0]
@@ -300,7 +300,7 @@ mod tests {
         let item = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
             expr: Expr::variable(0),
             real_vars: Vec::new(),
-            cost: cobra_core::expr_cost::ExprCost::default(),
+            cost: crate::core::expr_cost::ExprCost::default(),
             producing_pass: PassId::VerifyCandidate,
             needs_original_space_verification: false,
         })));

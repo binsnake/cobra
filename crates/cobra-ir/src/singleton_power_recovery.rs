@@ -7,12 +7,12 @@
 //! lowering pipeline: the outer solver assembles them with the bitwise
 //! residual to form a full recovered expression.
 
-use cobra_core::arith::bitmask;
-use cobra_core::evaluator::Evaluator;
-use cobra_core::result::{err, CobraError, Result};
+use crate::core::arith::bitmask;
+use crate::core::evaluator::Evaluator;
+use crate::core::result::{err, CobraError, Result};
 
-use crate::math_utils::{degree_cap, mod_inverse_odd, odd_part_factorial, twos_in_factorial};
-use crate::singleton_power::{SingletonPowerResult, UnivariateNormalizedPoly, UnivariateTerm};
+use crate::ir::math_utils::{degree_cap, mod_inverse_odd, odd_part_factorial, twos_in_factorial};
+use crate::ir::singleton_power::{SingletonPowerResult, UnivariateNormalizedPoly, UnivariateTerm};
 
 #[derive(Copy, Clone)]
 struct DegreeInfo {
@@ -130,7 +130,7 @@ pub fn recover_singleton_powers(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::expr::Expr;
+    use crate::core::expr::Expr;
 
     #[test]
     fn recovers_univariate_quadratic() {

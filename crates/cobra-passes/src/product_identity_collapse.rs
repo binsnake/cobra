@@ -7,22 +7,22 @@
 //! site (depth-first walk, left-to-right). Up to four assignments are
 //! enumerated.
 
-use cobra_core::arith::bitmask;
-use cobra_core::classification::Classification;
-use cobra_core::evaluate_boolean_signature;
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::pass_contract::ReasonDetail;
-use cobra_core::result::Result;
+use crate::core::arith::bitmask;
+use crate::core::classification::Classification;
+use crate::core::evaluate_boolean_signature;
+use crate::core::expr::{Expr, Kind};
+use crate::core::expr_cost::compute_cost;
+use crate::core::pass_contract::ReasonDetail;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     create_group, create_join, expr_identity_hash, AstSolveContext, ContinuationData,
     EliminationResult, FactorRole, ItemDisposition, JoinState, OrchestratorContext, PassDecision,
     PassResult, ProductCollapseCont, ProductJoinState, SignatureStatePayload,
     SignatureSubproblemContext, StateData, WorkItem,
 };
 
-use crate::lifting::active_ast_vars;
+use crate::passes::lifting::active_ast_vars;
 
 const MAX_ASSIGNMENTS: usize = 4;
 
@@ -262,8 +262,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{AstPayload, Provenance};
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{AstPayload, Provenance};
 
     fn mk_ast_item(expr: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
@@ -315,13 +315,18 @@ mod tests {
         let mut ctx =
             OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
         let mut item = mk_ast_item(expr);
-        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        item.metadata.lean_certificate = Some(crate::orchestrator::LeanCertificate::new(
             64,
             Expr::variable(0),
             Expr::variable(0),
         ));
         item.metadata.lean_signature_certificate =
-            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+            crate::orchestrator::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                Expr::variable(0),
+            );
 
         let pr = run_product_identity_collapse(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::Advance);

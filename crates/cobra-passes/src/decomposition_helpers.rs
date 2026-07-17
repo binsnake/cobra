@@ -9,13 +9,13 @@
 
 use std::sync::Arc;
 
-use cobra_core::arith::bitmask;
-use cobra_core::classification::SemanticClass;
-use cobra_core::compile;
-use cobra_core::evaluator::{Evaluator, TraceKind};
-use cobra_core::expr::{Expr, Kind};
+use crate::core::arith::bitmask;
+use crate::core::classification::SemanticClass;
+use crate::core::compile;
+use crate::core::evaluator::{Evaluator, TraceKind};
+use crate::core::expr::{Expr, Kind};
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     has_verified_candidate, OrchestratorContext, SignatureSubproblemContext, WorkItem,
 };
 
@@ -159,7 +159,7 @@ pub fn build_remainder_evaluator(original: &Evaluator, core: &Expr, bitwidth: u3
     Evaluator::from_closure(move |v: &[u64]| {
         let f = original_clone.eval(v);
         let mut stack: Vec<u64> = Vec::new();
-        let p = cobra_core::compiled::eval(&compiled_core, v, &mut stack);
+        let p = crate::core::compiled::eval(&compiled_core, v, &mut stack);
         f.wrapping_sub(p) & mask
     })
     .with_trace(TraceKind::Remainder)

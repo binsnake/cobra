@@ -14,9 +14,9 @@
 
 use std::collections::HashMap;
 
-use cobra_core::expr::{Expr, Kind};
+use crate::core::expr::{Expr, Kind};
 
-use cobra_ir::semilinear::{AtomSemanticId, GlobalVarIdx, PartitionClass, SemilinearIR};
+use crate::ir::semilinear::{AtomSemanticId, GlobalVarIdx, PartitionClass, SemilinearIR};
 
 const OPAQUE_SENTINEL_BASE: u64 = 0xDEAD_0000_0000_0000;
 
@@ -141,7 +141,7 @@ pub fn compute_partitions(ir: &SemilinearIR) -> Vec<PartitionClass> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_ir::normalize_to_semilinear;
+    use crate::ir::normalize_to_semilinear;
 
     #[test]
     fn empty_ir_produces_no_partitions() {

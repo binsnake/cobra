@@ -5,7 +5,7 @@
 //! look anything up — the lexer is the single source of truth for the
 //! operator table.
 
-use cobra_core::result::{err, CobraError, Result};
+use crate::core::result::{err, CobraError, Result};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {

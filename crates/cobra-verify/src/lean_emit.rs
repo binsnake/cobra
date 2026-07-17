@@ -4,12 +4,14 @@
 //! certificate is true; they give passes and offline tooling a stable way to
 //! spell Rust `Expr` trees as terms in the Lean model.
 
-use cobra_core::expr::{Expr, Kind};
+#![allow(clippy::format_push_string)]
 
-use crate::lean_cert::{
+use crate::core::expr::{Expr, Kind};
+
+use crate::verify::lean_cert::{
     CertStep, ContextFrame, ExprContext, LeanCertificate, LeanSignatureCertificate, LeanTheorem,
 };
-use crate::lean_match::{
+use crate::verify::lean_match::{
     add_with_neg_operands, not_or_add_self_add_one_operands, not_or_minus_not_operands,
     same_or_and_operands, scaled_and_or_sum_operands, xor_and_absorb_operands,
     xor_via_or_not_operands,
@@ -138,6 +140,11 @@ fn emit_direct_rewrite_step_proof(bitwidth: u32, step: &CertStep) -> Option<Stri
     ))
 }
 
+#[allow(
+    clippy::format_collect,
+    clippy::match_same_arms,
+    clippy::too_many_lines
+)]
 fn theorem_eval_args(bitwidth: u32, theorem: LeanTheorem, before: &Expr) -> Option<String> {
     use LeanTheorem as Thm;
 
@@ -408,6 +415,7 @@ fn emit_nat_list(values: &[u64]) -> String {
         .join(", ")
 }
 
+#[allow(clippy::items_after_statements)]
 fn assignment_cases(len: usize) -> String {
     debug_assert!(len > 0);
     fn go(index: usize, len: usize) -> String {
@@ -421,6 +429,7 @@ fn assignment_cases(len: usize) -> String {
     go(0, len)
 }
 
+#[allow(clippy::items_after_statements)]
 fn sem_eq_chain_expr(steps: usize) -> String {
     debug_assert!(steps > 0);
     fn go(index: usize, steps: usize) -> String {
@@ -433,6 +442,7 @@ fn sem_eq_chain_expr(steps: usize) -> String {
     go(0, steps)
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn emit_context_frame(inner: String, frame: &ContextFrame) -> String {
     match frame {
         ContextFrame::AddL { rhs } => format!("Cobra.Ctx.addL ({inner}) ({})", emit_expr(rhs)),
@@ -454,7 +464,7 @@ fn emit_context_frame(inner: String, frame: &ContextFrame) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::expr::Expr;
+    use crate::core::expr::Expr;
 
     #[test]
     fn emits_expr_tree() {
@@ -494,7 +504,7 @@ mod tests {
         let cert = LeanCertificate::try_single_rewrite_64(
             64,
             Expr::add(Expr::variable(0), Expr::constant(0)),
-            crate::ExprPath::default(),
+            crate::verify::ExprPath::default(),
             Expr::variable(0),
         )
         .expect("rewrite certificate");

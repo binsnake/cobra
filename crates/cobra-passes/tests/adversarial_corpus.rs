@@ -20,14 +20,14 @@
 //! samples, or a mandatory solver/Lean gate), that test will start failing —
 //! that is the signal to update it, not a regression.
 
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::Expr;
-use cobra_core::expr_rewrite::build_var_support;
-use cobra_core::expr_utils::remap_var_indices;
-use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
-use cobra_core::spot_check::{eval_expr, full_width_check_eval, DEFAULT_NUM_SAMPLES};
-use cobra_parser::parse_to_ast;
-use cobra_passes::simplify_expr;
+use cobra::core::evaluator::Evaluator;
+use cobra::core::expr::Expr;
+use cobra::core::expr_rewrite::build_var_support;
+use cobra::core::expr_utils::remap_var_indices;
+use cobra::core::simplify_outcome::{Options, SimplifyOutcomeKind};
+use cobra::core::spot_check::{eval_expr, full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use cobra::parser::parse_to_ast;
+use cobra::passes::simplify_expr;
 
 const BITWIDTH: u32 = 64;
 
@@ -37,6 +37,7 @@ struct Case {
     /// Obfuscated input fed to the engine.
     input: &'static str,
     /// A known-equivalent simpler form the engine *ought* to reach.
+    #[allow(dead_code)]
     target: &'static str,
 }
 
@@ -167,12 +168,9 @@ fn probe_points(num_vars: usize) -> Vec<Vec<u64>> {
 /// Returns `Some(point)` if `a` and `b` disagree at some probe point, else
 /// `None`. `a` and `b` must share the same variable space/arity.
 fn first_disagreement(a: &Expr, b: &Expr, num_vars: usize) -> Option<Vec<u64>> {
-    for pt in probe_points(num_vars) {
-        if eval_expr(a, &pt, BITWIDTH) != eval_expr(b, &pt, BITWIDTH) {
-            return Some(pt);
-        }
-    }
-    None
+    probe_points(num_vars)
+        .into_iter()
+        .find(|point| eval_expr(a, point, BITWIDTH) != eval_expr(b, point, BITWIDTH))
 }
 
 /// Tree size used as a complexity proxy: an "equivalent but not smaller"
@@ -241,7 +239,7 @@ fn corpus_never_emits_a_nonequivalent_simplification() {
                          simplification.\n  input : {}\n  output: {}\n  differ at: {:?}",
                         case.name,
                         case.input,
-                        cobra_core::expr::render(&lifted, &parsed.vars, BITWIDTH),
+                        cobra::core::expr::render(&lifted, &parsed.vars, BITWIDTH),
                         pt,
                     );
                 }

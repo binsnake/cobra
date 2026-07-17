@@ -1,8 +1,8 @@
 //! Structural classifier. Walks an `Expr` bottom-up, tallying
 //! variable-dependence, polynomial shape, and a rich
 
-use cobra_core::classification::{Classification, SemanticClass, StructuralFlag};
-use cobra_core::expr::{Expr, Kind};
+use crate::core::classification::{Classification, SemanticClass, StructuralFlag};
+use crate::core::expr::{Expr, Kind};
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, Default)]

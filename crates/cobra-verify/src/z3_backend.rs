@@ -6,11 +6,11 @@
 //! is not compiled and downstream crates link against [`NullVerifier`]
 //! instead.
 
-use cobra_core::expr::{Expr, Kind};
+use crate::core::expr::{Expr, Kind};
 use z3::ast::{Ast, Bool, BV};
 use z3::{Config, Context, SatResult, Solver};
 
-use crate::{Verifier, VerifyOpts, VerifyOutcome};
+use crate::verify::{Verifier, VerifyOpts, VerifyOutcome};
 
 /// Z3 SMT backend. Zero internal state — each `prove_*` call is
 /// self-contained.

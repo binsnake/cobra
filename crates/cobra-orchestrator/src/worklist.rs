@@ -10,8 +10,8 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
-use crate::enums::StateKind;
-use crate::work_item::WorkItem;
+use crate::orchestrator::enums::StateKind;
+use crate::orchestrator::work_item::WorkItem;
 
 // Band 0: terminal items the main loop wants to resolve quickly
 // (`CandidateExpr`, `CompetitionResolved`). Band 1: everything else.
@@ -141,14 +141,14 @@ impl Worklist {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{AstPayload, StateData};
-    use cobra_core::expr::Expr;
+    use crate::core::expr::Expr;
+    use crate::orchestrator::state::{AstPayload, StateData};
 
     fn mk_item(depth: u32) -> WorkItem {
         let mut w = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
             expr: Expr::variable(0),
             classification: None,
-            provenance: crate::enums::Provenance::Original,
+            provenance: crate::orchestrator::enums::Provenance::Original,
             solve_ctx: None,
         })));
         w.depth = depth;
@@ -156,12 +156,12 @@ mod tests {
     }
 
     fn mk_candidate_item(depth: u32) -> WorkItem {
-        use crate::state::CandidatePayload;
+        use crate::orchestrator::state::CandidatePayload;
         let mut w = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
             expr: Expr::variable(0),
             real_vars: vec![],
-            cost: cobra_core::expr_cost::ExprCost::default(),
-            producing_pass: crate::enums::PassId::VerifyCandidate,
+            cost: crate::core::expr_cost::ExprCost::default(),
+            producing_pass: crate::orchestrator::enums::PassId::VerifyCandidate,
             needs_original_space_verification: true,
         })));
         w.depth = depth;
@@ -169,7 +169,7 @@ mod tests {
     }
 
     fn mk_resolved_item(depth: u32) -> WorkItem {
-        use crate::state::CompetitionResolvedPayload;
+        use crate::orchestrator::state::CompetitionResolvedPayload;
         let mut w = WorkItem::new(StateData::CompetitionResolved(CompetitionResolvedPayload {
             group_id: 0,
         }));
@@ -219,15 +219,18 @@ mod tests {
     fn history_size_breaks_tie_after_provenance() {
         let mut w1 = mk_item(3);
         let mut w2 = mk_item(3);
-        w2.history.push(crate::enums::PassId::ClassifyAst);
-        w2.history.push(crate::enums::PassId::ClassifyAst);
+        w2.history
+            .push(crate::orchestrator::enums::PassId::ClassifyAst);
+        w2.history
+            .push(crate::orchestrator::enums::PassId::ClassifyAst);
         // w1 has 0 history, w2 has 2 → w1 should pop first.
         assert!(is_better_priority(&w1, &w2));
         assert!(!is_better_priority(&w2, &w1));
         // No-op on self: not strictly better than itself.
         assert!(!is_better_priority(&w1, &w1));
         // Needed to silence unused `mut` on w1.
-        w1.history.push(crate::enums::PassId::ClassifyAst);
+        w1.history
+            .push(crate::orchestrator::enums::PassId::ClassifyAst);
     }
 
     #[test]

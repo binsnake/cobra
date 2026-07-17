@@ -13,22 +13,22 @@
 //!   `rhs_resolved` flags are pre-set for any non-bitwise side, so the
 //!   join can converge once the spawned side closes.
 
-use cobra_core::evaluate_boolean_signature;
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::expr_rewrite::has_nonleaf_bitwise;
-use cobra_core::expr_utils::has_var_dep;
-use cobra_core::pass_contract::ReasonDetail;
-use cobra_core::result::Result;
+use crate::core::evaluate_boolean_signature;
+use crate::core::expr::{Expr, Kind};
+use crate::core::expr_cost::compute_cost;
+use crate::core::expr_rewrite::has_nonleaf_bitwise;
+use crate::core::expr_utils::has_var_dep;
+use crate::core::pass_contract::ReasonDetail;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     create_group, create_join, expr_identity_hash, ContinuationData, EliminationResult,
     ItemDisposition, JoinState, OperandJoinState, OperandRewriteCont, OperandRole,
     OrchestratorContext, PassDecision, PassResult, SignatureStatePayload,
     SignatureSubproblemContext, StateData, WorkItem,
 };
 
-use crate::lifting::active_ast_vars;
+use crate::passes::lifting::active_ast_vars;
 
 struct OperandSite<'a> {
     mul: &'a Expr,
@@ -185,9 +185,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{AstPayload, Provenance};
+    use crate::core::evaluator::Evaluator;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{AstPayload, Provenance};
 
     fn mk_ast_item(expr: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {

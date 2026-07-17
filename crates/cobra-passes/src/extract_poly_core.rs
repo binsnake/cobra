@@ -1,21 +1,21 @@
 //! Extract a polynomial core at a specific degree via
-//! [`cobra_ir::recover_multivar_poly`] + [`cobra_ir::build_poly_expr`].
+//! [`crate::ir::recover_multivar_poly`] + [`crate::ir::build_poly_expr`].
 //! Gated on `num_vars <= 6` and an available evaluator.
 //!
 //! Three separate extractors (`PolyCoreD2`, `PolyCoreD3`,
 //! `PolyCoreD4`) share the body — degree is a parameter. The top
 //! level decomposition engine dispatches all three.
 
-use cobra_core::pass_contract::{
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_ir::{build_poly_expr, recover_multivar_poly};
-use cobra_orchestrator::{ExtractorKind, OrchestratorContext, PassResult, WorkItem};
+use crate::ir::{build_poly_expr, recover_multivar_poly};
+use crate::orchestrator::{ExtractorKind, OrchestratorContext, PassResult, WorkItem};
 
-use crate::aux_var::eliminate_aux_vars;
-use crate::decomposition_engine::{
+use crate::passes::aux_var::eliminate_aux_vars;
+use crate::passes::decomposition_engine::{
     extractor_applicable, run_extractor, CoreCandidate, DecompositionContext, Extractor,
 };
 
@@ -148,10 +148,10 @@ pub fn applicable(item: &WorkItem, ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::classification::Classification;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
+    use crate::core::classification::Classification;
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Expr;
+    use crate::core::simplify_outcome::Options;
 
     #[test]
     fn poly_d2_recovers_quadratic() {

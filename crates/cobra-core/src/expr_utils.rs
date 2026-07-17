@@ -1,9 +1,9 @@
 //! that other crates need without the heavier AST-rewrite helpers
 //! (those belong in `cobra-ir` / `cobra-passes`).
 
-use crate::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr, sext, trunc, zext};
-use crate::expr::{Expr, Kind};
-use crate::width::width_of;
+use crate::core::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr, sext, trunc, zext};
+use crate::core::expr::{Expr, Kind};
+use crate::core::width::width_of;
 
 /// Returns true if `expr` contains no `Variable` leaf.
 #[must_use]

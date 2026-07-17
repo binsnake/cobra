@@ -2,21 +2,21 @@
 //! `Mul(var, var)`-style addends and build their sum as the core.
 //! Zero-product cases return `Blocked`; the residual is implicitly
 //! `original - core` and is computed downstream by
-//! [`crate::decomposition_helpers::build_remainder_evaluator`].
+//! [`crate::passes::decomposition_helpers::build_remainder_evaluator`].
 
-use cobra_core::expr::Expr;
-use cobra_core::pass_contract::{
+use crate::core::expr::Expr;
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 use std::sync::Arc;
 
-use cobra_orchestrator::{ExtractorKind, OrchestratorContext, PassResult, WorkItem};
+use crate::orchestrator::{ExtractorKind, OrchestratorContext, PassResult, WorkItem};
 
-use crate::decomposition_engine::{
+use crate::passes::decomposition_engine::{
     extractor_applicable, run_extractor, CoreCandidate, DecompositionContext, Extractor,
 };
-use crate::decomposition_helpers::split_add_tree;
+use crate::passes::decomposition_helpers::split_add_tree;
 
 fn reason(msg: &'static str, category: ReasonCategory, subcode: u16) -> ReasonDetail {
     ReasonDetail {
@@ -89,8 +89,8 @@ pub fn applicable(item: &WorkItem, ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::classification::Classification;
-    use cobra_core::simplify_outcome::Options;
+    use crate::core::classification::Classification;
+    use crate::core::simplify_outcome::Options;
 
     fn mk_ctx<'a>(
         expr: &'a Expr,

@@ -7,8 +7,8 @@
 
 use std::sync::Arc;
 
-use crate::compiled::{compile, eval, CompiledExpr};
-use crate::expr::Expr;
+use crate::core::compiled::{compile, eval, CompiledExpr};
+use crate::core::expr::Expr;
 
 /// actual tracing integration is added in `cobra-analysis` / the `tracing`
 /// feature of downstream crates.

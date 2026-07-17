@@ -11,15 +11,15 @@
 //! valuation (smallest `countr_zero`) so the back-substitution can lift
 //! through `Z/2^bw` without losing precision.
 
-use cobra_core::arith::bitmask;
-use cobra_core::evaluator::Evaluator;
-use cobra_core::pass_contract::{
+use crate::core::arith::bitmask;
+use crate::core::evaluator::Evaluator;
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
 };
 
-use cobra_ir::math_utils::{mod_inverse_odd, twos_in_factorial};
-use cobra_ir::poly::NormalizedPoly;
-use cobra_ir::{MonomialKey, MAX_POLY_VARS};
+use crate::ir::math_utils::{mod_inverse_odd, twos_in_factorial};
+use crate::ir::poly::NormalizedPoly;
+use crate::ir::{MonomialKey, MAX_POLY_VARS};
 
 /// active bitwidth.
 pub type WeightFn<'a> = Box<dyn Fn(&[u64], u32) -> u64 + 'a>;
@@ -468,7 +468,7 @@ pub fn recover_weighted_poly(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::arith::bitmask;
+    use crate::core::arith::bitmask;
 
     fn weight_one() -> WeightFn<'static> {
         Box::new(|_pt: &[u64], _bw: u32| 1u64)

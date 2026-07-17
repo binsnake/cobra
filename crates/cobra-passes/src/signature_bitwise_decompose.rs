@@ -9,22 +9,22 @@
 //! short-circuit and submit directly to the parent without spawning a
 //! child.
 
-use cobra_core::pass_contract::{ReasonDetail, VerificationState};
-use cobra_core::result::Result;
+use crate::core::pass_contract::{ReasonDetail, VerificationState};
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     acquire_handle, create_group, BitwiseComposeCont, CandidateRecord, ContinuationData,
     EliminationResult, ItemDisposition, OrchestratorContext, PassDecision, PassId, PassResult,
     SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem,
 };
 
-use crate::bitwise_decomposer::{compact_signature, compose, enumerate_bitwise_candidates};
-use crate::candidate_normalize::{
+use crate::passes::bitwise_decomposer::{compact_signature, compose, enumerate_bitwise_candidates};
+use crate::passes::candidate_normalize::{
     signature_certificate_for_candidate, submit_normalized_candidate,
 };
-use crate::decomposition_helpers::{should_skip_decomposition, MAX_CANDIDATES};
-use crate::mapped_evaluator::build_mapped_evaluator;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::decomposition_helpers::{should_skip_decomposition, MAX_CANDIDATES};
+use crate::passes::mapped_evaluator::build_mapped_evaluator;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 #[allow(clippy::unnecessary_wraps, clippy::too_many_lines)]
 pub fn run_signature_bitwise_decompose(
@@ -124,7 +124,7 @@ pub fn run_signature_bitwise_decompose(
 
         // Constant g_sig: skip the child solve and submit directly.
         if active_var_indices.is_empty() {
-            let g_expr = cobra_core::expr::Expr::constant(cand.g_sig[0]);
+            let g_expr = crate::core::expr::Expr::constant(cand.g_sig[0]);
             let composed = compose(cand.gate, cand.var_k, g_expr, cand.add_coeff);
             if let Some(eval) = parent_eval.as_ref() {
                 let fw = full_width_check_eval(
@@ -138,7 +138,7 @@ pub fn run_signature_bitwise_decompose(
                     continue;
                 }
             }
-            let cost = cobra_core::expr_cost::compute_cost(&composed).cost;
+            let cost = crate::core::expr_cost::compute_cost(&composed).cost;
             let Some(lean_signature_certificate) = signature_certificate_for_candidate(
                 ctx.bitwidth,
                 &sub_ctx.elimination.reduced_sig,
@@ -244,12 +244,12 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::classification::{Classification, SemanticClass, StructuralFlag};
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Expr;
-    use cobra_core::expr_cost::ExprCost;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{
+    use crate::core::classification::{Classification, SemanticClass, StructuralFlag};
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Expr;
+    use crate::core::expr_cost::ExprCost;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{
         create_group as orch_create_group, submit_candidate as orch_submit_candidate,
         EliminationResult, LeanSignatureCertificate,
     };

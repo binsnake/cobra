@@ -11,22 +11,22 @@
 //! group; the winning candidate is materialised by `ResolveCompetition`
 //! once all handles are released.
 
-use cobra_core::classification::StructuralFlag;
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::pass_contract::{ReasonDetail, VerificationState};
-use cobra_core::result::Result;
+use crate::core::classification::StructuralFlag;
+use crate::core::expr_cost::compute_cost;
+use crate::core::pass_contract::{ReasonDetail, VerificationState};
+use crate::core::result::Result;
 
-use cobra_ir::{recover_and_verify_poly, PolyRecoveryResult};
-use cobra_orchestrator::{
+use crate::ir::{recover_and_verify_poly, PolyRecoveryResult};
+use crate::orchestrator::{
     CandidateRecord, ItemDisposition, OrchestratorContext, PassDecision, PassId, PassResult,
     StateData, WorkItem,
 };
 
-use crate::candidate_normalize::{
+use crate::passes::candidate_normalize::{
     signature_certificate_for_candidate, submit_normalized_candidate,
 };
-use crate::mapped_evaluator::build_mapped_evaluator;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::mapped_evaluator::build_mapped_evaluator;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 fn has_multivar_flag(item: &WorkItem) -> bool {
     item.features
@@ -79,9 +79,9 @@ pub fn run_signature_multivar_poly_recovery(
 
     let support: Vec<u32> = (0..num_vars).collect();
 
-    let verify = |eval: &cobra_core::evaluator::Evaluator,
+    let verify = |eval: &crate::core::evaluator::Evaluator,
                   arity: u32,
-                  candidate: &cobra_core::expr::Expr,
+                  candidate: &crate::core::expr::Expr,
                   bitwidth: u32| {
         full_width_check_eval(eval, arity, candidate, bitwidth, DEFAULT_NUM_SAMPLES).passed
     };
@@ -149,11 +149,11 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::classification::{Classification, SemanticClass};
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{
+    use crate::core::classification::{Classification, SemanticClass};
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Expr;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{
         create_group, EliminationResult, SignatureStatePayload, SignatureSubproblemContext,
     };
 
@@ -250,7 +250,7 @@ mod tests {
     fn non_signature_payload_is_not_applicable() {
         let mut ctx = OrchestratorContext::new(Options::default(), vec![], 64);
         let item = WorkItem::new(StateData::CompetitionResolved(
-            cobra_orchestrator::CompetitionResolvedPayload { group_id: 0 },
+            crate::orchestrator::CompetitionResolvedPayload { group_id: 0 },
         ));
         let pr = run_signature_multivar_poly_recovery(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::NotApplicable);

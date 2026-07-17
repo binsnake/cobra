@@ -5,20 +5,20 @@
 //! or `LowerNotOverArith` from the worklist is *not* one of its routes.
 //! seeding.
 
-use cobra_core::expr::Expr;
-use cobra_core::pass_contract::ReasonDetail;
-use cobra_core::result::Result;
+use crate::core::expr::Expr;
+use crate::core::pass_contract::ReasonDetail;
+use crate::core::result::Result;
 use std::sync::Arc;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     AstPayload, LeanCertificate, OrchestratorContext, PassDecision, PassId, Provenance, StateData,
     WorkItem, Worklist,
 };
 
-use crate::atom_identity_rewrite::apply_atom_identities;
-use crate::classify_ast::run_classify_ast;
-use crate::lower_not_over_arith::run_lower_not_over_arith;
-use crate::pattern_matcher::simplify_pattern_subtrees_certified;
+use crate::passes::atom_identity_rewrite::apply_atom_identities;
+use crate::passes::classify_ast::run_classify_ast;
+use crate::passes::lower_not_over_arith::run_lower_not_over_arith;
+use crate::passes::pattern_matcher::simplify_pattern_subtrees_certified;
 
 /// Seed `worklist` with one or two `FoldedAst` items prepared from
 ///
@@ -137,7 +137,7 @@ pub fn seed_with_ast(
         // actually classified as semilinear.
         if matches!(
             cls,
-            Some(c) if c.semantic == cobra_core::classification::SemanticClass::Semilinear
+            Some(c) if c.semantic == crate::core::classification::SemanticClass::Semilinear
         ) {
             stamp_seed_rewrite(&mut seed);
             worklist.push(seed);
@@ -185,8 +185,8 @@ fn seed_rewrite_certificate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::classification::SemanticClass;
-    use cobra_core::simplify_outcome::Options;
+    use crate::core::classification::SemanticClass;
+    use crate::core::simplify_outcome::Options;
 
     #[test]
     fn seed_with_linear_input_pushes_one_lowered_item() {
@@ -268,7 +268,7 @@ mod tests {
             assert!(cert
                 .steps
                 .iter()
-                .any(|step| step.theorem == cobra_orchestrator::LeanTheorem::AndOrSumEqAdd64));
+                .any(|step| step.theorem == crate::orchestrator::LeanTheorem::AndOrSumEqAdd64));
         }
         assert!(found, "seed rewrite marker should be present");
     }

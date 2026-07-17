@@ -4,13 +4,13 @@
 //! composed back into its parent, carrying only the minimal data
 //! required to reconstruct the parent context at resolution time.
 
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::ExprCost;
+use crate::core::evaluator::Evaluator;
+use crate::core::expr::Expr;
+use crate::core::expr_cost::ExprCost;
 use std::sync::Arc;
 
-use crate::enums::RemainderOrigin;
-use crate::stubs::{ExtractOp, GateKind};
+use crate::orchestrator::enums::RemainderOrigin;
+use crate::orchestrator::stubs::{ExtractOp, GateKind};
 
 pub type GroupId = u32;
 

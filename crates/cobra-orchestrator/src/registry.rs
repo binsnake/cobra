@@ -4,11 +4,11 @@
 //! the trait-object-free dispatch types and exposes an initially-empty
 //! registry that passes will register into as they're ported.
 
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use crate::context::OrchestratorContext;
-use crate::enums::{PassId, PassTag, StateKind};
-use crate::work_item::{PassResult, WorkItem};
+use crate::orchestrator::context::OrchestratorContext;
+use crate::orchestrator::enums::{PassId, PassTag, StateKind};
+use crate::orchestrator::work_item::{PassResult, WorkItem};
 
 pub type ApplicabilityFn = fn(&WorkItem, &OrchestratorContext) -> bool;
 

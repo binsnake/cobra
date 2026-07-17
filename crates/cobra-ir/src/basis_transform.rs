@@ -11,11 +11,11 @@
 //! Degrees ≤ 1 are identity — the transforms are no-ops on pure-linear
 //! inputs.
 
-use cobra_core::arith::bitmask;
+use crate::core::arith::bitmask;
 
-use crate::math_utils::{build_stirling_first_kind, build_stirling_second_kind};
-use crate::mono::MonomialKey;
-use crate::poly::CoeffMap;
+use crate::ir::math_utils::{build_stirling_first_kind, build_stirling_second_kind};
+use crate::ir::mono::MonomialKey;
+use crate::ir::poly::CoeffMap;
 
 enum Direction {
     ToFactorial,

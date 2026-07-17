@@ -5,15 +5,15 @@
 //! Monomials are emitted in lexicographic order of their exponent keys
 //! so the output is deterministic for a given input.
 
-use cobra_core::arith::bitmask;
-use cobra_core::expr::Expr;
-use cobra_core::expr_rewrite::apply_coefficient;
-use cobra_core::result::{err, CobraError, Result};
+use crate::core::arith::bitmask;
+use crate::core::expr::Expr;
+use crate::core::expr_rewrite::apply_coefficient;
+use crate::core::result::{err, CobraError, Result};
 use std::sync::Arc;
 
-use crate::basis_transform::to_monomial_basis;
-use crate::mono::{MonomialKey, MAX_POLY_VARS};
-use crate::poly::NormalizedPoly;
+use crate::ir::basis_transform::to_monomial_basis;
+use crate::ir::mono::{MonomialKey, MAX_POLY_VARS};
+use crate::ir::poly::NormalizedPoly;
 
 fn build_power_expr(var_index: u32, exponent: u8) -> Arc<Expr> {
     debug_assert!(exponent >= 2);
@@ -112,10 +112,10 @@ pub fn build_poly_expr(poly: &NormalizedPoly) -> Result<Arc<Expr>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::poly::CoeffMap;
-    use cobra_core::compile;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Kind;
+    use crate::core::compile;
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Kind;
+    use crate::ir::poly::CoeffMap;
 
     fn poly_from(entries: &[(&[u8], u64)], num_vars: u8, bitwidth: u32) -> NormalizedPoly {
         let mut p = NormalizedPoly::empty(num_vars, bitwidth);
@@ -144,7 +144,7 @@ mod tests {
         let prog = compile(&expr, 64);
         let ev = Evaluator::from_compiled(
             std::sync::Arc::new(prog),
-            cobra_core::evaluator::TraceKind::None,
+            crate::core::evaluator::TraceKind::None,
         );
         assert_eq!(ev.eval(&[1, 2]), 13);
     }
@@ -158,7 +158,7 @@ mod tests {
         // through to_factorial_basis then build_poly_expr, compare to
         // evaluating the raw polynomial.
         let mono = poly_from(&[(&[2, 0], 1), (&[1, 1], 3)], 2, 64);
-        let factorial_form = crate::basis_transform::to_factorial_basis(&mono.coeffs, 2, 64);
+        let factorial_form = crate::ir::basis_transform::to_factorial_basis(&mono.coeffs, 2, 64);
         let mut fp = NormalizedPoly::empty(2, 64);
         fp.coeffs = factorial_form;
 
@@ -166,7 +166,7 @@ mod tests {
         let prog = compile(&expr, 64);
         let ev = Evaluator::from_compiled(
             std::sync::Arc::new(prog),
-            cobra_core::evaluator::TraceKind::None,
+            crate::core::evaluator::TraceKind::None,
         );
         // f(x, y) = x² + 3xy → f(2, 3) = 4 + 18 = 22.
         assert_eq!(ev.eval(&[2, 3]), 22);

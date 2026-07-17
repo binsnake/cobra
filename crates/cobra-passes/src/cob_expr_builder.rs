@@ -18,13 +18,13 @@
 //! pairing by being appended *after* the sort step.
 //!
 //! Inputs are assumed to come from
-//! [`cobra_ir::interpolate_coefficients`] — i.e. `coeffs[0]` is the
+//! [`crate::ir::interpolate_coefficients`] — i.e. `coeffs[0]` is the
 //! constant term and `coeffs[i]` for `i > 0` is the coefficient of
 //! `∏_{k ∈ bits(i)} x_k`.
 
-use cobra_core::arith::{bitmask, mod_mul, mod_neg};
-use cobra_core::expr::Expr;
-use cobra_core::expr_rewrite::{apply_coefficient, build_and_product};
+use crate::core::arith::{bitmask, mod_mul, mod_neg};
+use crate::core::expr::Expr;
+use crate::core::expr_rewrite::{apply_coefficient, build_and_product};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -199,9 +199,9 @@ pub fn build_cob_expr(coeffs: &[u64], _num_vars: u32, bitwidth: u32) -> Arc<Expr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluate_boolean_signature;
-    use cobra_core::expr::Kind;
-    use cobra_ir::interpolate_coefficients;
+    use crate::core::evaluate_boolean_signature;
+    use crate::core::expr::Kind;
+    use crate::ir::interpolate_coefficients;
 
     fn all_assignments_match(expr: &Expr, sig: &[u64], num_vars: u32, bitwidth: u32) {
         let got = evaluate_boolean_signature(expr, num_vars, bitwidth);

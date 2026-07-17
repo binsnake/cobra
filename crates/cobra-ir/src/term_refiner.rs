@@ -9,10 +9,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use cobra_core::arith::bitmask;
-use cobra_core::expr::Expr;
+use crate::core::arith::bitmask;
+use crate::core::expr::Expr;
 
-use crate::semilinear::{
+use crate::ir::semilinear::{
     create_atom, decompose_atom, AtomId, OperatorFamily, SemilinearIR, WeightedAtom,
 };
 

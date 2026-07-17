@@ -3,17 +3,17 @@
 //! the shared decomposition engine when a direct candidate is emitted,
 //! or by downstream recomposition for core/remainder paths.
 
-use cobra_core::pass_contract::{
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{ExtractorKind, OrchestratorContext, PassResult, WorkItem};
+use crate::orchestrator::{ExtractorKind, OrchestratorContext, PassResult, WorkItem};
 
-use crate::decomposition_engine::{
+use crate::passes::decomposition_engine::{
     extractor_applicable, run_extractor, CoreCandidate, DecompositionContext, Extractor,
 };
-use crate::template_decomposer::try_template_decomposition;
+use crate::passes::template_decomposer::try_template_decomposition;
 
 pub struct TemplateCoreExtractor;
 

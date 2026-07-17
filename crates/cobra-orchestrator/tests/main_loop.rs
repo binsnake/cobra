@@ -3,15 +3,15 @@
 //! pre-seeding verified candidates (which bypass `select_next_pass`
 //! entirely) or by using tiny stub passes wired into a local registry.
 
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::expr_cost::ExprCost;
-use cobra_core::pass_contract::{
+use cobra::core::evaluator::Evaluator;
+use cobra::core::expr::{Expr, Kind};
+use cobra::core::expr_cost::ExprCost;
+use cobra::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, VerificationState,
 };
-use cobra_core::result::Result;
-use cobra_core::simplify_outcome::{Options, ProofLevel, SimplifyOutcomeKind};
-use cobra_orchestrator::{
+use cobra::core::result::Result;
+use cobra::core::simplify_outcome::{Options, ProofLevel, SimplifyOutcomeKind};
+use cobra::orchestrator::{
     create_group, simplify_from_worklist, AstPayload, CandidatePayload, ItemDisposition,
     LeanSignatureCertificate, OrchestratorContext, OrchestratorPolicy, PassDecision,
     PassDescriptor, PassId, PassResult, PassTag, Provenance, StateData, StateKind, Worklist,
@@ -27,9 +27,9 @@ fn mk_candidate(verified: bool) -> CandidatePayload {
     }
 }
 
-fn mk_candidate_item(verified: bool) -> cobra_orchestrator::WorkItem {
+fn mk_candidate_item(verified: bool) -> cobra::orchestrator::WorkItem {
     let mut item =
-        cobra_orchestrator::WorkItem::new(StateData::Candidate(Box::new(mk_candidate(verified))));
+        cobra::orchestrator::WorkItem::new(StateData::Candidate(Box::new(mk_candidate(verified))));
     item.metadata.verification = if verified {
         VerificationState::Verified
     } else {
@@ -171,7 +171,7 @@ fn stubbed_verify_candidate_pass_returns_success() {
     // it on the second pop.
     #[allow(clippy::unnecessary_wraps)]
     fn stub_verify(
-        item: &cobra_orchestrator::WorkItem,
+        item: &cobra::orchestrator::WorkItem,
         _ctx: &mut OrchestratorContext,
     ) -> Result<PassResult> {
         let StateData::Candidate(cand) = &item.payload else {
@@ -180,7 +180,7 @@ fn stubbed_verify_candidate_pass_returns_success() {
         let mut next_payload = (**cand).clone();
         next_payload.needs_original_space_verification = false;
         let mut next =
-            cobra_orchestrator::WorkItem::new(StateData::Candidate(Box::new(next_payload)));
+            cobra::orchestrator::WorkItem::new(StateData::Candidate(Box::new(next_payload)));
         next.metadata.verification = VerificationState::Verified;
         Ok(PassResult {
             decision: PassDecision::SolvedCandidate,
@@ -190,7 +190,10 @@ fn stubbed_verify_candidate_pass_returns_success() {
         })
     }
 
-    fn always_applicable(_item: &cobra_orchestrator::WorkItem, _ctx: &OrchestratorContext) -> bool {
+    fn always_applicable(
+        _item: &cobra::orchestrator::WorkItem,
+        _ctx: &OrchestratorContext,
+    ) -> bool {
         true
     }
 
@@ -229,7 +232,7 @@ fn expansion_budget_cuts_off_the_loop() {
     // Registry with a pass that retains the current item forever.
     #[allow(clippy::unnecessary_wraps)]
     fn never_finish(
-        _item: &cobra_orchestrator::WorkItem,
+        _item: &cobra::orchestrator::WorkItem,
         _ctx: &mut OrchestratorContext,
     ) -> Result<PassResult> {
         Ok(PassResult {
@@ -240,7 +243,7 @@ fn expansion_budget_cuts_off_the_loop() {
         })
     }
 
-    fn always(_item: &cobra_orchestrator::WorkItem, _ctx: &OrchestratorContext) -> bool {
+    fn always(_item: &cobra::orchestrator::WorkItem, _ctx: &OrchestratorContext) -> bool {
         true
     }
 
@@ -335,7 +338,7 @@ fn grouped_candidate_with_matching_lean_evidence_stays_verified() {
 fn failing_pass_records_last_failure_into_best_unsupported() {
     #[allow(clippy::unnecessary_wraps)]
     fn fail(
-        _item: &cobra_orchestrator::WorkItem,
+        _item: &cobra::orchestrator::WorkItem,
         _ctx: &mut OrchestratorContext,
     ) -> Result<PassResult> {
         Ok(PassResult {
@@ -357,7 +360,7 @@ fn failing_pass_records_last_failure_into_best_unsupported() {
         })
     }
 
-    fn always(_item: &cobra_orchestrator::WorkItem, _ctx: &OrchestratorContext) -> bool {
+    fn always(_item: &cobra::orchestrator::WorkItem, _ctx: &OrchestratorContext) -> bool {
         true
     }
 
@@ -416,7 +419,7 @@ fn exhaustion_promotes_pic_rewrite_without_lean_certificate_as_unverified_candid
     // Build the FoldedAst work item with rewrite_gen=1 and a history
     // entry for ProductIdentityCollapse — the eligibility gate needs
     // both.
-    let mut item = cobra_orchestrator::WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+    let mut item = cobra::orchestrator::WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
         expr: rewrite.clone(),
         classification: None,
         provenance: Provenance::Rewritten,
@@ -457,7 +460,7 @@ fn exhaustion_preserves_lean_certificate_on_promoted_best_rewrite() {
     let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into()], 64);
     ctx.evaluator = Some(Evaluator::from_expr(&original, 64));
 
-    let mut item = cobra_orchestrator::WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+    let mut item = cobra::orchestrator::WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
         expr: rewrite.clone(),
         classification: None,
         provenance: Provenance::Rewritten,
@@ -465,10 +468,10 @@ fn exhaustion_preserves_lean_certificate_on_promoted_best_rewrite() {
     })));
     item.rewrite_gen = 1;
     item.history.push(PassId::AtomIdentityRewrite);
-    item.metadata.lean_certificate = cobra_orchestrator::LeanCertificate::try_single_rewrite_64(
+    item.metadata.lean_certificate = cobra::orchestrator::LeanCertificate::try_single_rewrite_64(
         64,
         original.clone_tree(),
-        cobra_orchestrator::ExprPath::default(),
+        cobra::orchestrator::ExprPath::default(),
         rewrite,
     );
 
@@ -500,7 +503,7 @@ fn exhaustion_generates_nested_lean_certificate_on_promoted_best_rewrite() {
     let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
     ctx.evaluator = Some(Evaluator::from_expr(&original, 64));
 
-    let mut item = cobra_orchestrator::WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+    let mut item = cobra::orchestrator::WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
         expr: rewrite,
         classification: None,
         provenance: Provenance::Rewritten,
@@ -537,7 +540,7 @@ fn exhaustion_leaves_unchanged_for_non_pic_rewrite() {
     let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
     ctx.evaluator = Some(Evaluator::from_expr(&original, 64));
 
-    let mut item = cobra_orchestrator::WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+    let mut item = cobra::orchestrator::WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
         expr: rewrite,
         classification: None,
         provenance: Provenance::Rewritten,

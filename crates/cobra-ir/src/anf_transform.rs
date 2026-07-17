@@ -13,7 +13,7 @@
 //! 2. Inter-word: for each variable index `i` in `6..n`, XOR whole
 //!    words at stride `2^(i - 6)`.
 
-use crate::packed_anf::PackedAnf;
+use crate::ir::packed_anf::PackedAnf;
 
 const INTRA_MASKS: [u64; 6] = [
     0x5555_5555_5555_5555, // step 1

@@ -5,17 +5,17 @@
 //! pipeline. `ResolveCompetition` substitutes the original arithmetic
 //! atoms back in once the outer winner is known.
 
-use cobra_core::pass_contract::{
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     AstSolveContext, ItemDisposition, LiftedSkeletonPayload, LiftedValueKind, OrchestratorContext,
     PassDecision, PassResult, StateData, WorkItem,
 };
 
-use crate::lifting::{
+use crate::passes::lifting::{
     active_ast_evaluator, active_ast_vars, allocate_fresh_virtual_names, baseline_cost,
     boolean_signature, collect_liftable_atoms, deduplicate_atoms, is_bitwise_kind, make_binding,
     replace_atoms_with_virtual,
@@ -143,9 +143,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{AstPayload, Provenance};
+    use crate::core::expr::Expr;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{AstPayload, Provenance};
 
     fn mk_ast_item(expr: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
@@ -179,13 +179,18 @@ mod tests {
             Expr::variable(2),
         );
         let mut item = mk_ast_item(expr);
-        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        item.metadata.lean_certificate = Some(crate::orchestrator::LeanCertificate::new(
             64,
             Expr::variable(0),
             Expr::variable(0),
         ));
         item.metadata.lean_signature_certificate =
-            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+            crate::orchestrator::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                Expr::variable(0),
+            );
         let pr = run_lift_arithmetic_atoms(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::Advance);
         assert_eq!(pr.next.len(), 1);

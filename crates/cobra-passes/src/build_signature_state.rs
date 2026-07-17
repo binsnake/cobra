@@ -4,18 +4,18 @@
 //! (pattern matcher, ANF transform, product-shadow repair + spot-check
 //! wiring) are ported.
 
-use cobra_core::evaluate_boolean_signature;
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr_rewrite::build_var_support;
-use cobra_core::pass_contract::ReasonDetail;
-use cobra_core::result::{err, CobraError, Result};
+use crate::core::evaluate_boolean_signature;
+use crate::core::evaluator::Evaluator;
+use crate::core::expr_rewrite::build_var_support;
+use crate::core::pass_contract::ReasonDetail;
+use crate::core::result::{err, CobraError, Result};
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     acquire_handle, create_group, ItemDisposition, OrchestratorContext, PassDecision, PassResult,
     SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem,
 };
 
-use crate::aux_var::{eliminate_aux_vars, eliminate_aux_vars_fw};
+use crate::passes::aux_var::{eliminate_aux_vars, eliminate_aux_vars_fw};
 
 /// (without the two optional fast paths).
 pub fn run_build_signature_state(
@@ -168,9 +168,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{create_group as orch_create_group, AstPayload, Provenance};
+    use crate::core::expr::Expr;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{create_group as orch_create_group, AstPayload, Provenance};
 
     fn mk_ast_item(expr: Arc<Expr>, prov: Provenance) -> WorkItem {
         let mut item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
@@ -190,13 +190,18 @@ mod tests {
         let mut ctx =
             OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
         let mut item = mk_ast_item(expr, Provenance::Lowered);
-        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        item.metadata.lean_certificate = Some(crate::orchestrator::LeanCertificate::new(
             64,
             Expr::variable(0),
             Expr::variable(0),
         ));
         item.metadata.lean_signature_certificate =
-            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+            crate::orchestrator::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                Expr::variable(0),
+            );
         let pr = run_build_signature_state(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::Advance);
         assert_eq!(pr.next.len(), 1);
@@ -221,7 +226,7 @@ mod tests {
     #[test]
     fn build_signature_state_preserves_solve_ctx_evaluator_override() {
         let outer = Expr::and(Expr::variable(2), Expr::variable(0));
-        let solve_ctx = cobra_orchestrator::AstSolveContext {
+        let solve_ctx = crate::orchestrator::AstSolveContext {
             vars: vec!["x".into(), "y".into(), "v0".into()],
             evaluator: Some(Evaluator::from_expr(&outer, 64)),
             input_sig: vec![],

@@ -4,7 +4,7 @@
 //! `bitwidth = m` instead of the full width, provided `g` contains no
 //! right-shift nodes (shifts break the modular homomorphism).
 
-use cobra_core::expr::{Expr, Kind};
+use crate::core::expr::{Expr, Kind};
 
 /// Describes the detected mask: `mask = (1 << effective_width) - 1` applied
 #[derive(Copy, Clone, Debug)]

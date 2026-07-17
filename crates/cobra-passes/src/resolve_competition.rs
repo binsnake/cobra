@@ -27,18 +27,18 @@
     clippy::too_many_lines
 )]
 
-use cobra_core::evaluate_boolean_signature;
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::{compute_cost, is_better, ExprCost};
-use cobra_core::expr_utils::remap_var_indices;
-use cobra_core::pass_contract::{
+use crate::core::evaluate_boolean_signature;
+use crate::core::expr::Expr;
+use crate::core::expr_cost::{compute_cost, is_better, ExprCost};
+use crate::core::expr_utils::remap_var_indices;
+use crate::core::pass_contract::{
     DecompositionMeta, ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
     VerificationState,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 use std::sync::Arc;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     project_extractor_kind, release_handle, replace_by_hash, AstPayload, BitwiseComposeCont,
     CandidatePayload, CandidateRecord, CompetitionGroup, ContinuationData, FactorRole,
     HybridComposeCont, ItemDisposition, JoinState, LiftedBinding, LiftedSubstituteCont,
@@ -47,13 +47,13 @@ use cobra_orchestrator::{
     StateData, WorkItem,
 };
 
-use crate::bitwise_decomposer::{compose, remap_vars};
-use crate::candidate_normalize::{
+use crate::passes::bitwise_decomposer::{compose, remap_vars};
+use crate::passes::candidate_normalize::{
     signature_certificate_for_candidate, submit_normalized_candidate,
 };
-use crate::classifier::classify_structural;
-use crate::hybrid_decomposer::compose_extraction;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::classifier::classify_structural;
+use crate::passes::hybrid_decomposer::compose_extraction;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 fn ast_reason(category: ReasonCategory, msg: &'static str) -> ReasonDetail {
     ReasonDetail {
@@ -377,7 +377,7 @@ fn emit_join_rewrite_operand(
     let (rebuilt, _) = replace_by_hash(join.full_ast.clone_tree(), join.target_hash, &mut repl);
     let new_cls = classify_structural(&rebuilt);
     let solve_ctx = if join.has_solve_ctx {
-        Some(cobra_orchestrator::AstSolveContext {
+        Some(crate::orchestrator::AstSolveContext {
             vars: join.solve_ctx_vars.clone(),
             evaluator: join.solve_ctx_evaluator.clone(),
             input_sig: join.solve_ctx_input_sig.clone(),
@@ -385,13 +385,13 @@ fn emit_join_rewrite_operand(
     } else {
         None
     };
-    let lean_certificate = cobra_orchestrator::LeanCertificate::try_single_rewrite_between_64(
+    let lean_certificate = crate::orchestrator::LeanCertificate::try_single_rewrite_between_64(
         join.bitwidth,
         join.full_ast.clone_tree(),
         rebuilt.clone_tree(),
     )
     .or_else(|| {
-        Some(cobra_orchestrator::LeanCertificate::new(
+        Some(crate::orchestrator::LeanCertificate::new(
             join.bitwidth,
             join.full_ast.clone_tree(),
             rebuilt.clone_tree(),
@@ -478,7 +478,7 @@ fn resolve_operand_rewrite(
     };
     let mut join = *join_box;
 
-    use cobra_orchestrator::OperandRole;
+    use crate::orchestrator::OperandRole;
     match cont.role {
         OperandRole::Lhs => {
             join.lhs_resolved = true;
@@ -514,7 +514,7 @@ fn resolve_operand_rewrite(
                 return;
             }
         }
-        let chk_eval = cobra_core::evaluator::Evaluator::from_expr(&join.original_mul, bw);
+        let chk_eval = crate::core::evaluator::Evaluator::from_expr(&join.original_mul, bw);
         let chk = full_width_check_eval(&chk_eval, num_vars, &mul, bw, DEFAULT_NUM_SAMPLES);
         if !chk.passed {
             return;
@@ -592,7 +592,7 @@ fn resolve_product_collapse(
         let candidate = Expr::mul(x_w.expr.clone_tree(), y_w.expr.clone_tree());
         let bw = join.bitwidth;
         let num_vars = join.vars.len() as u32;
-        let chk_eval = cobra_core::evaluator::Evaluator::from_expr(&join.original_expr, bw);
+        let chk_eval = crate::core::evaluator::Evaluator::from_expr(&join.original_expr, bw);
         let chk = full_width_check_eval(&chk_eval, num_vars, &candidate, bw, DEFAULT_NUM_SAMPLES);
         if chk.passed {
             let cost = compute_cost(&candidate).cost;
@@ -672,7 +672,7 @@ fn resolve_residual_recombine(
     }
 
     let combined = if cont.prefix_expr.children.is_empty()
-        && matches!(cont.prefix_expr.kind, cobra_core::expr::Kind::Constant(0))
+        && matches!(cont.prefix_expr.kind, crate::core::expr::Kind::Constant(0))
     {
         solved
     } else {
@@ -762,7 +762,7 @@ fn substitute_bindings(
     bindings: &[LiftedBinding],
     original_var_count: u32,
 ) -> Arc<Expr> {
-    if let cobra_core::expr::Kind::Variable(vi) = expr.kind {
+    if let crate::core::expr::Kind::Variable(vi) = expr.kind {
         if vi >= original_var_count {
             for b in bindings {
                 if b.outer_var_index == vi {
@@ -815,7 +815,7 @@ fn resolve_lifted_substitute(
     let mut remapped = winner.expr.clone_tree();
     if winner.real_vars.len() < cont.outer_vars.len() {
         let remap =
-            cobra_core::expr_rewrite::build_var_support(&cont.outer_vars, &winner.real_vars);
+            crate::core::expr_rewrite::build_var_support(&cont.outer_vars, &winner.real_vars);
         remap_var_indices(Arc::make_mut(&mut remapped), &remap);
     }
 
@@ -939,10 +939,10 @@ fn resolve_lifted_substitute(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::pass_contract::VerificationState;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{
+    use crate::core::evaluator::Evaluator;
+    use crate::core::pass_contract::VerificationState;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{
         create_group, CandidateRecord, CompetitionResolvedPayload, ContinuationData,
     };
 
@@ -958,7 +958,7 @@ mod tests {
         let gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
         ctx.competition_groups.get_mut(&gid).unwrap().best = Some(CandidateRecord {
             expr: Expr::variable(0),
-            cost: cobra_core::expr_cost::compute_cost(&Expr::variable(0)).cost,
+            cost: crate::core::expr_cost::compute_cost(&Expr::variable(0)).cost,
             verification: VerificationState::Verified,
             real_vars: vec!["x".into()],
             source_pass: PassId::SignaturePatternMatch,
@@ -983,18 +983,18 @@ mod tests {
         let gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
         ctx.competition_groups.get_mut(&gid).unwrap().best = Some(CandidateRecord {
             expr: Expr::variable(0),
-            cost: cobra_core::expr_cost::compute_cost(&Expr::variable(0)).cost,
+            cost: crate::core::expr_cost::compute_cost(&Expr::variable(0)).cost,
             verification: VerificationState::Verified,
             real_vars: vec!["x".into()],
             source_pass: PassId::SignaturePatternMatch,
             needs_original_space_verification: false,
             sig_vector: vec![0, 1],
-            lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+            lean_certificate: Some(crate::orchestrator::LeanCertificate::new(
                 64,
                 Expr::add(Expr::variable(0), Expr::constant(0)),
                 Expr::variable(0),
             )),
-            lean_signature_certificate: cobra_orchestrator::LeanSignatureCertificate::new(
+            lean_signature_certificate: crate::orchestrator::LeanSignatureCertificate::new(
                 64,
                 1,
                 vec![0, 1],
@@ -1014,18 +1014,18 @@ mod tests {
         let gid = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
         ctx.competition_groups.get_mut(&gid).unwrap().best = Some(CandidateRecord {
             expr: Expr::variable(0),
-            cost: cobra_core::expr_cost::compute_cost(&Expr::variable(0)).cost,
+            cost: crate::core::expr_cost::compute_cost(&Expr::variable(0)).cost,
             verification: VerificationState::Verified,
             real_vars: vec!["x".into()],
             source_pass: PassId::SignaturePatternMatch,
             needs_original_space_verification: false,
             sig_vector: vec![0, 1],
-            lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+            lean_certificate: Some(crate::orchestrator::LeanCertificate::new(
                 64,
                 Expr::variable(0),
                 Expr::constant(0),
             )),
-            lean_signature_certificate: cobra_orchestrator::LeanSignatureCertificate::new(
+            lean_signature_certificate: crate::orchestrator::LeanSignatureCertificate::new(
                 64,
                 1,
                 vec![1, 0],
@@ -1072,13 +1072,13 @@ mod tests {
             let child = ctx.competition_groups.get_mut(&child_gid).unwrap();
             child.best = Some(CandidateRecord {
                 expr: Expr::variable(0),
-                cost: cobra_core::expr_cost::compute_cost(&Expr::variable(0)).cost,
+                cost: crate::core::expr_cost::compute_cost(&Expr::variable(0)).cost,
                 verification: VerificationState::Verified,
                 real_vars: vec!["y".into()],
                 source_pass: PassId::SignaturePatternMatch,
                 needs_original_space_verification: false,
                 sig_vector: vec![0, 1],
-                lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+                lean_certificate: Some(crate::orchestrator::LeanCertificate::new(
                     64,
                     Expr::variable(0),
                     Expr::variable(0),
@@ -1088,7 +1088,7 @@ mod tests {
             child.continuation = Some(ContinuationData::BitwiseCompose(Box::new(
                 BitwiseComposeCont {
                     var_k: 0,
-                    gate: cobra_orchestrator::GateKind::Xor,
+                    gate: crate::orchestrator::GateKind::Xor,
                     add_coeff: 0,
                     active_context_indices: vec![1],
                     parent_group_id: parent_gid,
@@ -1130,13 +1130,13 @@ mod tests {
             let child = ctx.competition_groups.get_mut(&child_gid).unwrap();
             child.best = Some(CandidateRecord {
                 expr: Expr::variable(1),
-                cost: cobra_core::expr_cost::compute_cost(&Expr::variable(1)).cost,
+                cost: crate::core::expr_cost::compute_cost(&Expr::variable(1)).cost,
                 verification: VerificationState::Verified,
                 real_vars: vec!["x".into(), "y".into()],
                 source_pass: PassId::SignaturePatternMatch,
                 needs_original_space_verification: false,
                 sig_vector: vec![0, 0, 1, 1],
-                lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+                lean_certificate: Some(crate::orchestrator::LeanCertificate::new(
                     64,
                     Expr::variable(1),
                     Expr::variable(1),
@@ -1146,7 +1146,7 @@ mod tests {
             child.continuation = Some(ContinuationData::HybridCompose(Box::new(
                 HybridComposeCont {
                     var_k: 0,
-                    op: cobra_orchestrator::ExtractOp::Xor,
+                    op: crate::orchestrator::ExtractOp::Xor,
                     parent_group_id: parent_gid,
                     parent_eval: Some(Evaluator::from_expr(
                         &Expr::xor(Expr::variable(0), Expr::variable(1)),
@@ -1185,8 +1185,8 @@ mod tests {
             rhs_resolved: true,
             full_ast: full_ast.clone_tree(),
             original_mul: full_ast.clone_tree(),
-            target_hash: cobra_orchestrator::expr_identity_hash(&full_ast),
-            baseline_cost: cobra_core::expr_cost::compute_cost(&full_ast).cost,
+            target_hash: crate::orchestrator::expr_identity_hash(&full_ast),
+            baseline_cost: crate::core::expr_cost::compute_cost(&full_ast).cost,
             vars: vec!["x".into(), "y".into()],
             parent_group_id: None,
             has_solve_ctx: false,
@@ -1199,13 +1199,18 @@ mod tests {
             parent_history: Vec::new(),
         };
         let mut item = mk_resolve_item(0);
-        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        item.metadata.lean_certificate = Some(crate::orchestrator::LeanCertificate::new(
             64,
             Expr::variable(0),
             Expr::variable(0),
         ));
         item.metadata.lean_signature_certificate =
-            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+            crate::orchestrator::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                Expr::variable(0),
+            );
 
         let rewritten = emit_join_rewrite_operand(
             &join,
@@ -1237,7 +1242,7 @@ mod tests {
             x_resolved: true,
             y_resolved: true,
             original_expr: full_ast.clone_tree(),
-            baseline_cost: cobra_core::expr_cost::compute_cost(&full_ast).cost,
+            baseline_cost: crate::core::expr_cost::compute_cost(&full_ast).cost,
             vars: vec!["x".into(), "y".into(), "z".into()],
             parent_group_id: None,
             has_solve_ctx: false,
@@ -1249,16 +1254,21 @@ mod tests {
             rewrite_gen: 0,
             parent_history: Vec::new(),
             full_ast: full_ast.clone_tree(),
-            target_hash: cobra_orchestrator::expr_identity_hash(&full_ast),
+            target_hash: crate::orchestrator::expr_identity_hash(&full_ast),
         };
         let mut item = mk_resolve_item(0);
-        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        item.metadata.lean_certificate = Some(crate::orchestrator::LeanCertificate::new(
             64,
             Expr::variable(0),
             Expr::variable(0),
         ));
         item.metadata.lean_signature_certificate =
-            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+            crate::orchestrator::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                Expr::variable(0),
+            );
 
         let candidate = emit_join_candidate_product(
             &join,
@@ -1296,7 +1306,7 @@ mod tests {
         let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into()], 64);
         let outer_winner = Expr::variable(1);
         let binding = LiftedBinding {
-            kind: cobra_orchestrator::LiftedValueKind::ArithmeticAtom,
+            kind: crate::orchestrator::LiftedValueKind::ArithmeticAtom,
             outer_var_index: 1,
             subtree: Expr::xor(Expr::variable(0), Expr::constant(0)),
             structural_hash: 0,
@@ -1319,7 +1329,7 @@ mod tests {
             let g = ctx.competition_groups.get_mut(&gid).unwrap();
             g.best = Some(CandidateRecord {
                 expr: outer_winner,
-                cost: cobra_core::expr_cost::ExprCost::default(),
+                cost: crate::core::expr_cost::ExprCost::default(),
                 verification: VerificationState::Verified,
                 real_vars: vec!["x".into(), "v0".into()],
                 source_pass: PassId::SignaturePatternMatch,
@@ -1359,7 +1369,7 @@ mod tests {
 
         let cont = ContinuationData::RemainderRecombine(Box::new(RemainderRecombineCont {
             prefix_expr: Expr::constant(0),
-            origin: cobra_orchestrator::RemainderOrigin::ProductCore,
+            origin: crate::orchestrator::RemainderOrigin::ProductCore,
             remainder_eval: Evaluator::from_expr(&Expr::variable(0), 64),
             source_sig: vec![0, 1],
             remainder_support: Vec::new(),
@@ -1374,13 +1384,13 @@ mod tests {
             let group = ctx.competition_groups.get_mut(&gid).unwrap();
             group.best = Some(CandidateRecord {
                 expr: Expr::variable(0),
-                cost: cobra_core::expr_cost::compute_cost(&Expr::variable(0)).cost,
+                cost: crate::core::expr_cost::compute_cost(&Expr::variable(0)).cost,
                 verification: VerificationState::Verified,
                 real_vars: vec!["x".into()],
                 source_pass: PassId::SignaturePatternMatch,
                 needs_original_space_verification: false,
                 sig_vector: vec![0, 1],
-                lean_certificate: Some(cobra_orchestrator::LeanCertificate::new(
+                lean_certificate: Some(crate::orchestrator::LeanCertificate::new(
                     64,
                     Expr::variable(0),
                     Expr::variable(0),

@@ -1,6 +1,6 @@
 //! `SignatureCobCandidate` pass — emit a candidate expression built
 //! from the AND-monomial coefficient vector produced by
-//! [`crate::prepare_coeff_model`]. Submits the candidate to the
+//! [`crate::passes::prepare_coeff_model`]. Submits the candidate to the
 //! parent's competition group so it races the other signature-path
 //! solvers (pattern match, ANF, etc.).
 //!
@@ -11,23 +11,23 @@
 //! mismatch points at an evaluator / provenance issue rather than a
 //! recoverable one.
 
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::pass_contract::{
+use crate::core::expr_cost::compute_cost;
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, VerificationState,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     CandidateRecord, ItemDisposition, OrchestratorContext, PassDecision, PassId, PassResult,
     StateData, WorkItem,
 };
 
-use crate::candidate_normalize::{
+use crate::passes::candidate_normalize::{
     signature_certificate_for_candidate, submit_normalized_candidate,
 };
-use crate::cob_expr_builder::build_cob_expr;
-use crate::mapped_evaluator::build_mapped_evaluator;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::cob_expr_builder::build_cob_expr;
+use crate::passes::mapped_evaluator::build_mapped_evaluator;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 fn verify_failed(message: &'static str) -> ReasonDetail {
     ReasonDetail {
@@ -70,7 +70,7 @@ pub fn run_signature_cob_candidate(
     let sig = &sub.elimination.reduced_sig;
     let mut verification = VerificationState::Unverified;
     if ctx.opts.spot_check {
-        let emitted = cobra_core::evaluate_boolean_signature(&expr, num_vars, ctx.bitwidth);
+        let emitted = crate::core::evaluate_boolean_signature(&expr, num_vars, ctx.bitwidth);
         let matches =
             sig.len() == emitted.len() && sig.iter().zip(emitted.iter()).all(|(a, b)| a == b);
         if matches {
@@ -147,11 +147,11 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_ir::interpolate_coefficients;
-    use cobra_orchestrator::{
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Expr;
+    use crate::core::simplify_outcome::Options;
+    use crate::ir::interpolate_coefficients;
+    use crate::orchestrator::{
         create_group, EliminationResult, SignatureCoeffStatePayload, SignatureSubproblemContext,
     };
 
@@ -260,7 +260,7 @@ mod tests {
     fn non_coeff_payload_is_not_applicable() {
         let mut ctx = OrchestratorContext::new(Options::default(), vec![], 64);
         let item = WorkItem::new(StateData::CompetitionResolved(
-            cobra_orchestrator::CompetitionResolvedPayload { group_id: 0 },
+            crate::orchestrator::CompetitionResolvedPayload { group_id: 0 },
         ));
         let pr = run_signature_cob_candidate(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::NotApplicable);

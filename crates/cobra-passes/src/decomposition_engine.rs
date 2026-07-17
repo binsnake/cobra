@@ -8,25 +8,25 @@
 //! gating) can live on the trait impl instead of `if constexpr`
 //! branching.
 
-use cobra_core::classification::{Classification, SemanticClass, StructuralFlag};
-use cobra_core::evaluate_boolean_signature;
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::pass_contract::{ReasonDetail, SolverResult};
-use cobra_core::result::Result;
-use cobra_core::simplify_outcome::Options;
+use crate::core::classification::{Classification, SemanticClass, StructuralFlag};
+use crate::core::evaluate_boolean_signature;
+use crate::core::evaluator::Evaluator;
+use crate::core::expr::Expr;
+use crate::core::expr_cost::compute_cost;
+use crate::core::pass_contract::{ReasonDetail, SolverResult};
+use crate::core::result::Result;
+use crate::core::simplify_outcome::Options;
 use std::sync::Arc;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     CandidatePayload, CoreCandidatePayload, ExtractorKind, ItemDisposition, OrchestratorContext,
     PassDecision, PassId, PassResult, RemainderTargetContext, StateData, WorkItem,
 };
 
-use crate::candidate_normalize::signature_certificate_for_candidate;
-use crate::classifier::classify_structural;
-use crate::decomposition_helpers::accept_core;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::candidate_normalize::signature_certificate_for_candidate;
+use crate::passes::classifier::classify_structural;
+use crate::passes::decomposition_helpers::accept_core;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 /// `DecompositionContext` layout, with the evaluator passed in
 /// separately so it can be `None`.
@@ -101,7 +101,7 @@ pub fn extractor_applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool
 /// `DecompositionContext` from the active AST view, invokes the
 /// extractor, gates on `accept_core` when an evaluator is available,
 /// and emits a `CoreCandidatePayload` on success.
-#[allow(clippy::unnecessary_wraps)]
+#[allow(clippy::too_many_lines, clippy::unnecessary_wraps)]
 pub fn run_extractor(
     item: &WorkItem,
     ctx: &mut OrchestratorContext,
@@ -170,12 +170,12 @@ pub fn run_extractor(
                             needs_original_space_verification: false,
                         }));
                         next.metadata.verification =
-                            cobra_core::pass_contract::VerificationState::Verified;
+                            crate::core::pass_contract::VerificationState::Verified;
                         next.metadata.sig_vector = sig;
                         next.metadata.lean_certificate = None;
                         next.metadata.lean_signature_certificate = lean_signature_certificate;
                         next.metadata.decomposition_meta =
-                            Some(cobra_core::pass_contract::DecompositionMeta {
+                            Some(crate::core::pass_contract::DecompositionMeta {
                                 extractor_kind: core.kind as u8,
                                 solver_kind: 0,
                                 has_solver: false,
@@ -244,10 +244,10 @@ fn active_view(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{AstPayload, Provenance};
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Expr;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{AstPayload, Provenance};
 
     struct IdentityExtractor;
 
@@ -298,13 +298,18 @@ mod tests {
             provenance: Provenance::Original,
             solve_ctx: None,
         })));
-        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        item.metadata.lean_certificate = Some(crate::orchestrator::LeanCertificate::new(
             64,
             Expr::variable(0),
             Expr::variable(0),
         ));
         item.metadata.lean_signature_certificate =
-            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+            crate::orchestrator::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                Expr::variable(0),
+            );
 
         let pr = run_extractor(&item, &mut ctx, &IdentityExtractor).unwrap();
         assert_eq!(pr.decision, PassDecision::Advance);

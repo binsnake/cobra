@@ -7,9 +7,9 @@
 //! linear (`MSiMBA` Theorem 1.1) and the full semilinear expansion is
 //! unnecessary.
 
-use cobra_core::arith::{bitmask, mod_neg, mod_shr};
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::width::is_uniform_width;
+use crate::core::arith::{bitmask, mod_neg, mod_shr};
+use crate::core::expr::{Expr, Kind};
+use crate::core::width::is_uniform_width;
 
 fn pool_take(pool: &mut Vec<Vec<u64>>, len: usize) -> Vec<u64> {
     match pool.pop() {

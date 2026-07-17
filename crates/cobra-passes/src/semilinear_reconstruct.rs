@@ -6,24 +6,24 @@
 //! acceptance. Failure returns `Blocked` so the scheduler can fall
 //! through to other techniques.
 
-use cobra_core::evaluate_boolean_signature_from_evaluator;
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::pass_contract::{
+use crate::core::evaluate_boolean_signature_from_evaluator;
+use crate::core::expr_cost::compute_cost;
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, VerificationState,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_ir::reconstruct_masked_atoms;
-use cobra_ir::semilinear::compact_atom_table;
-use cobra_orchestrator::{
+use crate::ir::reconstruct_masked_atoms;
+use crate::ir::semilinear::compact_atom_table;
+use crate::orchestrator::{
     CandidatePayload, ItemDisposition, OrchestratorContext, PassDecision, PassId, PassResult,
     StateData, WorkItem,
 };
 
-use crate::bit_partitioner::compute_partitions;
-use crate::candidate_normalize::signature_certificate_for_candidate;
-use crate::pattern_matcher::normalize_late_candidate_expr;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::bit_partitioner::compute_partitions;
+use crate::passes::candidate_normalize::signature_certificate_for_candidate;
+use crate::passes::pattern_matcher::normalize_late_candidate_expr;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 fn reason(msg: &'static str, category: ReasonCategory) -> ReasonDetail {
     ReasonDetail {
@@ -152,11 +152,11 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_ir::normalize_to_semilinear;
-    use cobra_orchestrator::{RewrittenSemilinearPayload, SemilinearContext};
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Expr;
+    use crate::core::simplify_outcome::Options;
+    use crate::ir::normalize_to_semilinear;
+    use crate::orchestrator::{RewrittenSemilinearPayload, SemilinearContext};
 
     #[test]
     fn reconstruct_attaches_source_signature_certificate() {

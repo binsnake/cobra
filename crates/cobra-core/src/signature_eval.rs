@@ -3,10 +3,10 @@
 //! The recursive form does one bottom-up tree walk producing a length-`2^n`
 //! vector per node — far cheaper than `2^n` separate tree evaluations.
 
-use crate::arith::{bitmask, sext, trunc, zext};
-use crate::evaluator::{Evaluator, Workspace};
-use crate::expr::{Expr, Kind};
-use crate::width::width_of;
+use crate::core::arith::{bitmask, sext, trunc, zext};
+use crate::core::evaluator::{Evaluator, Workspace};
+use crate::core::expr::{Expr, Kind};
+use crate::core::width::width_of;
 
 /// Evaluate `expr` at every assignment in `{0, 1}^num_vars`. Variable
 /// index `v` corresponds to bit `v` of the signature index. Returns a

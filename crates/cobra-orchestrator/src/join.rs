@@ -1,14 +1,14 @@
 //! `lib/core/JoinState.{h,cpp}`.
 
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::ExprCost;
+use crate::core::evaluator::Evaluator;
+use crate::core::expr::Expr;
+use crate::core::expr_cost::ExprCost;
 use std::sync::Arc;
 
-use crate::competition::{CandidateRecord, JoinId};
-use crate::context::expr_identity_hash;
-use crate::continuation::GroupId;
-use crate::enums::PassId;
+use crate::orchestrator::competition::{CandidateRecord, JoinId};
+use crate::orchestrator::context::expr_identity_hash;
+use crate::orchestrator::continuation::GroupId;
+use crate::orchestrator::enums::PassId;
 
 /// Tracks a two-operand rewrite (`lhs op rhs`) where each side spawns an
 #[derive(Clone, Debug)]
@@ -152,7 +152,8 @@ mod tests {
 
     #[test]
     fn create_join_allocates_sequential_ids() {
-        let mut joins = JoinMap::with_hasher(crate::context::determinism_seeds_ahash());
+        let mut joins =
+            JoinMap::with_hasher(crate::orchestrator::context::determinism_seeds_ahash());
         let mut next = 0u32;
 
         let mk_state = || {
@@ -198,10 +199,10 @@ mod tests {
         assert!(replaced);
         assert!(replacement.is_none()); // consumed
                                         // new_tree should be Mul(Constant(42), c)
-        assert!(matches!(new_tree.kind, cobra_core::expr::Kind::Mul));
+        assert!(matches!(new_tree.kind, crate::core::expr::Kind::Mul));
         assert!(matches!(
             new_tree.children[0].kind,
-            cobra_core::expr::Kind::Constant(42)
+            crate::core::expr::Kind::Constant(42)
         ));
     }
 
@@ -214,7 +215,7 @@ mod tests {
         assert!(!replaced);
         assert!(replacement.is_some()); // untouched
                                         // Structure preserved
-        assert!(matches!(out.kind, cobra_core::expr::Kind::Add));
+        assert!(matches!(out.kind, crate::core::expr::Kind::Add));
     }
 
     #[test]
@@ -224,7 +225,7 @@ mod tests {
         let mut replacement = Some(Expr::constant(99));
         let (out, replaced) = replace_by_hash(tree, target_hash, &mut replacement);
         assert!(replaced);
-        assert!(matches!(out.kind, cobra_core::expr::Kind::Constant(99)));
+        assert!(matches!(out.kind, crate::core::expr::Kind::Constant(99)));
     }
 
     #[test]

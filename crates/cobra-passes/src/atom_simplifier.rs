@@ -19,15 +19,15 @@
 //!   only — atoms containing constants / shifts can have identical
 //!   Boolean truth tables but diverge at full width.
 
-use cobra_core::arith::bitmask;
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::expr_utils::{eval_constant, is_constant_subtree};
-use cobra_orchestrator::{ExprPath, LeanCertificate};
+use crate::core::arith::bitmask;
+use crate::core::expr::{Expr, Kind};
+use crate::core::expr_utils::{eval_constant, is_constant_subtree};
+use crate::orchestrator::{ExprPath, LeanCertificate};
 use std::sync::Arc;
 
-use cobra_ir::semilinear::{AtomId, GlobalVarIdx, SemilinearIR, WeightedAtom};
+use crate::ir::semilinear::{AtomId, GlobalVarIdx, SemilinearIR, WeightedAtom};
 
-use crate::candidate_normalize::merge_certificate;
+use crate::passes::candidate_normalize::merge_certificate;
 
 type ComplementKey = (u64, Vec<GlobalVarIdx>, Vec<u64>);
 
@@ -374,7 +374,7 @@ pub fn simplify_structure(ir: &mut SemilinearIR) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_ir::{normalize_to_semilinear, semilinear::OperatorFamily};
+    use crate::ir::{normalize_to_semilinear, semilinear::OperatorFamily};
 
     #[test]
     fn double_not_collapses() {
@@ -430,11 +430,11 @@ mod tests {
         assert_eq!(cert.steps.len(), 2);
         assert_eq!(
             cert.steps[0].theorem,
-            cobra_orchestrator::LeanTheorem::NotNot64
+            crate::orchestrator::LeanTheorem::NotNot64
         );
         assert_eq!(
             cert.steps[1].theorem,
-            cobra_orchestrator::LeanTheorem::AndAllOnes64
+            crate::orchestrator::LeanTheorem::AndAllOnes64
         );
     }
 
@@ -447,11 +447,11 @@ mod tests {
         assert_eq!(cert.steps.len(), 2);
         assert_eq!(
             cert.steps[0].theorem,
-            cobra_orchestrator::LeanTheorem::DemorganNotAnd64
+            crate::orchestrator::LeanTheorem::DemorganNotAnd64
         );
         assert_eq!(
             cert.steps[1].theorem,
-            cobra_orchestrator::LeanTheorem::NotNot64
+            crate::orchestrator::LeanTheorem::NotNot64
         );
     }
 
@@ -464,7 +464,7 @@ mod tests {
         assert_eq!(cert.steps.len(), 1);
         assert_eq!(
             cert.steps[0].theorem,
-            cobra_orchestrator::LeanTheorem::Const3And1_64
+            crate::orchestrator::LeanTheorem::Const3And1_64
         );
         assert!(cert.matches_endpoints(
             64,
@@ -492,8 +492,8 @@ mod tests {
             ..Default::default()
         };
         let id_pos =
-            cobra_ir::semilinear::create_atom(&mut ir, Expr::variable(0), OperatorFamily::Mixed);
-        let id_neg = cobra_ir::semilinear::create_atom(
+            crate::ir::semilinear::create_atom(&mut ir, Expr::variable(0), OperatorFamily::Mixed);
+        let id_neg = crate::ir::semilinear::create_atom(
             &mut ir,
             Expr::not(Expr::variable(0)),
             OperatorFamily::Not,

@@ -3,9 +3,9 @@
 //! tree-bearing `Kind` so that a compiled instruction doesn't carry redundant
 //! payload inside its variant.
 
-use crate::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr, sext, trunc, zext};
-use crate::expr::{Expr, Kind};
-use crate::width::width_of;
+use crate::core::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr, sext, trunc, zext};
+use crate::core::expr::{Expr, Kind};
+use crate::core::width::width_of;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]

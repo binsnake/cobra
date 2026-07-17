@@ -3,16 +3,16 @@
 //! These cover public `Simplify` entry semantics rather than individual pass
 //! internals, especially no-AST verification contracts and boundary guards.
 
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::{render, Expr, Kind};
-use cobra_core::expr_cost::{compute_cost, is_better};
-use cobra_core::expr_rewrite::try_build_var_support;
-use cobra_core::expr_utils::remap_var_indices;
-use cobra_core::result::CobraError;
-use cobra_core::simplify_outcome::{Options, ProofLevel, SimplifyOutcomeKind};
-use cobra_core::{eval_expr, evaluate_boolean_signature, full_width_check_eval};
-use cobra_parser::parse_to_ast;
-use cobra_passes::{simplify, simplify_expr, MAX_INPUT_VARS};
+use cobra::core::evaluator::Evaluator;
+use cobra::core::expr::{render, Expr, Kind};
+use cobra::core::expr_cost::{compute_cost, is_better};
+use cobra::core::expr_rewrite::try_build_var_support;
+use cobra::core::expr_utils::remap_var_indices;
+use cobra::core::result::CobraError;
+use cobra::core::simplify_outcome::{Options, ProofLevel, SimplifyOutcomeKind};
+use cobra::core::{eval_expr, evaluate_boolean_signature, full_width_check_eval};
+use cobra::parser::parse_to_ast;
+use cobra::passes::{simplify, simplify_expr, MAX_INPUT_VARS};
 use std::sync::Arc;
 
 fn names(list: &[&str]) -> Vec<String> {
@@ -31,7 +31,7 @@ macro_rules! c {
     };
 }
 
-fn rendered(out: &cobra_core::SimplifyOutcome, bitwidth: u32) -> String {
+fn rendered(out: &cobra::core::SimplifyOutcome, bitwidth: u32) -> String {
     render(
         out.expr.as_ref().expect("simplified outcome has expr"),
         &out.real_vars,
@@ -57,7 +57,7 @@ fn parsed_expr(input: &str, bitwidth: u32) -> (Arc<Expr>, Vec<String>) {
     (parsed.expr, parsed.vars)
 }
 
-fn full_width_expr_case(input: &str, bitwidth: u32, opts: Options) -> cobra_core::SimplifyOutcome {
+fn full_width_expr_case(input: &str, bitwidth: u32, opts: Options) -> cobra::core::SimplifyOutcome {
     let (expr, vars) = parsed_expr(input, bitwidth);
     let out = simplify_expr(&expr, &vars, opts).unwrap_or_else(|err| {
         panic!("simplify failed for `{input}` at bitwidth {bitwidth}: {err:?}")
@@ -89,11 +89,14 @@ fn full_width_expr_case(input: &str, bitwidth: u32, opts: Options) -> cobra_core
     out
 }
 
-fn assert_full_width_simplifies(input: &str) -> cobra_core::SimplifyOutcome {
+fn assert_full_width_simplifies(input: &str) -> cobra::core::SimplifyOutcome {
     full_width_expr_case(input, 64, Options::default())
 }
 
-fn assert_public_verified_only_when_lean_certified(input: &str, out: &cobra_core::SimplifyOutcome) {
+fn assert_public_verified_only_when_lean_certified(
+    input: &str,
+    out: &cobra::core::SimplifyOutcome,
+) {
     assert_eq!(
         out.verified,
         out.proof_level == ProofLevel::LeanCertified,

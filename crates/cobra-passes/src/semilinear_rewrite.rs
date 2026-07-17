@@ -3,21 +3,21 @@
 //! at full width. On probe failure, block so the next attempt reroutes
 //! via other techniques.
 
-use cobra_core::pass_contract::{
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_ir::{
+use crate::ir::{
     coalesce_terms, flatten_complex_atoms, reconstruct_masked_atoms, recover_structure,
     refine_terms,
 };
-use cobra_orchestrator::{
+use crate::orchestrator::{
     ItemDisposition, OrchestratorContext, PassDecision, PassResult, RewrittenSemilinearPayload,
     SemilinearContext, StateData, WorkItem,
 };
 
-use crate::spot_check::full_width_check_eval;
+use crate::passes::spot_check::full_width_check_eval;
 
 fn reason(msg: &'static str, category: ReasonCategory) -> ReasonDetail {
     ReasonDetail {

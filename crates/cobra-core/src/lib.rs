@@ -32,42 +32,44 @@ pub mod spot_check;
 pub mod trace;
 pub mod width;
 
-pub use crate::arith::{
+pub use crate::core::arith::{
     bitmask, is_valid_bitwidth, mod_add, mod_mul, mod_neg, mod_not, mod_shr, mod_sub, sext,
     sign_bit_mask, trunc, zext,
 };
-pub use crate::classification::{
+pub use crate::core::classification::{
     is_folded_ast_exploration_candidate, needs_structural_recovery, Classification, SemanticClass,
     StructuralFlag,
 };
-pub use crate::compiled::{compile, eval, CompiledExpr, EvalInstr, Opcode};
-pub use crate::evaluator::{Evaluator, TraceKind, Workspace};
-pub use crate::expr::{render, Expr, Kind};
-pub use crate::expr_cost::{compute_cost, is_better, CostInfo, ExprCost};
-pub use crate::expr_rewrite::{
+pub use crate::core::compiled::{compile, eval, CompiledExpr, EvalInstr, Opcode};
+pub use crate::core::evaluator::{Evaluator, TraceKind, Workspace};
+pub use crate::core::expr::{render, Expr, Kind};
+pub use crate::core::expr_cost::{compute_cost, is_better, CostInfo, ExprCost};
+pub use crate::core::expr_rewrite::{
     apply_coefficient, build_and_product, build_var_support, cleanup_final_expr,
     has_nonleaf_bitwise, repair_product_shadow, try_build_var_support,
 };
-pub use crate::expr_utils::{
+pub use crate::core::expr_utils::{
     collect_vars, eval_constant, has_var_dep, is_constant_subtree, remap_var_indices,
 };
-pub use crate::pass_contract::{
+pub use crate::core::pass_contract::{
     DecompositionMeta, DiagField, OutcomeKind, PassOutcome, PendingWork, ReasonCategory,
     ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult, VerificationState,
 };
-pub use crate::result::{err, CobraError, ErrorInfo, Result};
-pub use crate::signature_eval::{
+pub use crate::core::result::{err, CobraError, ErrorInfo, Result};
+pub use crate::core::signature_eval::{
     evaluate_boolean_signature, evaluate_boolean_signature_from_evaluator,
 };
-pub use crate::signature_eval_stats::{
+pub use crate::core::signature_eval_stats::{
     sig_stats_record_eval, sig_stats_record_expr, sig_stats_reset, sig_stats_snapshot, SigEvalStats,
 };
-pub use crate::signature_simplifier::{is_boolean_valued, SignatureContext, SignaturePayload};
-pub use crate::simplify_outcome::{
+pub use crate::core::signature_simplifier::{
+    is_boolean_valued, SignatureContext, SignaturePayload,
+};
+pub use crate::core::simplify_outcome::{
     Diagnostic, Options, ProofLevel, SimplifyOutcome, SimplifyOutcomeKind, SimplifyTelemetry,
 };
-pub use crate::spot_check::{
+pub use crate::core::spot_check::{
     eval_expr, full_width_check, full_width_check_eval, signature_check, verify_in_original_space,
     CheckResult, DEFAULT_NUM_SAMPLES, RESIDUAL_GATE_NUM_SAMPLES,
 };
-pub use crate::width::{is_uniform_width, validate_widths, width_of};
+pub use crate::core::width::{is_uniform_width, validate_widths, width_of};

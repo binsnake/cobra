@@ -2,10 +2,10 @@
 //! signature vector, and a diagnostic bundle.
 //!
 
-use crate::classification::{Classification, SemanticClass, StructuralFlag};
-use crate::evaluator::Evaluator;
-use crate::expr::Expr;
-use crate::pass_contract::{ReasonCode, ReasonFrame};
+use crate::core::classification::{Classification, SemanticClass, StructuralFlag};
+use crate::core::evaluator::Evaluator;
+use crate::core::expr::Expr;
+use crate::core::pass_contract::{ReasonCode, ReasonFrame};
 use std::sync::Arc;
 
 /// struct (`bitwidth = 64`, `max_vars = 16`, `spot_check = true`,

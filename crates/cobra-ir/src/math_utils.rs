@@ -2,7 +2,7 @@
 //!
 //! `uint64_t` modulo `2^bitwidth`.
 
-use cobra_core::arith::bitmask;
+use crate::core::arith::bitmask;
 
 /// Number of factors of 2 in `k!` (Legendre's formula for prime 2).
 /// Closed form: `k - popcount(k)`.
@@ -16,7 +16,7 @@ pub const fn twos_in_factorial(k: u32) -> u32 {
 /// factorial weight is `q`: the coefficient is meaningful modulo
 /// `2^(bitwidth - q)`. Returns `None` when `q >= bitwidth` — the monomial
 /// lies in the null space and its coefficient is dropped. Pair with
-/// [`cobra_core::arith::bitmask`] to obtain the saturating reduction mask.
+/// [`crate::core::arith::bitmask`] to obtain the saturating reduction mask.
 #[inline]
 #[must_use]
 pub const fn precision_bits(weight: u32, bitwidth: u32) -> Option<u32> {

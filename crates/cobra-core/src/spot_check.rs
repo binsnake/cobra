@@ -4,13 +4,13 @@
 //! expression-derived constants, two-variable constant combinations, and a
 //! deterministic random sample.
 
-use crate::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr, sext, trunc, zext};
-use crate::compiled::{compile, eval as eval_compiled, CompiledExpr};
-use crate::evaluator::{Evaluator, Workspace};
-use crate::expr::{Expr, Kind};
-use crate::expr_utils::remap_var_indices;
-use crate::signature_eval::evaluate_boolean_signature;
-use crate::width::width_of;
+use crate::core::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr, sext, trunc, zext};
+use crate::core::compiled::{compile, eval as eval_compiled, CompiledExpr};
+use crate::core::evaluator::{Evaluator, Workspace};
+use crate::core::expr::{Expr, Kind};
+use crate::core::expr_utils::remap_var_indices;
+use crate::core::signature_eval::evaluate_boolean_signature;
+use crate::core::width::width_of;
 
 /// inputs that produced a disagreement (when `passed == false`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -439,7 +439,8 @@ pub fn verify_in_original_space(
     // (residual / lifted-outer candidates), we can't remap. Report
     // the check as failed so the caller routes this candidate
     // through the group resolver rather than crashing.
-    let Some(idx_map) = crate::expr_rewrite::try_build_var_support(all_vars, real_vars) else {
+    let Some(idx_map) = crate::core::expr_rewrite::try_build_var_support(all_vars, real_vars)
+    else {
         return CheckResult::default();
     };
     let mut remapped = reduced_expr.clone();
@@ -537,15 +538,18 @@ fn seed_for(num_vars: u32, bitwidth: u32, num_samples: u32, expr_salt: u64) -> u
     // turn, change `expr_salt` and thus the points — a fixpoint that does not
     // exist in practice. See the verifier-evasion analysis in
     // `tools/adversarial/ATTACKS.md`.
-    let mut s = u64::from(num_vars);
-    let a = splitmix64(&mut s);
-    s ^= u64::from(bitwidth) << 8;
-    let b = splitmix64(&mut s);
-    s ^= u64::from(num_samples) << 16;
-    let c = splitmix64(&mut s);
-    s ^= expr_salt;
-    let d = splitmix64(&mut s);
-    a ^ b.rotate_left(21) ^ c.rotate_left(42) ^ d.rotate_left(11)
+    let mut state = u64::from(num_vars);
+    let vars_mix = splitmix64(&mut state);
+    state ^= u64::from(bitwidth) << 8;
+    let width_mix = splitmix64(&mut state);
+    state ^= u64::from(num_samples) << 16;
+    let samples_mix = splitmix64(&mut state);
+    state ^= expr_salt;
+    let expression_mix = splitmix64(&mut state);
+    vars_mix
+        ^ width_mix.rotate_left(21)
+        ^ samples_mix.rotate_left(42)
+        ^ expression_mix.rotate_left(11)
 }
 
 #[cfg(test)]

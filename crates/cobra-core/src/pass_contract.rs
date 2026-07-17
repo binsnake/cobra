@@ -3,8 +3,8 @@
 //! shared vocabulary the orchestrator and every pass use to report
 //! success, failure, and the reason behind each outcome.
 
-use crate::classification::Classification;
-use crate::expr::Expr;
+use crate::core::classification::Classification;
+use crate::core::expr::Expr;
 use std::sync::Arc;
 
 /// Broad outcome bucket.

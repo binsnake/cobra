@@ -8,10 +8,10 @@ use std::collections::HashMap;
 
 use ahash::RandomState;
 
-use cobra_core::arith::bitmask;
+use crate::core::arith::bitmask;
 
-use crate::math_utils::precision_bits;
-use crate::mono::MonomialKey;
+use crate::ir::math_utils::precision_bits;
+use crate::ir::mono::MonomialKey;
 
 /// Coefficient type: always `u64`, interpreted modulo `2^bitwidth`.
 pub type Coeff = u64;

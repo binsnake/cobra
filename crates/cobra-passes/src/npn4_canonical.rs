@@ -1,7 +1,7 @@
 //! Auto-generated 222 NPN-4 canonical-class expressions — DO NOT EDIT.
 //! Source: lib/core/Npn4Table.inc (cobra-master).
 
-use cobra_core::expr::Expr;
+use crate::core::expr::Expr;
 use std::sync::Arc;
 
 /// Return the canonical-form Boolean expression for NPN class `class_id`.

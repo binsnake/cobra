@@ -6,24 +6,24 @@
 //! The `degree_floor` is `degree_used + 1` for polynomial cores (the
 //! next residual-poly attempt must escalate) and `2` otherwise.
 
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::expr_rewrite::build_var_support;
-use cobra_core::pass_contract::{
+use crate::core::expr::Expr;
+use crate::core::expr_cost::compute_cost;
+use crate::core::expr_rewrite::build_var_support;
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, VerificationState,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     CandidatePayload, ExtractorKind, ItemDisposition, OrchestratorContext, PassDecision, PassId,
     PassResult, RemainderOrigin, RemainderStatePayload, RemainderTargetContext, StateData,
     WorkItem,
 };
 
-use crate::aux_var::eliminate_aux_vars;
-use crate::candidate_normalize::signature_certificate_for_candidate;
-use crate::decomposition_helpers::build_remainder_evaluator;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::aux_var::eliminate_aux_vars;
+use crate::passes::candidate_normalize::signature_certificate_for_candidate;
+use crate::passes::decomposition_helpers::build_remainder_evaluator;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 fn origin_for(kind: ExtractorKind) -> RemainderOrigin {
     match kind {
@@ -211,9 +211,9 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{CoreCandidatePayload, RemainderTargetContext};
+    use crate::core::evaluator::Evaluator;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{CoreCandidatePayload, RemainderTargetContext};
 
     #[test]
     fn constant_residual_short_circuit_attaches_source_signature_certificate() {

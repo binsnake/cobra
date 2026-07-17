@@ -50,7 +50,7 @@ pub fn validate_widths(expr: &Expr, var_widths: &[u32], default_w: u32) -> Resul
 - **expr_cost.rs:** casts in unary arm, Concat in binary arm.
 
 ## Build order (core-first, sequential — type change cascades through crate deps)
-1. **cobra-core** foundation (contract everything builds on) → `cargo test -p cobra-core` green, commit.
+1. **cobra-core** foundation (contract everything builds on) → `cargo test` green, commit.
 2. Then `{cobra-parser, cobra-verify, cobra-ir}` (each depends only on cobra-core) — parallelizable.
 3. **cobra-passes** (needs cobra-ir) incl. the soundness wall → then orchestrator/cli.
 4. `cargo test --workspace -- --test-threads=2` green + new tests.

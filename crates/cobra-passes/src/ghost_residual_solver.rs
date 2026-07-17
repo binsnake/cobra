@@ -4,20 +4,20 @@
 //!
 //! The probe bank is deterministic — `SplitMix64`-style seeded
 
-use cobra_core::arith::bitmask;
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::Expr;
-use cobra_core::pass_contract::{
+use crate::core::arith::bitmask;
+use crate::core::evaluator::Evaluator;
+use crate::core::expr::Expr;
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
 };
 use std::sync::Arc;
 
-use cobra_ir::mod_inverse_odd;
-use cobra_ir::poly_expr_builder::build_poly_expr;
+use crate::ir::mod_inverse_odd;
+use crate::ir::poly_expr_builder::build_poly_expr;
 
-use crate::ghost_basis::{get_ghost_basis, GhostPrimitive};
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
-use crate::weighted_poly_fit::{recover_weighted_poly, WeightFn};
+use crate::passes::ghost_basis::{get_ghost_basis, GhostPrimitive};
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::weighted_poly_fit::{recover_weighted_poly, WeightFn};
 
 pub struct GhostSolveResult {
     pub expr: Arc<Expr>,
@@ -342,7 +342,7 @@ pub fn solve_factored_ghost_residual(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::decomposition_helpers::build_remainder_evaluator;
+    use crate::passes::decomposition_helpers::build_remainder_evaluator;
 
     #[test]
     fn solves_single_mul_sub_and_residual() {

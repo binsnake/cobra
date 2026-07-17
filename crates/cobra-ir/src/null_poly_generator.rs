@@ -5,12 +5,12 @@
 //! null terms back to monomial basis and adding them to a seed polynomial
 //! preserves the seed's normalized form.
 
+use crate::core::arith::bitmask;
 use ahash::RandomState;
-use cobra_core::arith::bitmask;
 
-use crate::basis_transform::to_monomial_basis;
-use crate::mono::{MonomialKey, MAX_POLY_VARS};
-use crate::poly::{CoeffMap, PolyIR};
+use crate::ir::basis_transform::to_monomial_basis;
+use crate::ir::mono::{MonomialKey, MAX_POLY_VARS};
+use crate::ir::poly::{CoeffMap, PolyIR};
 
 /// Configuration for null-polynomial injection.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -156,8 +156,8 @@ impl SplitMix64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mono::MonomialKey;
-    use crate::poly_normalizer::normalize_polynomial;
+    use crate::ir::mono::MonomialKey;
+    use crate::ir::poly_normalizer::normalize_polynomial;
 
     fn seed_poly() -> PolyIR {
         let mut seed = PolyIR::empty(2, 8);

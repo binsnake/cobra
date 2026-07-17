@@ -7,19 +7,28 @@ fmt-check:
     cargo fmt --all -- --check
 
 lint:
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy --all-targets -- -D warnings
+
+release-check:
+    python tools/release.py check
 
 test:
-    cargo test --workspace
+    cargo test
 
 test-all:
-    cargo test --workspace --all-features
+    cargo test --all-features
+
+test-dynamic:
+    cargo --config .cargo/dynamic.toml run --bin cobra-cli -- --mba "x"
 
 build:
-    cargo build --workspace
+    cargo build
 
 build-release:
-    cargo build --workspace --release
+    cargo build --release
+
+build-dynamic:
+    cargo --config .cargo/dynamic.toml build --lib
 
 clean:
     cargo clean

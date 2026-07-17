@@ -11,8 +11,8 @@
 //! Passes that assume uniform width must wall off non-uniform subtrees before
 //! feeding them to signature/truth-table machinery.
 
-use crate::expr::{Expr, Kind};
-use crate::result::{err, CobraError, Result};
+use crate::core::expr::{Expr, Kind};
+use crate::core::result::{err, CobraError, Result};
 
 /// Result width of `expr`.
 ///

@@ -1,0 +1,147 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+
+      - name: Validate tag, version, manifest, and publish set
+        run: python tools/release.py check --tag "$GITHUB_REF_NAME" --require-clean
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint package
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test package
+        run: cargo test --locked
+
+      - name: Test dynamic-linking mode
+        env:
+          RUSTFLAGS: -C prefer-dynamic
+        run: cargo run --bin cobra-cli --locked -- --mba "(x ^ y) + 2 * (x & y)"
+
+      - name: Verify package
+        run: cargo package --locked
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            executable: cobra-cli.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            executable: cobra-cli
+          - os: macos-14
+            target: aarch64-apple-darwin
+            executable: cobra-cli
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal --target ${{ matrix.target }}
+
+      - name: Build static release CLI
+        run: cargo build --bin cobra-cli --release --locked --target ${{ matrix.target }}
+
+      - name: Assemble archive
+        shell: bash
+        run: |
+          archive="cobra-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$archive"
+          cp "target/${{ matrix.target }}/release/${{ matrix.executable }}" "$archive/"
+          cp README.md CHANGELOG.md LICENSE "$archive/"
+          tar -czf "$archive.tar.gz" "$archive"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobra-${{ matrix.target }}
+          path: cobra-*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  crates-io:
+    name: Publish crates.io package
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: release
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal
+
+      - name: Publish cobra-mba
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: python tools/release.py publish --tag "$GITHUB_REF_NAME"
+
+  github-release:
+    name: Create GitHub release
+    needs:
+      - build
+      - crates-io
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz > SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --verify-tag
+          --generate-notes
+          --title "CoBRA $GITHUB_REF_NAME"

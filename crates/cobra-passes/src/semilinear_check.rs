@@ -2,19 +2,19 @@
 //! IR, reconstruct a plain Expr (no partitions yet), then symbolically
 //! self-check that round-tripping preserves coefficient semantics.
 
-use cobra_core::pass_contract::{
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_ir::reconstruct_masked_atoms;
-use cobra_orchestrator::{
+use crate::ir::reconstruct_masked_atoms;
+use crate::orchestrator::{
     CheckedSemilinearPayload, ItemDisposition, OrchestratorContext, PassDecision, PassResult,
     SemilinearContext, StateData, WorkItem,
 };
 
-use crate::atom_simplifier::simplify_structure;
-use crate::self_check::self_check_semilinear;
+use crate::passes::atom_simplifier::simplify_structure;
+use crate::passes::self_check::self_check_semilinear;
 
 fn reason(msg: &'static str, category: ReasonCategory) -> ReasonDetail {
     ReasonDetail {

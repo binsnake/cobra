@@ -4,7 +4,7 @@
 //! a small known-good batch. For the full sweep, use the
 //! `cobra-sweep` binary.
 
-use cobra_testkit::{parse_dataset, run_case, Case, CaseKind, Report};
+use cobra::testkit::{parse_dataset, run_case, Case, CaseKind, Report};
 
 const SAMPLE: &str = r"# Minimal dataset sample — one case per shape.
 # Simple XOR identity.

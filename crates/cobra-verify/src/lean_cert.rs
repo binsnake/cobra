@@ -5,12 +5,12 @@
 //! alongside candidate expressions and an external checker can replay them
 //! against the theorem pack in `formal/lean`.
 
-use cobra_core::expr::Expr;
-use cobra_core::expr::Kind;
-use cobra_core::width::is_uniform_width;
+use crate::core::expr::Expr;
+use crate::core::expr::Kind;
+use crate::core::width::is_uniform_width;
 use std::sync::Arc;
 
-use crate::lean_match::{
+use crate::verify::lean_match::{
     add_with_neg_operands, and_or_sum_operands, expr_eq, is_all_ones, is_and_not_of,
     is_const_value, is_not_of, is_one, is_zero, not_or_add_self_add_one_operands,
     not_or_minus_not_operands, same_or_and_operands, scaled_and_or_sum_operands, unordered_pair_eq,
@@ -296,7 +296,7 @@ pub fn context_from_path(root: &Expr, path: &ExprPath) -> Option<(ExprContext, A
     for &child_index in &path.0 {
         let index = usize::from(child_index);
         let frame = match &current.kind {
-            cobra_core::expr::Kind::Add if current.children.len() == 2 => match index {
+            crate::core::expr::Kind::Add if current.children.len() == 2 => match index {
                 0 => ContextFrame::AddL {
                     rhs: current.children[1].clone_tree(),
                 },
@@ -305,7 +305,7 @@ pub fn context_from_path(root: &Expr, path: &ExprPath) -> Option<(ExprContext, A
                 },
                 _ => return None,
             },
-            cobra_core::expr::Kind::Mul if current.children.len() == 2 => match index {
+            crate::core::expr::Kind::Mul if current.children.len() == 2 => match index {
                 0 => ContextFrame::MulL {
                     rhs: current.children[1].clone_tree(),
                 },
@@ -314,7 +314,7 @@ pub fn context_from_path(root: &Expr, path: &ExprPath) -> Option<(ExprContext, A
                 },
                 _ => return None,
             },
-            cobra_core::expr::Kind::And if current.children.len() == 2 => match index {
+            crate::core::expr::Kind::And if current.children.len() == 2 => match index {
                 0 => ContextFrame::AndL {
                     rhs: current.children[1].clone_tree(),
                 },
@@ -323,7 +323,7 @@ pub fn context_from_path(root: &Expr, path: &ExprPath) -> Option<(ExprContext, A
                 },
                 _ => return None,
             },
-            cobra_core::expr::Kind::Or if current.children.len() == 2 => match index {
+            crate::core::expr::Kind::Or if current.children.len() == 2 => match index {
                 0 => ContextFrame::OrL {
                     rhs: current.children[1].clone_tree(),
                 },
@@ -332,7 +332,7 @@ pub fn context_from_path(root: &Expr, path: &ExprPath) -> Option<(ExprContext, A
                 },
                 _ => return None,
             },
-            cobra_core::expr::Kind::Xor if current.children.len() == 2 => match index {
+            crate::core::expr::Kind::Xor if current.children.len() == 2 => match index {
                 0 => ContextFrame::XorL {
                     rhs: current.children[1].clone_tree(),
                 },
@@ -341,13 +341,13 @@ pub fn context_from_path(root: &Expr, path: &ExprPath) -> Option<(ExprContext, A
                 },
                 _ => return None,
             },
-            cobra_core::expr::Kind::Not if current.children.len() == 1 && index == 0 => {
+            crate::core::expr::Kind::Not if current.children.len() == 1 && index == 0 => {
                 ContextFrame::Not
             }
-            cobra_core::expr::Kind::Neg if current.children.len() == 1 && index == 0 => {
+            crate::core::expr::Kind::Neg if current.children.len() == 1 && index == 0 => {
                 ContextFrame::Neg
             }
-            cobra_core::expr::Kind::Shr(amount) if current.children.len() == 1 && index == 0 => {
+            crate::core::expr::Kind::Shr(amount) if current.children.len() == 1 && index == 0 => {
                 ContextFrame::Shr { amount: *amount }
             }
             _ => return None,
@@ -366,6 +366,7 @@ pub fn context_from_path(root: &Expr, path: &ExprPath) -> Option<(ExprContext, A
 }
 
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTheorem> {
     use LeanTheorem as Thm;
 
@@ -763,6 +764,7 @@ impl LeanCertificate {
     }
 
     #[must_use]
+    #[allow(clippy::items_after_statements, clippy::needless_pass_by_value)]
     pub fn try_single_rewrite_between_64(
         bitwidth: u32,
         original: Arc<Expr>,

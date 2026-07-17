@@ -15,39 +15,39 @@
 //! land — for now the pass returns `NoProgress` in that case so
 //! other techniques can still try.
 
-use cobra_core::evaluate_boolean_signature_from_evaluator;
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::expr_rewrite::build_var_support;
-use cobra_core::pass_contract::{ReasonDetail, VerificationState};
-use cobra_core::result::Result;
+use crate::core::evaluate_boolean_signature_from_evaluator;
+use crate::core::expr::Expr;
+use crate::core::expr_cost::compute_cost;
+use crate::core::expr_rewrite::build_var_support;
+use crate::core::pass_contract::{ReasonDetail, VerificationState};
+use crate::core::result::Result;
 use std::sync::Arc;
 
-use cobra_ir::{
+use crate::ir::{
     build_poly_expr, lower_arithmetic_fragment, normalize_polynomial, recover_singleton_powers,
     split_coefficients, UnivariateNormalizedPoly,
 };
-use cobra_orchestrator::{
+use crate::orchestrator::{
     acquire_handle, CandidateRecord, ItemDisposition, OrchestratorContext, PassDecision, PassId,
     PassResult, RemainderOrigin, RemainderStatePayload, RemainderTargetContext, StateData,
     WorkItem,
 };
 
-use crate::aux_var::eliminate_aux_vars;
-use crate::candidate_normalize::{
+use crate::passes::aux_var::eliminate_aux_vars;
+use crate::passes::candidate_normalize::{
     signature_certificate_for_candidate, submit_normalized_candidate,
 };
-use crate::cob_expr_builder::build_cob_expr;
-use crate::decomposition_helpers::build_remainder_evaluator;
-use crate::mapped_evaluator::build_mapped_evaluator;
-use crate::singleton_power_expr_builder::build_singleton_power_expr;
-use crate::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
+use crate::passes::cob_expr_builder::build_cob_expr;
+use crate::passes::decomposition_helpers::build_remainder_evaluator;
+use crate::passes::mapped_evaluator::build_mapped_evaluator;
+use crate::passes::singleton_power_expr_builder::build_singleton_power_expr;
+use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 /// `S_i(2)` where `S_i` is the factorial-basis univariate for variable
 /// `i`. Only degrees 1 and 2 contribute since the falling factorial
 /// `(2)_k = 0` for `k >= 3`.
 fn eval_univariate_at_2(poly: &UnivariateNormalizedPoly, bitwidth: u32) -> u64 {
-    let mask = cobra_core::arith::bitmask(bitwidth);
+    let mask = crate::core::arith::bitmask(bitwidth);
     let mut sum = 0u64;
     for term in &poly.terms {
         if term.degree >= 3 {
@@ -59,7 +59,7 @@ fn eval_univariate_at_2(poly: &UnivariateNormalizedPoly, bitwidth: u32) -> u64 {
 }
 
 fn bit_is_zero_constant(expr: &Expr) -> bool {
-    matches!(expr.kind, cobra_core::expr::Kind::Constant(0))
+    matches!(expr.kind, crate::core::expr::Kind::Constant(0))
 }
 
 /// Pass body. Produces a candidate that combines a singleton-power
@@ -349,10 +349,10 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_ir::interpolate_coefficients;
-    use cobra_orchestrator::{
+    use crate::core::evaluator::Evaluator;
+    use crate::core::simplify_outcome::Options;
+    use crate::ir::interpolate_coefficients;
+    use crate::orchestrator::{
         create_group, EliminationResult, SignatureCoeffStatePayload, SignatureSubproblemContext,
     };
 
@@ -455,7 +455,7 @@ mod tests {
     fn non_coeff_payload_is_not_applicable() {
         let mut ctx = OrchestratorContext::new(Options::default(), vec![], 64);
         let item = WorkItem::new(StateData::CompetitionResolved(
-            cobra_orchestrator::CompetitionResolvedPayload { group_id: 0 },
+            crate::orchestrator::CompetitionResolvedPayload { group_id: 0 },
         ));
         let pr = run_signature_singleton_poly_recovery(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::NotApplicable);

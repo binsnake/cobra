@@ -27,7 +27,7 @@ macro_rules! cobra_trace_sig {
 
 #[cfg(test)]
 mod tests {
-    use crate::Expr;
+    use crate::core::Expr;
 
     #[test]
     fn trace_macros_compile_as_noops() {

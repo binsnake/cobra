@@ -6,15 +6,15 @@
 
 use std::collections::HashMap;
 
-use cobra_core::pass_contract::ReasonDetail;
-use cobra_core::result::Result;
+use crate::core::pass_contract::ReasonDetail;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     AstSolveContext, ItemDisposition, LiftedSkeletonPayload, LiftedValueKind, OrchestratorContext,
     PassDecision, PassResult, StateData, WorkItem,
 };
 
-use crate::lifting::{
+use crate::passes::lifting::{
     active_ast_evaluator, active_ast_vars, allocate_fresh_virtual_names, baseline_cost,
     boolean_signature, collect_non_leaf_subtrees, count_nodes, is_ancestor_of, make_binding,
     replace_repeats_with_virtual, DeduplicatedAtom, RepeatEntry, MAX_LIFTABLE_NODES,
@@ -108,7 +108,7 @@ pub fn run_lift_repeated_subexpressions(
         .map(|(i, sel)| DeduplicatedAtom {
             subtree: sel.first_occurrence,
             hash: sel.hash,
-            rendered: cobra_core::expr::render(sel.first_occurrence, &vars, ctx.bitwidth),
+            rendered: crate::core::expr::render(sel.first_occurrence, &vars, ctx.bitwidth),
             virtual_index: original_var_count + i as u32,
         })
         .collect();
@@ -177,9 +177,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{AstPayload, Provenance};
+    use crate::core::expr::Expr;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{AstPayload, Provenance};
 
     fn mk_ast_item(expr: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {

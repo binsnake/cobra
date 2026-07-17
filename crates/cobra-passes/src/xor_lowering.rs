@@ -5,21 +5,21 @@
 //! favour of the rewritten one — getting that wrong causes either
 //! infinite loops or dropped work.
 
-use cobra_core::classification::needs_structural_recovery;
-use cobra_core::expr::Expr;
-use cobra_core::pass_contract::{
+use crate::core::classification::needs_structural_recovery;
+use crate::core::expr::Expr;
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 use std::sync::Arc;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     AstPayload, ItemDisposition, LeanCertificate, OrchestratorContext, PassDecision, PassResult,
     Provenance, StateData, WorkItem,
 };
 
-use crate::classifier::classify_structural;
-use crate::mixed_product_rewriter::{
+use crate::passes::classifier::classify_structural;
+use crate::passes::mixed_product_rewriter::{
     find_first_xor_lowering_rewrite, rewrite_mixed_products, RewriteOptions,
 };
 
@@ -116,6 +116,7 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
     matches!(item.payload, StateData::FoldedAst(_))
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn xor_lowering_certificate(
     original: Arc<Expr>,
     simplified: Arc<Expr>,
@@ -150,8 +151,8 @@ fn xor_lowering_certificate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
+    use crate::core::expr::Expr;
+    use crate::core::simplify_outcome::Options;
 
     fn mk_ast_item(expr: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {

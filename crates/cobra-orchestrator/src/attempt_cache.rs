@@ -7,9 +7,9 @@ use std::collections::HashMap;
 
 use ahash::RandomState;
 
-use crate::context::determinism_seeds_ahash;
-use crate::enums::PassId;
-use crate::work_item::StateFingerprint;
+use crate::orchestrator::context::determinism_seeds_ahash;
+use crate::orchestrator::enums::PassId;
+use crate::orchestrator::work_item::StateFingerprint;
 
 #[derive(Debug)]
 pub struct PassAttemptCache {
@@ -58,7 +58,7 @@ impl PassAttemptCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::enums::{Provenance, StateKind};
+    use crate::orchestrator::enums::{Provenance, StateKind};
 
     fn fp(kind: StateKind, h: u64) -> StateFingerprint {
         StateFingerprint {

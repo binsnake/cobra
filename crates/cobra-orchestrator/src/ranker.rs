@@ -1,9 +1,9 @@
 //! Deterministic ordering for picking the best "unsupported" candidate
 //! to surface in the final `SimplifyOutcome` when no pass produces a
 
-use cobra_core::pass_contract::ReasonCategory;
+use crate::core::pass_contract::ReasonCategory;
 
-use crate::work_item::UnsupportedCandidate;
+use crate::orchestrator::work_item::UnsupportedCandidate;
 
 /// Returns `true` iff `a` should be preferred over `b`. The ordering
 /// walks a fixed list of tiebreakers:
@@ -52,7 +52,7 @@ pub fn unsupported_rank_better(a: &UnsupportedCandidate, b: &UnsupportedCandidat
 }
 
 #[inline]
-fn as_u8_opt(p: Option<crate::enums::PassId>) -> u8 {
+fn as_u8_opt(p: Option<crate::orchestrator::enums::PassId>) -> u8 {
     match p {
         Some(id) => id as u8,
         None => u8::MAX,
@@ -73,8 +73,8 @@ pub(crate) fn terminal_rank(c: ReasonCategory) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::enums::PassId;
-    use crate::work_item::{ItemMetadata, TransformTerminalSignal};
+    use crate::orchestrator::enums::PassId;
+    use crate::orchestrator::work_item::{ItemMetadata, TransformTerminalSignal};
 
     fn cand(is_candidate: bool, depth: u32, rewrite_gen: u32, hist: u32) -> UnsupportedCandidate {
         UnsupportedCandidate {

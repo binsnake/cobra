@@ -21,17 +21,17 @@
 //! singleton masks (popcount=1) are skipped entirely: their
 //! contribution is modelled externally by the singleton-power path.
 
-use cobra_core::arith::bitmask;
-use cobra_core::evaluator::Evaluator;
+use crate::core::arith::bitmask;
+use crate::core::evaluator::Evaluator;
 
 /// `x^{-1} mod 2^{w-1}` for odd `x`. Thin wrapper over
-/// [`crate::math_utils::mod_inverse_odd`] at `w - 1` bits — same Hensel
+/// [`crate::ir::math_utils::mod_inverse_odd`] at `w - 1` bits — same Hensel
 /// lifting — kept as a named entry point for the half-width (`w-1`)
 /// modulus used by the coefficient splitter.
 #[must_use]
 pub fn mod_inverse_odd_half(x: u64, w: u32) -> u64 {
     assert!(w >= 2, "w must be >= 2");
-    crate::math_utils::mod_inverse_odd(x, w - 1)
+    crate::ir::math_utils::mod_inverse_odd(x, w - 1)
 }
 
 pub struct SplitResult {
@@ -106,7 +106,7 @@ fn propagate_to_supermasks(
 }
 
 /// Deterministic coefficient splitting. `cob` is the AND-monomial
-/// coefficient vector from [`crate::interpolate_coefficients`];
+/// coefficient vector from [`crate::ir::interpolate_coefficients`];
 /// `singleton_at_2` is optional and, when present, must have length
 /// `num_vars`.
 #[must_use]
@@ -220,7 +220,7 @@ pub fn split_coefficients(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::expr::Expr;
+    use crate::core::expr::Expr;
 
     #[test]
     fn mod_inverse_odd_half_matches_hand_computation() {

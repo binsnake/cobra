@@ -4,20 +4,20 @@
 //! pipeline. Each candidate spawns a child solve guarded by a
 //! `HybridComposeCont`. Recursion is gated to depth 0 (single level).
 
-use cobra_core::arith::bitmask;
-use cobra_core::evaluator::{Evaluator, TraceKind};
-use cobra_core::pass_contract::ReasonDetail;
-use cobra_core::result::Result;
+use crate::core::arith::bitmask;
+use crate::core::evaluator::{Evaluator, TraceKind};
+use crate::core::pass_contract::ReasonDetail;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     acquire_handle, create_group, ContinuationData, EliminationResult, ExtractOp,
     HybridComposeCont, ItemDisposition, OrchestratorContext, PassDecision, PassResult,
     SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem,
 };
 
-use crate::decomposition_helpers::{should_skip_decomposition, MAX_CANDIDATES};
-use crate::hybrid_decomposer::enumerate_hybrid_candidates;
-use crate::mapped_evaluator::build_mapped_evaluator;
+use crate::passes::decomposition_helpers::{should_skip_decomposition, MAX_CANDIDATES};
+use crate::passes::hybrid_decomposer::enumerate_hybrid_candidates;
+use crate::passes::mapped_evaluator::build_mapped_evaluator;
 
 fn build_residual_evaluator(
     parent_eval: &Evaluator,
@@ -187,13 +187,13 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::classification::{Classification, SemanticClass, StructuralFlag};
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Expr;
-    use cobra_core::expr_cost::ExprCost;
-    use cobra_core::pass_contract::VerificationState;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{
+    use crate::core::classification::{Classification, SemanticClass, StructuralFlag};
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Expr;
+    use crate::core::expr_cost::ExprCost;
+    use crate::core::pass_contract::VerificationState;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{
         create_group as orch_create_group, submit_candidate as orch_submit_candidate,
         CandidateRecord, EliminationResult, LeanSignatureCertificate, PassId,
     };

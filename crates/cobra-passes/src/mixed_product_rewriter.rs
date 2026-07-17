@@ -11,14 +11,14 @@
 //!   - either the unsupported-flag set shrank (coarse progress) or
 //!     the rewriteable-site count went down (fine progress).
 
-use cobra_core::classification::{needs_structural_recovery, StructuralFlag};
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::expr_rewrite::has_nonleaf_bitwise;
-use cobra_core::expr_utils::has_var_dep;
-use cobra_orchestrator::ExprPath;
+use crate::core::classification::{needs_structural_recovery, StructuralFlag};
+use crate::core::expr::{Expr, Kind};
+use crate::core::expr_rewrite::has_nonleaf_bitwise;
+use crate::core::expr_utils::has_var_dep;
+use crate::orchestrator::ExprPath;
 use std::sync::Arc;
 
-use crate::classifier::classify_structural;
+use crate::passes::classifier::classify_structural;
 
 #[derive(Copy, Clone, Default)]
 struct RewriteContext {

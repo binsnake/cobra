@@ -14,21 +14,23 @@
 //!
 //! Non-support variables are fixed at 0 during evaluation, matching
 
-use cobra_core::arith::bitmask;
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::Expr;
-use cobra_core::pass_contract::{
+use crate::core::arith::bitmask;
+use crate::core::evaluator::Evaluator;
+use crate::core::expr::Expr;
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, SolverResult,
 };
-use cobra_core::{compile, eval as eval_compiled};
+use crate::core::{compile, eval as eval_compiled};
 use std::sync::Arc;
 
 use ahash::RandomState;
 
-use crate::math_utils::{mod_inverse_odd, odd_part_factorial, precision_bits, twos_in_factorial};
-use crate::mono::{MonomialKey, MAX_POLY_VARS};
-use crate::poly::{CoeffMap, NormalizedPoly};
-use crate::poly_expr_builder::build_poly_expr;
+use crate::ir::math_utils::{
+    mod_inverse_odd, odd_part_factorial, precision_bits, twos_in_factorial,
+};
+use crate::ir::mono::{MonomialKey, MAX_POLY_VARS};
+use crate::ir::poly::{CoeffMap, NormalizedPoly};
+use crate::ir::poly_expr_builder::build_poly_expr;
 
 mod subcode {
     pub const EMPTY_SUPPORT: u16 = 1;
@@ -276,7 +278,7 @@ pub fn probe_grid_check(eval: &Evaluator, num_vars: u32, candidate: &Expr, bitwi
     let base = 5usize;
     let total: usize = (0..num_vars).fold(1usize, |acc, _| acc * base);
     let mut point = vec![0u64; num_vars as usize];
-    let mut ws_cand = cobra_core::evaluator::Workspace::default();
+    let mut ws_cand = crate::core::evaluator::Workspace::default();
     let mut stack_cand: Vec<u64> = Vec::new();
     for idx in 0..total {
         let mut tmp = idx;
@@ -296,8 +298,8 @@ pub fn probe_grid_check(eval: &Evaluator, num_vars: u32, candidate: &Expr, bitwi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Expr;
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Expr;
 
     #[test]
     fn recovers_univariate_quadratic() {

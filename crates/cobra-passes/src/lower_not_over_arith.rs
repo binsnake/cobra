@@ -10,19 +10,21 @@
 //!   also wants to keep the original around for a potential semilinear
 //!   pathway).
 
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::pass_contract::ReasonDetail;
-use cobra_core::result::Result;
-use cobra_core::signature_eval::evaluate_boolean_signature;
+use crate::core::expr::{Expr, Kind};
+use crate::core::pass_contract::ReasonDetail;
+use crate::core::result::Result;
+use crate::core::signature_eval::evaluate_boolean_signature;
 use std::sync::Arc;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     AstPayload, ExprPath, ItemDisposition, LeanCertificate, OrchestratorContext, PassDecision,
     PassResult, Provenance, StateData, WorkItem,
 };
 
-use crate::candidate_normalize::merge_certificate;
-use crate::not_over_arith::{has_not_over_arith, is_purely_arithmetic, lower_not_over_arith};
+use crate::passes::candidate_normalize::merge_certificate;
+use crate::passes::not_over_arith::{
+    has_not_over_arith, is_purely_arithmetic, lower_not_over_arith,
+};
 
 #[allow(clippy::unnecessary_wraps)]
 pub fn run_lower_not_over_arith(
@@ -145,7 +147,7 @@ fn find_first_lowering_site_at(
     {
         let after = Expr::add(
             Expr::neg(root.children[0].clone_tree()),
-            Expr::constant(cobra_core::arith::bitmask(bitwidth)),
+            Expr::constant(crate::core::arith::bitmask(bitwidth)),
         );
         return Some((ExprPath(path.clone()), after));
     }
@@ -163,8 +165,8 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::expr::{Expr, Kind};
-    use cobra_core::simplify_outcome::Options;
+    use crate::core::expr::{Expr, Kind};
+    use crate::core::simplify_outcome::Options;
 
     fn mk_ast_item(e: Arc<Expr>, prov: Provenance) -> WorkItem {
         let mut item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
@@ -229,7 +231,7 @@ mod tests {
         // sig_vector populated; signatures equal between original and
         // lowered expressions (semantics preserved).
         let original = Expr::not(Expr::add(Expr::variable(0), Expr::constant(1)));
-        let original_sig = cobra_core::evaluate_boolean_signature(&original, 1, 8);
+        let original_sig = crate::core::evaluate_boolean_signature(&original, 1, 8);
         assert_eq!(emitted.metadata.sig_vector, original_sig);
     }
 
@@ -241,7 +243,12 @@ mod tests {
             Provenance::Original,
         );
         item.metadata.lean_signature_certificate =
-            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+            crate::orchestrator::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                Expr::variable(0),
+            );
 
         let pr = run_lower_not_over_arith(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::Advance);
@@ -254,7 +261,7 @@ mod tests {
         assert_eq!(cert.steps.len(), 1);
         assert_eq!(
             cert.steps[0].theorem,
-            cobra_orchestrator::LeanTheorem::BnotEqNegAddAllOnes64
+            crate::orchestrator::LeanTheorem::BnotEqNegAddAllOnes64
         );
         assert!(pr.next[0].metadata.lean_signature_certificate.is_none());
     }

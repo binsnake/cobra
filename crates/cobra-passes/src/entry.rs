@@ -2,28 +2,30 @@
 //!
 //! This is the Rust equivalent of upstream `Simplify`: validate public inputs,
 //! seed either from an AST or from a Boolean signature, then run the pass
-//! registry to a [`cobra_core::simplify_outcome::SimplifyOutcome`].
+//! registry to a [`crate::core::simplify_outcome::SimplifyOutcome`].
 
-use cobra_core::arith::bitmask;
-use cobra_core::evaluator::{Evaluator, TraceKind};
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::pass_contract::VerificationState;
-use cobra_core::result::{err, CobraError, Result};
-use cobra_core::simplify_outcome::ProofLevel;
-use cobra_core::simplify_outcome::{Options, SimplifyOutcome, SimplifyOutcomeKind};
-use cobra_core::{evaluate_boolean_signature, is_valid_bitwidth};
-use cobra_ir::{contains_shr, detect_root_low_bit_mask};
+use crate::core::arith::bitmask;
+use crate::core::evaluator::{Evaluator, TraceKind};
+use crate::core::expr::{Expr, Kind};
+use crate::core::pass_contract::VerificationState;
+use crate::core::result::{err, CobraError, Result};
+use crate::core::simplify_outcome::ProofLevel;
+use crate::core::simplify_outcome::{Options, SimplifyOutcome, SimplifyOutcomeKind};
+use crate::core::{evaluate_boolean_signature, is_valid_bitwidth};
+use crate::ir::{contains_shr, detect_root_low_bit_mask};
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     create_group, simplify_from_worklist, OrchestratorContext, OrchestratorPolicy, Provenance,
     SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem, Worklist,
 };
 
-use crate::aux_var::eliminate_aux_vars;
-use crate::pattern_matcher::match_pattern;
-use crate::seed::seed_with_ast;
-use crate::spot_check::{full_width_check_eval, verify_in_original_space, DEFAULT_NUM_SAMPLES};
-use crate::PASS_REGISTRY;
+use crate::passes::aux_var::eliminate_aux_vars;
+use crate::passes::pattern_matcher::match_pattern;
+use crate::passes::seed::seed_with_ast;
+use crate::passes::spot_check::{
+    full_width_check_eval, verify_in_original_space, DEFAULT_NUM_SAMPLES,
+};
+use crate::passes::PASS_REGISTRY;
 
 /// Upper bound checked before any `2^vars.len()` signature allocation.
 pub const MAX_INPUT_VARS: usize = 24;
@@ -236,7 +238,7 @@ fn seed_no_ast(
         ));
     }
 
-    let original_indices = cobra_core::expr_rewrite::build_var_support(vars, &elim.real_vars);
+    let original_indices = crate::core::expr_rewrite::build_var_support(vars, &elim.real_vars);
     let needs_original_space_verification = ctx.evaluator.is_some();
     let real_vars = elim.real_vars.clone();
     let payload = SignatureStatePayload {
@@ -262,7 +264,7 @@ fn seed_no_ast(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::expr::{render, Kind};
+    use crate::core::expr::{render, Kind};
 
     #[test]
     fn simplify_expr_runs_ast_pipeline() {
@@ -410,7 +412,7 @@ mod tests {
     fn shl_parses_to_mul_and_simplifies_sanely() {
         // `a << 3` lowers to `a * 8` at parse; simplify must keep it
         // semantically equal to the input.
-        let parsed = cobra_parser::parse_to_ast("a << 3", 64).expect("parse a << 3");
+        let parsed = crate::parser::parse_to_ast("a << 3", 64).expect("parse a << 3");
         assert!(
             matches!(parsed.expr.kind, Kind::Mul),
             "a << 3 should lower to a Mul node"
@@ -421,7 +423,7 @@ mod tests {
     #[test]
     fn shr_parses_to_shr_node_and_simplifies_sanely() {
         // `a >> 2` stays a Shr(2) node; simplify must keep it equivalent.
-        let parsed = cobra_parser::parse_to_ast("a >> 2", 64).expect("parse a >> 2");
+        let parsed = crate::parser::parse_to_ast("a >> 2", 64).expect("parse a >> 2");
         match parsed.expr.kind {
             Kind::Shr(k) => assert_eq!(k, 2),
             ref other => panic!("a >> 2 should be Shr(2), got {other:?}"),

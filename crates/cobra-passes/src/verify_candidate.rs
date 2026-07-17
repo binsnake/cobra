@@ -4,21 +4,21 @@
 //! `needs_original_space_verification = false` and
 //! `VerificationState::Verified`, which lets the main loop accept it.
 
-use cobra_core::expr::Expr;
-use cobra_core::expr_rewrite::try_build_var_support;
-use cobra_core::expr_utils::remap_var_indices;
-use cobra_core::pass_contract::{
+use crate::core::expr::Expr;
+use crate::core::expr_rewrite::try_build_var_support;
+use crate::core::expr_utils::remap_var_indices;
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, VerificationState,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 use std::sync::Arc;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     CandidatePayload, ItemDisposition, LeanCertificate, OrchestratorContext, PassDecision,
     PassResult, StateData, WorkItem,
 };
 
-use crate::spot_check::verify_in_original_space;
+use crate::passes::spot_check::verify_in_original_space;
 
 #[allow(clippy::unnecessary_wraps)]
 pub fn run_verify_candidate(item: &WorkItem, ctx: &mut OrchestratorContext) -> Result<PassResult> {
@@ -149,11 +149,11 @@ fn remapped_endpoint_certificate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Expr;
-    use cobra_core::expr_cost::ExprCost;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::PassId;
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Expr;
+    use crate::core::expr_cost::ExprCost;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::PassId;
 
     fn mk_cand_item(simplified: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {

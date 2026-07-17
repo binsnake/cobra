@@ -11,16 +11,16 @@
 
 use std::collections::HashMap;
 
-use cobra_core::arith::{bitmask, mod_neg, mod_shr};
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::result::{err, CobraError, Result};
+use crate::core::arith::{bitmask, mod_neg, mod_shr};
+use crate::core::expr::{Expr, Kind};
+use crate::core::result::{err, CobraError, Result};
 
-use crate::semilinear::{
+use crate::ir::semilinear::{
     compute_atom_truth_table, structural_hash, AtomId, AtomInfo, AtomKey, GlobalVarIdx,
     OperatorFamily, SemilinearIR, WeightedAtom,
 };
 
-use crate::dynamic_mask::contains_shr;
+use crate::ir::dynamic_mask::contains_shr;
 
 fn has_constant(expr: &Expr) -> bool {
     if matches!(expr.kind, Kind::Constant(_)) {
@@ -213,8 +213,8 @@ fn detect_provenance(expr: &Expr) -> OperatorFamily {
 
 #[inline]
 fn collect_support(expr: &Expr, out: &mut Vec<GlobalVarIdx>) {
-    // `GlobalVarIdx` is `u32`; this is exactly `cobra_core::collect_vars`.
-    cobra_core::collect_vars(expr, out);
+    // `GlobalVarIdx` is `u32`; this is exactly `crate::core::collect_vars`.
+    crate::core::collect_vars(expr, out);
 }
 
 struct CollectCtx {

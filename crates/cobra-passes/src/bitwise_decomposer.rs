@@ -13,11 +13,11 @@
 //!
 //! Results are sorted ascending by residual active-variable count.
 
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::is_boolean_valued;
+use crate::core::expr::{Expr, Kind};
+use crate::core::is_boolean_valued;
 use std::sync::Arc;
 
-use cobra_orchestrator::GateKind;
+use crate::orchestrator::GateKind;
 
 #[derive(Clone, Debug)]
 pub struct BitwiseSplitCandidate {

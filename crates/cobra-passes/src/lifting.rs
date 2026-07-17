@@ -11,12 +11,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use cobra_core::evaluate_boolean_signature;
-use cobra_core::expr::{render, Expr, Kind};
-use cobra_core::expr_cost::compute_cost;
-use cobra_core::expr_utils::has_var_dep;
+use crate::core::evaluate_boolean_signature;
+use crate::core::expr::{render, Expr, Kind};
+use crate::core::expr_cost::compute_cost;
+use crate::core::expr_utils::has_var_dep;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     expr_identity_hash, LiftedBinding, LiftedValueKind, OrchestratorContext, StateData, WorkItem,
 };
 
@@ -38,7 +38,7 @@ pub fn active_ast_vars(item: &WorkItem, ctx: &OrchestratorContext) -> Vec<String
 pub fn active_ast_evaluator(
     item: &WorkItem,
     ctx: &OrchestratorContext,
-) -> Option<cobra_core::evaluator::Evaluator> {
+) -> Option<crate::core::evaluator::Evaluator> {
     if let StateData::FoldedAst(ast) = &item.payload {
         if let Some(sc) = &ast.solve_ctx {
             return sc.evaluator.clone();
@@ -395,6 +395,6 @@ pub fn boolean_signature(expr: &Expr, num_vars: u32, bitwidth: u32) -> Vec<u64> 
 }
 
 #[must_use]
-pub fn baseline_cost(expr: &Expr) -> cobra_core::expr_cost::ExprCost {
+pub fn baseline_cost(expr: &Expr) -> crate::core::expr_cost::ExprCost {
     compute_cost(expr).cost
 }

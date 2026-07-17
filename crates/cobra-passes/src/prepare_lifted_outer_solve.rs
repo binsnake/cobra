@@ -9,18 +9,18 @@
 //! back into the winning outer expression to recover a candidate in
 //! the original variable space.
 
-use cobra_core::evaluator::Evaluator;
-use cobra_core::pass_contract::ReasonDetail;
-use cobra_core::result::Result;
+use crate::core::evaluator::Evaluator;
+use crate::core::pass_contract::ReasonDetail;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     acquire_handle, create_group, AstPayload, ContinuationData, ItemDisposition,
     LiftedSubstituteCont, OrchestratorContext, PassDecision, PassResult, Provenance, StateData,
     WorkItem,
 };
 
-use crate::classifier::classify_structural;
-use crate::pattern_matcher::simplify_pattern_subtrees_certified;
+use crate::passes::classifier::classify_structural;
+use crate::passes::pattern_matcher::simplify_pattern_subtrees_certified;
 
 #[allow(clippy::unnecessary_wraps)]
 pub fn run_prepare_lifted_outer_solve(
@@ -118,10 +118,10 @@ pub fn applicable(item: &WorkItem, _ctx: &OrchestratorContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::expr::Expr;
-    use cobra_core::expr_cost::ExprCost;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{AstSolveContext, LiftedSkeletonPayload, LiftedValueKind};
+    use crate::core::expr::Expr;
+    use crate::core::expr_cost::ExprCost;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{AstSolveContext, LiftedSkeletonPayload, LiftedValueKind};
 
     #[test]
     fn opens_group_and_emits_outer_ast() {
@@ -134,7 +134,7 @@ mod tests {
                 evaluator: None,
                 input_sig: vec![0, 0, 0, 0, 0, 1, 0, 1],
             },
-            bindings: vec![cobra_orchestrator::LiftedBinding {
+            bindings: vec![crate::orchestrator::LiftedBinding {
                 kind: LiftedValueKind::ArithmeticAtom,
                 outer_var_index: 2,
                 subtree: Expr::add(Expr::variable(0), Expr::variable(1)),
@@ -147,13 +147,18 @@ mod tests {
             original_ctx: AstSolveContext::default(),
         };
         let mut item = WorkItem::new(StateData::LiftedSkeleton(Box::new(payload)));
-        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        item.metadata.lean_certificate = Some(crate::orchestrator::LeanCertificate::new(
             64,
             Expr::variable(0),
             Expr::variable(0),
         ));
         item.metadata.lean_signature_certificate =
-            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+            crate::orchestrator::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                Expr::variable(0),
+            );
         let pr = run_prepare_lifted_outer_solve(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::Advance);
         assert_eq!(pr.next.len(), 1);
@@ -181,7 +186,7 @@ mod tests {
                 evaluator: None,
                 input_sig: vec![0, 0, 0, 1, 0, 0, 0, 1],
             },
-            bindings: vec![cobra_orchestrator::LiftedBinding {
+            bindings: vec![crate::orchestrator::LiftedBinding {
                 kind: LiftedValueKind::ArithmeticAtom,
                 outer_var_index: 2,
                 subtree: Expr::add(Expr::variable(0), Expr::variable(1)),

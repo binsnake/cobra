@@ -1,6 +1,6 @@
 //! `CoBRA` simplification passes. Each pass is a free function matching
-//! [`cobra_orchestrator::PassFn`] plus an applicability predicate
-//! matching [`cobra_orchestrator::ApplicabilityFn`]. Registration is
+//! [`crate::orchestrator::PassFn`] plus an applicability predicate
+//! matching [`crate::orchestrator::ApplicabilityFn`]. Registration is
 //! done via [`PASS_REGISTRY`] — a `'static` slice of
 //! [`PassDescriptor`] entries ordered by [`PassId`] value.
 //!
@@ -15,7 +15,7 @@
 
 #![forbid(unsafe_code)]
 // Expr-building helpers return `Arc<Expr>` to match the ownership shape
-// of `cobra_core::Expr` factories.
+// of `crate::core::Expr` factories.
 #![allow(clippy::unnecessary_box_returns)]
 
 pub mod atom_identity_rewrite;
@@ -82,7 +82,7 @@ pub mod signature_singleton_poly_recovery;
 pub mod singleton_power_expr_builder;
 pub mod verify_candidate;
 
-use cobra_orchestrator::{PassDescriptor, PassId, PassTag, StateKind};
+use crate::orchestrator::{PassDescriptor, PassId, PassTag, StateKind};
 
 /// iterating the slice encounters passes in canonical priority.
 pub const PASS_REGISTRY: &[PassDescriptor] = &[
@@ -347,14 +347,16 @@ pub const PASS_REGISTRY: &[PassDescriptor] = &[
     },
 ];
 
-pub use crate::aux_var::eliminate_aux_vars;
-pub use crate::classifier::classify_structural;
-pub use crate::entry::{simplify, simplify_expr, MAX_INPUT_VARS};
-pub use crate::not_over_arith::{has_not_over_arith, is_purely_arithmetic, lower_not_over_arith};
-pub use crate::pattern_matcher::{
+pub use crate::passes::aux_var::eliminate_aux_vars;
+pub use crate::passes::classifier::classify_structural;
+pub use crate::passes::entry::{simplify, simplify_expr, MAX_INPUT_VARS};
+pub use crate::passes::not_over_arith::{
+    has_not_over_arith, is_purely_arithmetic, lower_not_over_arith,
+};
+pub use crate::passes::pattern_matcher::{
     match_1var, match_2var_boolean, match_pattern, pack_bool_sig, simplify_pattern_subtrees,
     simplify_pattern_subtrees_certified, try_simplify_pattern_subtree,
     try_simplify_two_var_pattern_sum,
 };
-pub use crate::seed::seed_with_ast;
-pub use crate::spot_check::{full_width_check_eval, verify_in_original_space, CheckResult};
+pub use crate::passes::seed::seed_with_ast;
+pub use crate::passes::spot_check::{full_width_check_eval, verify_in_original_space, CheckResult};

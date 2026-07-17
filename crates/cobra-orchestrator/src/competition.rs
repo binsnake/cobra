@@ -1,20 +1,20 @@
 //! `lib/core/CompetitionGroup.{h,cpp}`.
 
-use cobra_core::evaluate_boolean_signature;
-use cobra_core::expr::Expr;
-use cobra_core::expr_cost::{is_better, ExprCost};
-use cobra_core::pass_contract::{ReasonDetail, VerificationState};
-use cobra_verify::{LeanCertificate, LeanSignatureCertificate};
+use crate::core::evaluate_boolean_signature;
+use crate::core::expr::Expr;
+use crate::core::expr_cost::{is_better, ExprCost};
+use crate::core::pass_contract::{ReasonDetail, VerificationState};
+use crate::verify::{LeanCertificate, LeanSignatureCertificate};
 use std::sync::Arc;
 
-use crate::continuation::{ContinuationData, GroupId};
-use crate::enums::PassId;
-use crate::state::{CompetitionResolvedPayload, StateData};
-use crate::work_item::WorkItem;
+use crate::orchestrator::continuation::{ContinuationData, GroupId};
+use crate::orchestrator::enums::PassId;
+use crate::orchestrator::state::{CompetitionResolvedPayload, StateData};
+use crate::orchestrator::work_item::WorkItem;
 
 // Re-exported for API ergonomics — downstream code typically reaches for
 // `competition::GroupId` / `competition::JoinId`.
-pub use crate::continuation::JoinId;
+pub use crate::orchestrator::continuation::JoinId;
 
 #[derive(Clone, Debug)]
 pub struct CandidateRecord {
@@ -310,7 +310,7 @@ mod tests {
     }
 
     fn empty_group_map() -> GroupMap {
-        GroupMap::with_hasher(crate::context::determinism_seeds_ahash())
+        GroupMap::with_hasher(crate::orchestrator::context::determinism_seeds_ahash())
     }
 
     #[test]
@@ -419,7 +419,7 @@ mod tests {
         let resolved = release_handle(&mut groups, id).expect("resolved item emitted");
         assert_eq!(
             resolved.payload.kind(),
-            crate::enums::StateKind::CompetitionResolved
+            crate::orchestrator::enums::StateKind::CompetitionResolved
         );
     }
 

@@ -3,13 +3,13 @@
 //!
 //! `tools/cobra-cli/ExprParser.cpp`.
 
-use cobra_core::arith::bitmask;
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::result::{err, CobraError, Result};
+use crate::core::arith::bitmask;
+use crate::core::expr::{Expr, Kind};
+use crate::core::result::{err, CobraError, Result};
 use std::sync::Arc;
 
-use crate::postfix::{collect_sorted_vars, to_postfix, validate_shifts_and_exponents};
-use crate::token::{Token, TokenType};
+use crate::parser::postfix::{collect_sorted_vars, to_postfix, validate_shifts_and_exponents};
+use crate::parser::token::{Token, TokenType};
 
 #[derive(Clone, Debug)]
 pub struct AstResult {
@@ -32,7 +32,7 @@ pub fn parse_to_ast(input: &str, bitwidth: u32) -> Result<AstResult> {
         return Err(err(CobraError::ParseError, "empty expression"));
     }
 
-    let tokens = crate::token::tokenize(input)?;
+    let tokens = crate::parser::token::tokenize(input)?;
     if tokens.is_empty() {
         return Err(err(CobraError::ParseError, "empty expression"));
     }
@@ -186,7 +186,7 @@ fn apply_shr(lhs: Arc<Expr>, rhs: &Expr) -> Result<Arc<Expr>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::expr::{render, Kind};
+    use crate::core::expr::{render, Kind};
 
     fn render_parsed(input: &str, bitwidth: u32) -> String {
         let r = parse_to_ast(input, bitwidth).unwrap();

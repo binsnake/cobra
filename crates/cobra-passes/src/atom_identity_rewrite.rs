@@ -20,21 +20,21 @@
 //! gated by `is_better(candidate_cost, baseline_cost)` so the rewrite
 //! is strictly cheaper than the matched subtree.
 
-use cobra_core::arith::bitmask;
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::expr_cost::{compute_cost, is_better};
-use cobra_core::pass_contract::ReasonDetail;
-use cobra_core::result::Result;
-use cobra_core::spot_check::full_width_check_eval;
+use crate::core::arith::bitmask;
+use crate::core::expr::{Expr, Kind};
+use crate::core::expr_cost::{compute_cost, is_better};
+use crate::core::pass_contract::ReasonDetail;
+use crate::core::result::Result;
+use crate::core::spot_check::full_width_check_eval;
 use std::sync::Arc;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     expr_identity_hash, replace_by_hash, AstPayload, ExprPath, ItemDisposition, LeanCertificate,
     OrchestratorContext, PassDecision, PassResult, Provenance, StateData, WorkItem,
 };
 
-use crate::candidate_normalize::merge_certificate;
-use crate::classifier::classify_structural;
+use crate::passes::candidate_normalize::merge_certificate;
+use crate::passes::classifier::classify_structural;
 
 // ---------- entry point ----------
 
@@ -68,7 +68,7 @@ pub fn apply_atom_identities(mut expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
             return expr;
         }
         let baseline = compute_cost(&expr).cost;
-        let eval = cobra_core::evaluator::Evaluator::from_expr(&expr, bitwidth);
+        let eval = crate::core::evaluator::Evaluator::from_expr(&expr, bitwidth);
         let num_vars = eval.input_arity();
         let mut replaced = None;
         for candidate in candidates {
@@ -154,7 +154,7 @@ fn find_first_rewrite_site_at(
         return None;
     }
     let baseline = compute_cost(root).cost;
-    let eval = cobra_core::evaluator::Evaluator::from_expr(root, bitwidth);
+    let eval = crate::core::evaluator::Evaluator::from_expr(root, bitwidth);
     let num_vars = eval.input_arity();
     for candidate in candidates {
         if !is_better(&compute_cost(&candidate).cost, &baseline) {
@@ -209,7 +209,7 @@ fn rewrite_at_site(
     rewritten.history.clone_from(&item.history);
     rewritten
         .history
-        .push(cobra_orchestrator::PassId::AtomIdentityRewrite);
+        .push(crate::orchestrator::PassId::AtomIdentityRewrite);
     rewritten
 }
 
@@ -722,7 +722,7 @@ mod tests {
         assert!(matches!(out.children[1].kind, Kind::Not));
 
         // The rewrite is theorem-certifiable end to end.
-        let cert = cobra_orchestrator::LeanCertificate::try_single_rewrite_between_64(
+        let cert = crate::orchestrator::LeanCertificate::try_single_rewrite_between_64(
             64,
             e.clone_tree(),
             out.clone_tree(),
@@ -730,7 +730,7 @@ mod tests {
         .expect("xor-absorb rewrite must be certifiable");
         assert_eq!(
             cert.steps.iter().map(|s| s.theorem).collect::<Vec<_>>(),
-            vec![cobra_orchestrator::LeanTheorem::XorAndEqAndNot64]
+            vec![crate::orchestrator::LeanTheorem::XorAndEqAndNot64]
         );
     }
 
@@ -749,7 +749,7 @@ mod tests {
             solve_ctx: None,
         })));
         let mut ctx = OrchestratorContext::new(
-            cobra_core::simplify_outcome::Options::default(),
+            crate::core::simplify_outcome::Options::default(),
             vec!["x".into(), "y".into()],
             64,
         );
@@ -765,7 +765,7 @@ mod tests {
         assert_eq!(cert.steps.len(), 1);
         assert_eq!(
             cert.steps[0].theorem,
-            cobra_orchestrator::LeanTheorem::OrSubAndEqXor64
+            crate::orchestrator::LeanTheorem::OrSubAndEqXor64
         );
     }
 
@@ -783,15 +783,20 @@ mod tests {
             provenance: Provenance::Original,
             solve_ctx: None,
         })));
-        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        item.metadata.lean_certificate = Some(crate::orchestrator::LeanCertificate::new(
             32,
             Expr::variable(0),
             Expr::variable(0),
         ));
         item.metadata.lean_signature_certificate =
-            cobra_orchestrator::LeanSignatureCertificate::new(32, 1, vec![0, 1], Expr::variable(0));
+            crate::orchestrator::LeanSignatureCertificate::new(
+                32,
+                1,
+                vec![0, 1],
+                Expr::variable(0),
+            );
         let mut ctx = OrchestratorContext::new(
-            cobra_core::simplify_outcome::Options::default(),
+            crate::core::simplify_outcome::Options::default(),
             vec!["x".into(), "y".into()],
             32,
         );

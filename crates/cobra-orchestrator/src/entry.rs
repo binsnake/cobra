@@ -1,23 +1,23 @@
-//! Top-level convenience entry points over [`crate::main_loop`]. A full
+//! Top-level convenience entry points over [`crate::orchestrator::main_loop`]. A full
 //! public `simplify(sig, vars, input_expr, opts)` that performs its own
 //! seeding lands once the classifier and pattern-match passes are
 //! ported; until then, `simplify_from_worklist` lets tests and early
 //! integration exercise the dispatch end-to-end.
 
-use cobra_core::expr::Expr;
-use cobra_core::expr_rewrite::{cleanup_final_expr, try_build_var_support};
-use cobra_core::expr_utils::{collect_vars, remap_var_indices};
-use cobra_core::pass_contract::{PassOutcome, VerificationState};
-use cobra_core::result::Result;
-use cobra_core::simplify_outcome::{
+use crate::core::expr::Expr;
+use crate::core::expr_rewrite::{cleanup_final_expr, try_build_var_support};
+use crate::core::expr_utils::{collect_vars, remap_var_indices};
+use crate::core::pass_contract::{PassOutcome, VerificationState};
+use crate::core::result::Result;
+use crate::core::simplify_outcome::{
     Diagnostic, ProofLevel, SimplifyOutcome, SimplifyOutcomeKind, SimplifyTelemetry,
 };
 use std::sync::Arc;
 
-use crate::context::{OrchestratorContext, OrchestratorPolicy};
-use crate::main_loop::{run_main_loop, LoopResult};
-use crate::registry::PassDescriptor;
-use crate::worklist::Worklist;
+use crate::orchestrator::context::{OrchestratorContext, OrchestratorPolicy};
+use crate::orchestrator::main_loop::{run_main_loop, LoopResult};
+use crate::orchestrator::registry::PassDescriptor;
+use crate::orchestrator::worklist::Worklist;
 
 /// Run the main loop against a pre-seeded worklist and convert the
 /// result to a public [`SimplifyOutcome`].
@@ -70,10 +70,9 @@ pub fn to_simplify_outcome(
             if output_vars.iter().any(|&v| v >= original_var_count) {
                 outcome.kind = SimplifyOutcomeKind::UnchangedUnsupported;
                 outcome.expr = original_expr.map(|e| Arc::new(e.clone()));
-                outcome.diag.reason =
-                    "rejected: simplified expression references a lifted/aux variable \
-                     not present in the original input (nested-lift leak)"
-                        .to_owned();
+                "rejected: simplified expression references a lifted/aux variable \
+                 not present in the original input (nested-lift leak)"
+                    .clone_into(&mut outcome.diag.reason);
             } else {
                 outcome.kind = SimplifyOutcomeKind::Simplified;
                 let has_matching_lean_certificate = result
@@ -148,7 +147,7 @@ pub fn to_simplify_outcome(
 }
 
 fn certificate_matches_public_output(
-    cert: &cobra_verify::LeanCertificate,
+    cert: &crate::verify::LeanCertificate,
     bitwidth: u32,
     original: &Expr,
     public_expr: &Expr,
@@ -180,7 +179,7 @@ fn public_output_candidates(
 }
 
 fn certificate_matches_cleanup_of_public_output(
-    cert: &cobra_verify::LeanCertificate,
+    cert: &crate::verify::LeanCertificate,
     bitwidth: u32,
     original: &Expr,
     public_expr: &Expr,
@@ -206,18 +205,20 @@ fn proof_level_for_verification(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::{OrchestratorTelemetry, RunMetadata};
-    use crate::work_item::ItemMetadata;
+    use crate::orchestrator::context::{OrchestratorTelemetry, RunMetadata};
+    use crate::orchestrator::work_item::ItemMetadata;
 
     #[test]
     fn lean_certificate_upgrades_public_proof_level() {
         let expr = Expr::variable(0);
-        let mut metadata = ItemMetadata::default();
-        metadata.lean_certificate = Some(cobra_verify::LeanCertificate::new(
-            64,
-            expr.clone_tree(),
-            expr.clone_tree(),
-        ));
+        let metadata = ItemMetadata {
+            lean_certificate: Some(crate::verify::LeanCertificate::new(
+                64,
+                expr.clone_tree(),
+                expr.clone_tree(),
+            )),
+            ..ItemMetadata::default()
+        };
         let result = LoopResult {
             outcome: PassOutcome::success(
                 expr.clone_tree(),
@@ -238,12 +239,14 @@ mod tests {
     fn mismatched_lean_certificate_does_not_upgrade_public_proof_level() {
         let original = Expr::variable(0);
         let simplified = Expr::variable(1);
-        let mut metadata = ItemMetadata::default();
-        metadata.lean_certificate = Some(cobra_verify::LeanCertificate::new(
-            64,
-            original.clone_tree(),
-            Expr::constant(0),
-        ));
+        let metadata = ItemMetadata {
+            lean_certificate: Some(crate::verify::LeanCertificate::new(
+                64,
+                original.clone_tree(),
+                Expr::constant(0),
+            )),
+            ..ItemMetadata::default()
+        };
         let result = LoopResult {
             outcome: PassOutcome::success(
                 simplified,
@@ -270,12 +273,14 @@ mod tests {
             Expr::constant(0),
         );
         let precleaned = Expr::add(Expr::variable(0), Expr::constant(0));
-        let mut metadata = ItemMetadata::default();
-        metadata.lean_certificate = Some(cobra_verify::LeanCertificate::new(
-            64,
-            original.clone_tree(),
-            precleaned.clone_tree(),
-        ));
+        let metadata = ItemMetadata {
+            lean_certificate: Some(crate::verify::LeanCertificate::new(
+                64,
+                original.clone_tree(),
+                precleaned.clone_tree(),
+            )),
+            ..ItemMetadata::default()
+        };
         let result = LoopResult {
             outcome: PassOutcome::success(
                 precleaned,
@@ -298,7 +303,7 @@ mod tests {
         let expr = Expr::variable(0);
         let mut metadata = ItemMetadata {
             verification: VerificationState::Verified,
-            lean_signature_certificate: cobra_verify::LeanSignatureCertificate::new(
+            lean_signature_certificate: crate::verify::LeanSignatureCertificate::new(
                 64,
                 1,
                 vec![0, 1],
@@ -328,7 +333,7 @@ mod tests {
         let expr = Expr::variable(0);
         let mut metadata = ItemMetadata {
             verification: VerificationState::Verified,
-            lean_signature_certificate: cobra_verify::LeanSignatureCertificate::new(
+            lean_signature_certificate: crate::verify::LeanSignatureCertificate::new(
                 64,
                 1,
                 vec![0, 1],

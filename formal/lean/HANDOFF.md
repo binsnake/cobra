@@ -76,51 +76,51 @@ Current replay count: 89 generated replay tests.
 Before this handoff, these gates were reported passing in the prior sweep:
 
 - `cargo fmt --all -- --check`
-- `cargo check --workspace --all-targets`
+- `cargo check --all-targets`
 - focused orchestrator proof-level and competition tests
-- `cargo test -p cobra-passes proof_coverage -- --nocapture`
-- `cargo test -p cobra-passes --test generated_lean_replay -- --nocapture`
-- `COBRA_LEAN_REPLAY=1 cargo test -p cobra-passes --test generated_lean_replay -- --nocapture`
+- `cargo test proof_coverage -- --nocapture`
+- `cargo test --test generated_lean_replay -- --nocapture`
+- `COBRA_LEAN_REPLAY=1 cargo test --test generated_lean_replay -- --nocapture`
 - `lake build` from `formal/lean`
 - placeholder scan for incomplete-proof markers
 
 After wiring `Const3And1_64` into the atom simplifier path, these additional focused gates passed:
 
-- `cargo test -p cobra-verify lean_cert -- --nocapture`
-- `cargo test -p cobra-verify lean_emit -- --nocapture`
-- `cargo test -p cobra-passes certified_atom_simplify_uses_theorem_for_constant_folding -- --nocapture`
-- `cargo test -p cobra-passes --test generated_lean_replay local_rewrite_theorem_matrix_replays_in_lean -- --nocapture`
-- `COBRA_LEAN_REPLAY=1 cargo test -p cobra-passes --test generated_lean_replay atom_simplifier_constant_fold_generated_certificate_replays_in_lean -- --nocapture`
-- `COBRA_LEAN_REPLAY=1 cargo test -p cobra-passes --test generated_lean_replay local_rewrite_theorem_matrix_replays_in_lean -- --nocapture`
-- `cargo test -p cobra-passes --test generated_lean_replay lean_theorem_exports_replays_in_lean -- --nocapture`
-- `cargo test -p cobra-passes proof_coverage -- --nocapture`
+- `cargo test lean_cert -- --nocapture`
+- `cargo test lean_emit -- --nocapture`
+- `cargo test certified_atom_simplify_uses_theorem_for_constant_folding -- --nocapture`
+- `cargo test --test generated_lean_replay local_rewrite_theorem_matrix_replays_in_lean -- --nocapture`
+- `COBRA_LEAN_REPLAY=1 cargo test --test generated_lean_replay atom_simplifier_constant_fold_generated_certificate_replays_in_lean -- --nocapture`
+- `COBRA_LEAN_REPLAY=1 cargo test --test generated_lean_replay local_rewrite_theorem_matrix_replays_in_lean -- --nocapture`
+- `cargo test --test generated_lean_replay lean_theorem_exports_replays_in_lean -- --nocapture`
+- `cargo test proof_coverage -- --nocapture`
 - `cargo fmt --all -- --check`
 
 After wiring `DemorganNotOrNotNot64` into the pattern matcher path, these additional focused gates passed:
 
-- `cargo test -p cobra-verify lean_cert -- --nocapture`
-- `cargo test -p cobra-verify lean_emit -- --nocapture`
-- `cargo test -p cobra-passes --test generated_lean_replay pattern_matcher_demorgan_table_theorem_replays_in_lean -- --nocapture`
-- `COBRA_LEAN_REPLAY=1 cargo test -p cobra-passes --test generated_lean_replay pattern_matcher_demorgan_table_theorem_replays_in_lean -- --nocapture`
-- `COBRA_LEAN_REPLAY=1 cargo test -p cobra-passes --test generated_lean_replay local_rewrite_theorem_matrix_replays_in_lean -- --nocapture`
-- `cargo test -p cobra-passes --test generated_lean_replay lean_theorem_exports_replays_in_lean -- --nocapture`
-- `cargo test -p cobra-passes proof_coverage -- --nocapture`
+- `cargo test lean_cert -- --nocapture`
+- `cargo test lean_emit -- --nocapture`
+- `cargo test --test generated_lean_replay pattern_matcher_demorgan_table_theorem_replays_in_lean -- --nocapture`
+- `COBRA_LEAN_REPLAY=1 cargo test --test generated_lean_replay pattern_matcher_demorgan_table_theorem_replays_in_lean -- --nocapture`
+- `COBRA_LEAN_REPLAY=1 cargo test --test generated_lean_replay local_rewrite_theorem_matrix_replays_in_lean -- --nocapture`
+- `cargo test --test generated_lean_replay lean_theorem_exports_replays_in_lean -- --nocapture`
+- `cargo test proof_coverage -- --nocapture`
 - `cargo fmt --all -- --check`
-- `cargo check --workspace --all-targets`
+- `cargo check --all-targets`
 - `lake build`
 - placeholder scan for incomplete-proof markers in Lean/Rust sources
 
 After wiring `DemorganNotAndNotNot64` into the pattern matcher path, these additional focused gates passed:
 
-- `cargo test -p cobra-verify lean_cert -- --nocapture`
-- `cargo test -p cobra-verify lean_emit -- --nocapture`
-- `cargo test -p cobra-passes --test generated_lean_replay pattern_matcher_demorgan_dual_table_theorem_replays_in_lean -- --nocapture`
-- `COBRA_LEAN_REPLAY=1 cargo test -p cobra-passes --test generated_lean_replay pattern_matcher_demorgan_dual_table_theorem_replays_in_lean -- --nocapture`
-- `COBRA_LEAN_REPLAY=1 cargo test -p cobra-passes --test generated_lean_replay local_rewrite_theorem_matrix_replays_in_lean -- --nocapture`
-- `cargo test -p cobra-passes --test generated_lean_replay lean_theorem_exports_replays_in_lean -- --nocapture`
-- `cargo test -p cobra-passes proof_coverage -- --nocapture`
+- `cargo test lean_cert -- --nocapture`
+- `cargo test lean_emit -- --nocapture`
+- `cargo test --test generated_lean_replay pattern_matcher_demorgan_dual_table_theorem_replays_in_lean -- --nocapture`
+- `COBRA_LEAN_REPLAY=1 cargo test --test generated_lean_replay pattern_matcher_demorgan_dual_table_theorem_replays_in_lean -- --nocapture`
+- `COBRA_LEAN_REPLAY=1 cargo test --test generated_lean_replay local_rewrite_theorem_matrix_replays_in_lean -- --nocapture`
+- `cargo test --test generated_lean_replay lean_theorem_exports_replays_in_lean -- --nocapture`
+- `cargo test proof_coverage -- --nocapture`
 - `cargo fmt --all -- --check`
-- `cargo check --workspace --all-targets`
+- `cargo check --all-targets`
 - `lake build`
 - placeholder scan for incomplete-proof markers in Lean/Rust sources
 
@@ -184,9 +184,9 @@ This handoff file is also untracked unless it has been added by the next owner.
 
 ```powershell
 rg -n "LeanCertificate::new\(|emit_bv_decide_certificate|try bv_decide|steps\.is_empty\(" crates formal
-cargo test -p cobra-passes proof_coverage -- --nocapture
-cargo test -p cobra-passes --test generated_lean_replay -- --nocapture
-$env:COBRA_LEAN_REPLAY='1'; cargo test -p cobra-passes --test generated_lean_replay -- --nocapture
+cargo test proof_coverage -- --nocapture
+cargo test --test generated_lean_replay -- --nocapture
+$env:COBRA_LEAN_REPLAY='1'; cargo test --test generated_lean_replay -- --nocapture
 Push-Location formal/lean; lake build; Pop-Location
 ```
 

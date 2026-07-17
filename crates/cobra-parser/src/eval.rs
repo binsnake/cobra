@@ -4,12 +4,12 @@
 //! The sweep path avoids allocating the `Expr` tree — useful when you only
 //! need the signature (e.g., dataset harness hot paths). Stays byte-for-
 
-use cobra_core::arith::bitmask;
-use cobra_core::result::{err, CobraError, Result};
+use crate::core::arith::bitmask;
+use crate::core::result::{err, CobraError, Result};
 
-use crate::ast::MAX_VARIABLES;
-use crate::postfix::{collect_sorted_vars, to_postfix, validate_shifts_and_exponents};
-use crate::token::{tokenize, TokenType};
+use crate::parser::ast::MAX_VARIABLES;
+use crate::parser::postfix::{collect_sorted_vars, to_postfix, validate_shifts_and_exponents};
+use crate::parser::token::{tokenize, TokenType};
 
 #[derive(Clone, Debug)]
 pub struct ParseResult {

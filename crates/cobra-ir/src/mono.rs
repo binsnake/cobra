@@ -5,7 +5,7 @@
 
 use std::hash::{Hash, Hasher};
 
-use crate::math_utils::twos_in_factorial;
+use crate::ir::math_utils::twos_in_factorial;
 
 /// `cobra::kMaxPolyVars`.
 pub const MAX_POLY_VARS: usize = 20;

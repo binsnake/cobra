@@ -11,14 +11,14 @@
 //! The harness is deliberately small — dataset streaming and the
 //! sweep binary live on top of this library.
 
-use cobra_core::evaluator::Evaluator;
-use cobra_core::expr::Expr;
-use cobra_core::expr_rewrite::try_build_var_support;
-use cobra_core::expr_utils::remap_var_indices;
-use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
+use crate::core::evaluator::Evaluator;
+use crate::core::expr::Expr;
+use crate::core::expr_rewrite::try_build_var_support;
+use crate::core::expr_utils::remap_var_indices;
+use crate::core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
-use cobra_parser::parse_to_ast;
-use cobra_passes::{full_width_check_eval, simplify_expr};
+use crate::parser::parse_to_ast;
+use crate::passes::{full_width_check_eval, simplify_expr};
 
 #[derive(Clone, Debug)]
 pub struct Case {

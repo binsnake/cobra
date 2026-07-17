@@ -13,11 +13,11 @@
 //! The residual captures the pure-bitwise remainder that the caller
 //! assembles alongside the poly expression.
 
-use cobra_core::arith::bitmask;
-use cobra_core::result::{err, CobraError, Result};
+use crate::core::arith::bitmask;
+use crate::core::result::{err, CobraError, Result};
 
-use crate::mono::{MonomialKey, MAX_POLY_VARS};
-use crate::poly::{Coeff, CoeffMap, PolyIR};
+use crate::ir::mono::{MonomialKey, MAX_POLY_VARS};
+use crate::ir::poly::{Coeff, CoeffMap, PolyIR};
 
 pub struct LoweringResult {
     pub poly: PolyIR,

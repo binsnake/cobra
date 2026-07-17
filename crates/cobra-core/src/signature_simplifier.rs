@@ -3,10 +3,10 @@
 //! This mirrors upstream `SignatureSimplifier.h`: a small payload/context
 //! surface plus the Boolean-valued signature predicate.
 
-use crate::evaluator::Evaluator;
-use crate::expr::Expr;
-use crate::expr_cost::ExprCost;
-use crate::pass_contract::VerificationState;
+use crate::core::evaluator::Evaluator;
+use crate::core::expr::Expr;
+use crate::core::expr_cost::ExprCost;
+use crate::core::pass_contract::VerificationState;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -44,7 +44,7 @@ pub fn is_boolean_valued(sig: &[u64]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::expr::Kind;
+    use crate::core::expr::Kind;
 
     #[test]
     fn boolean_valued_accepts_only_zero_and_one() {

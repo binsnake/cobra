@@ -2,15 +2,15 @@
 //! applicable pass for a given work item, honouring the per-item
 //! attempted-mask, the global pass-attempt cache, and prerequisite
 
-use cobra_core::classification::{
+use crate::core::classification::{
     is_folded_ast_exploration_candidate, SemanticClass, StructuralFlag,
 };
 
-use crate::attempt_cache::PassAttemptCache;
-use crate::context::OrchestratorPolicy;
-use crate::enums::{PassId, Provenance, RemainderOrigin, StateKind};
-use crate::state::StateData;
-use crate::work_item::WorkItem;
+use crate::orchestrator::attempt_cache::PassAttemptCache;
+use crate::orchestrator::context::OrchestratorPolicy;
+use crate::orchestrator::enums::{PassId, Provenance, RemainderOrigin, StateKind};
+use crate::orchestrator::state::StateData;
+use crate::orchestrator::work_item::WorkItem;
 
 /// Shorthand for "which bit does this `PassId` occupy in
 /// `WorkItem::attempted_mask`?".
@@ -388,7 +388,7 @@ pub fn select_next_pass(
 fn eligible(
     item: &WorkItem,
     cache: &PassAttemptCache,
-    fp: &crate::work_item::StateFingerprint,
+    fp: &crate::orchestrator::work_item::StateFingerprint,
     pass: PassId,
 ) -> bool {
     !item.has_attempted(pass) && !cache.has_attempted(fp, pass)
@@ -399,13 +399,13 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::state::RemainderTargetContext;
-    use crate::state::{AstPayload, CandidatePayload, RemainderStatePayload};
-    use crate::stubs::EliminationResult;
-    use cobra_core::classification::{Classification, SemanticClass, StructuralFlag};
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Expr;
-    use cobra_core::expr_cost::ExprCost;
+    use crate::core::classification::{Classification, SemanticClass, StructuralFlag};
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Expr;
+    use crate::core::expr_cost::ExprCost;
+    use crate::orchestrator::state::RemainderTargetContext;
+    use crate::orchestrator::state::{AstPayload, CandidatePayload, RemainderStatePayload};
+    use crate::orchestrator::stubs::EliminationResult;
 
     fn policy() -> OrchestratorPolicy {
         OrchestratorPolicy::default()

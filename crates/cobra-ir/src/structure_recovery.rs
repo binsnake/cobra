@@ -16,10 +16,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use cobra_core::arith::{bitmask, mod_neg};
-use cobra_core::expr::{Expr, Kind};
+use crate::core::arith::{bitmask, mod_neg};
+use crate::core::expr::{Expr, Kind};
 
-use crate::semilinear::{
+use crate::ir::semilinear::{
     create_atom, decompose_atom, structural_hash, AtomId, OperatorFamily, SemilinearIR,
     WeightedAtom,
 };
@@ -543,7 +543,7 @@ pub fn flatten_complex_atoms(ir: &mut SemilinearIR) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::normalize_to_semilinear;
+    use crate::ir::normalize_to_semilinear;
 
     #[test]
     fn recover_structure_handles_xor_pair() {

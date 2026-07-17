@@ -10,8 +10,8 @@ use std::time::Instant;
 
 use clap::Parser;
 
-use cobra_core::is_valid_bitwidth;
-use cobra_testkit::{parse_dataset, run_case, CaseKind, CaseReport, Report};
+use cobra::core::is_valid_bitwidth;
+use cobra::testkit::{parse_dataset, run_case, CaseKind, CaseReport, Report};
 
 const SWEEP_STACK_SIZE: usize = 64 * 1024 * 1024;
 

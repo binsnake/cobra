@@ -1,16 +1,16 @@
 //! Orchestrator-wide context: policy, telemetry, run metadata, and the
 //! two mutable registries (competition groups + join states) that
 
-use cobra_core::classification::Classification;
-use cobra_core::evaluator::Evaluator;
-use cobra_core::pass_contract::ReasonDetail;
-use cobra_core::simplify_outcome::Options;
+use crate::core::classification::Classification;
+use crate::core::evaluator::Evaluator;
+use crate::core::pass_contract::ReasonDetail;
+use crate::core::simplify_outcome::Options;
 use std::sync::Arc;
 
-use crate::competition::GroupMap;
-use crate::continuation::{GroupId, JoinId};
-use crate::enums::PassId;
-use crate::join::JoinMap;
+use crate::orchestrator::competition::GroupMap;
+use crate::orchestrator::continuation::{GroupId, JoinId};
+use crate::orchestrator::enums::PassId;
+use crate::orchestrator::join::JoinMap;
 
 /// `OrchestratorPolicy`.
 #[derive(Copy, Clone, Debug)]
@@ -53,7 +53,7 @@ pub struct RunMetadata {
 pub struct OrchestratorContext {
     pub opts: Options,
     pub original_vars: Vec<String>,
-    pub original_expr: Option<Arc<cobra_core::expr::Expr>>,
+    pub original_expr: Option<Arc<crate::core::expr::Expr>>,
     pub evaluator: Option<Evaluator>,
     pub bitwidth: u32,
     pub run_metadata: RunMetadata,
@@ -122,7 +122,7 @@ pub fn determinism_seeds_ahash() -> ahash::RandomState {
 /// that stash a hash for later comparison are guaranteed to agree with
 /// `replace_by_hash`.
 #[must_use]
-pub fn expr_identity_hash(expr: &cobra_core::expr::Expr) -> u64 {
+pub fn expr_identity_hash(expr: &crate::core::expr::Expr) -> u64 {
     // `ahash::RandomState` is cached in a `OnceLock` so we build it once
     // per process. The deterministic seeds mean the cached instance is
     // equivalent to a freshly-built one, preserving hash stability.

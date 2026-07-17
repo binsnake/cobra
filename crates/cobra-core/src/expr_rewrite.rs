@@ -1,4 +1,4 @@
-//! already in [`crate::expr_utils`].
+//! already in [`crate::core::expr_utils`].
 
 // `std::unique_ptr<Expr>`. The flatten/rebuild helpers below keep trees in
 // their boxed form to avoid deep copies when reshuffling nodes.
@@ -7,9 +7,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::arith::{bitmask, mod_add};
-use crate::expr::{Expr, Kind};
-use crate::expr_utils::{eval_constant, has_var_dep, is_constant_subtree};
+use crate::core::arith::{bitmask, mod_add};
+use crate::core::expr::{Expr, Kind};
+use crate::core::expr_utils::{eval_constant, has_var_dep, is_constant_subtree};
 
 /// Build a left-leaning `And` product from the variables whose bit is set
 /// expected to handle this case).
@@ -400,7 +400,7 @@ mod tests {
     use super::*;
 
     fn eval_at(expr: &Expr, vals: &[u64], bitwidth: u32) -> u64 {
-        use crate::compiled::{compile, eval};
+        use crate::core::compiled::{compile, eval};
         let c = compile(expr, bitwidth);
         let mut stack = Vec::new();
         eval(&c, vals, &mut stack)

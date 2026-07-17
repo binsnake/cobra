@@ -10,18 +10,18 @@
 //! `SignatureState` child that the scheduler routes through the
 //! signature-pipeline passes.
 
-use cobra_core::pass_contract::{
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     acquire_handle, create_group, ContinuationData, ItemDisposition, OrchestratorContext,
     PassDecision, PassResult, RemainderRecombineCont, SignatureStatePayload,
     SignatureSubproblemContext, StateData, WorkItem,
 };
 
-use crate::aux_var::eliminate_aux_vars;
+use crate::passes::aux_var::eliminate_aux_vars;
 
 const RESIDUAL_FAILED: u16 = 1;
 
@@ -72,7 +72,7 @@ pub fn run_residual_supported(
     }
 
     let original_indices =
-        cobra_core::expr_rewrite::build_var_support(&target_vars, &elim.real_vars);
+        crate::core::expr_rewrite::build_var_support(&target_vars, &elim.real_vars);
 
     let parent_group_id = item.group_id;
     if let Some(pid) = parent_group_id {
@@ -144,10 +144,10 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use cobra_core::evaluator::Evaluator;
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::{EliminationResult, RemainderStatePayload, RemainderTargetContext};
+    use crate::core::evaluator::Evaluator;
+    use crate::core::expr::Expr;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{EliminationResult, RemainderStatePayload, RemainderTargetContext};
 
     fn mk_remainder_item(
         vars: Vec<String>,
@@ -161,7 +161,7 @@ mod tests {
             spurious_vars: Vec::new(),
         };
         let payload = RemainderStatePayload {
-            origin: cobra_orchestrator::RemainderOrigin::DirectBooleanNull,
+            origin: crate::orchestrator::RemainderOrigin::DirectBooleanNull,
             prefix_expr: prefix,
             prefix_degree: 0,
             remainder_eval: eval.clone(),
@@ -200,13 +200,18 @@ mod tests {
         let sig = vec![0u64, 1, 1, 0];
         let mut item =
             mk_remainder_item(vec!["x".into(), "y".into()], sig, Expr::constant(0), eval);
-        item.metadata.lean_certificate = Some(cobra_orchestrator::LeanCertificate::new(
+        item.metadata.lean_certificate = Some(crate::orchestrator::LeanCertificate::new(
             64,
             Expr::variable(0),
             Expr::variable(0),
         ));
         item.metadata.lean_signature_certificate =
-            cobra_orchestrator::LeanSignatureCertificate::new(64, 1, vec![0, 1], Expr::variable(0));
+            crate::orchestrator::LeanSignatureCertificate::new(
+                64,
+                1,
+                vec![0, 1],
+                Expr::variable(0),
+            );
 
         let pr = run_residual_supported(&item, &mut ctx).unwrap();
         assert_eq!(pr.decision, PassDecision::Advance);

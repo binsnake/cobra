@@ -4,14 +4,14 @@
 //! `ctx.run_metadata.input_classification` for later passes to
 //! consult.
 
-use cobra_core::pass_contract::ReasonDetail;
-use cobra_core::result::Result;
+use crate::core::pass_contract::ReasonDetail;
+use crate::core::result::Result;
 
-use cobra_orchestrator::{
+use crate::orchestrator::{
     AstPayload, ItemDisposition, OrchestratorContext, PassDecision, PassResult, StateData, WorkItem,
 };
 
-use crate::classifier::classify_structural;
+use crate::passes::classifier::classify_structural;
 
 #[allow(clippy::unnecessary_wraps)] // `PassFn` signature requires `Result`
 pub fn run_classify_ast(item: &WorkItem, ctx: &mut OrchestratorContext) -> Result<PassResult> {
@@ -57,10 +57,10 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use cobra_core::classification::{SemanticClass, StructuralFlag};
-    use cobra_core::expr::Expr;
-    use cobra_core::simplify_outcome::Options;
-    use cobra_orchestrator::Provenance;
+    use crate::core::classification::{SemanticClass, StructuralFlag};
+    use crate::core::expr::Expr;
+    use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::Provenance;
 
     fn mk_ast_item(e: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
@@ -94,8 +94,8 @@ mod tests {
 
     #[test]
     fn classify_noop_on_non_ast_payload() {
-        use cobra_core::expr_cost::ExprCost;
-        use cobra_orchestrator::{CandidatePayload, PassId};
+        use crate::core::expr_cost::ExprCost;
+        use crate::orchestrator::{CandidatePayload, PassId};
 
         let mut ctx = OrchestratorContext::new(Options::default(), vec![], 64);
         let item = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {

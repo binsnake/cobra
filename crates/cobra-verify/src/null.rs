@@ -1,9 +1,9 @@
 //! Fallback verifier that always returns [`VerifyOutcome::Unverified`].
 //! Used when the `z3` feature is disabled.
 
-use cobra_core::expr::Expr;
+use crate::core::expr::Expr;
 
-use crate::{Verifier, VerifyOpts, VerifyOutcome};
+use crate::verify::{Verifier, VerifyOpts, VerifyOutcome};
 
 /// hard proof must run a real backend.
 #[derive(Copy, Clone, Debug, Default)]

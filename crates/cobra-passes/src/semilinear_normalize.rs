@@ -11,14 +11,14 @@
 //! `NotApplicable` with `ConsumeCurrent` disposition so the item moves
 //! on to other techniques.
 
-use cobra_core::classification::SemanticClass;
-use cobra_core::pass_contract::{
+use crate::core::classification::SemanticClass;
+use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
 };
-use cobra_core::result::Result;
+use crate::core::result::Result;
 
-use cobra_ir::{is_linear_shortcut, normalize_to_semilinear};
-use cobra_orchestrator::{
+use crate::ir::{is_linear_shortcut, normalize_to_semilinear};
+use crate::orchestrator::{
     ItemDisposition, NormalizedSemilinearPayload, OrchestratorContext, PassDecision, PassResult,
     Provenance, SemilinearContext, StateData, WorkItem,
 };

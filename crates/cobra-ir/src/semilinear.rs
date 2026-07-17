@@ -9,10 +9,10 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use cobra_core::arith::bitmask;
-use cobra_core::expr::{Expr, Kind};
-use cobra_core::expr_utils::{collect_vars, eval_constant, is_constant_subtree};
-use cobra_core::width::is_uniform_width;
+use crate::core::arith::bitmask;
+use crate::core::expr::{Expr, Kind};
+use crate::core::expr_utils::{collect_vars, eval_constant, is_constant_subtree};
+use crate::core::width::is_uniform_width;
 
 /// Stable index into `SemilinearIR::atom_table`.
 pub type AtomId = u32;

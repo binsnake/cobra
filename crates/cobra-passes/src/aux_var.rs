@@ -11,10 +11,10 @@
 //!   full-width probe via the caller's evaluator. Variables that
 //!   toggle the output at any random sample are promoted back to
 
-use cobra_core::arith::bitmask;
-use cobra_core::evaluator::Evaluator;
+use crate::core::arith::bitmask;
+use crate::core::evaluator::Evaluator;
 
-use cobra_orchestrator::EliminationResult;
+use crate::orchestrator::EliminationResult;
 
 /// True if toggling `var_bit` never changes any paired entry of `sig`.
 /// For every assignment `i` with bit `var_bit` cleared, compare with
@@ -204,8 +204,8 @@ fn extract_live_entries(sig: &[u64], live_mask: u64, num_vars: u32) -> Vec<u64> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobra_core::evaluate_boolean_signature;
-    use cobra_core::expr::Expr;
+    use crate::core::evaluate_boolean_signature;
+    use crate::core::expr::Expr;
 
     fn names(n: usize) -> Vec<String> {
         ('a'..).take(n).map(|c| c.to_string()).collect()

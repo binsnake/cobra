@@ -1,4 +1,4 @@
-//! `cobra` — CLI driver around the simplifier pipeline.
+//! `cobra-cli` — CLI driver around the simplifier pipeline.
 //!
 //! Parses an MBA expression, runs the orchestrator, and prints either
 //! the simplified form (with `Verified` / `Unverified` status) or a
@@ -10,22 +10,18 @@ use std::thread;
 
 use clap::Parser;
 
-use cobra_core::expr::{render, Expr};
-use cobra_core::expr_rewrite::build_var_support;
-use cobra_core::expr_utils::remap_var_indices;
-use cobra_core::is_valid_bitwidth;
-use cobra_core::simplify_outcome::{Options, SimplifyOutcomeKind};
-
-use cobra_parser::parse_to_ast;
-use cobra_passes::simplify_expr;
 #[cfg(feature = "z3")]
-use cobra_verify::{Verifier, VerifyOpts, VerifyOutcome, Z3Verifier};
+use cobra::verify::{Verifier, VerifyOpts, VerifyOutcome, Z3Verifier};
+use cobra::{
+    build_var_support, is_valid_bitwidth, parse_to_ast, remap_var_indices, render, simplify_expr,
+    Expr, Options, SimplifyOutcomeKind,
+};
 
 const CLI_STACK_SIZE: usize = 64 * 1024 * 1024;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "cobra",
+    name = "cobra-cli",
     version,
     about = "CoBRA-rs: parse, simplify, and (optionally) verify an MBA expression"
 )]

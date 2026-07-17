@@ -1,11 +1,13 @@
 //! Boost-style `hash_combine` for structural hashing, keeping the exact
 //! same mix constants for structural consistency across hash computations.
 
-use cobra_ir::semilinear::SemilinearIR;
+use crate::ir::semilinear::SemilinearIR;
 
-use crate::context::expr_identity_hash;
-use crate::state::StateData;
-use crate::work_item::{SemilinearFingerprintKey, SemilinearTermKey, StateFingerprint, WorkItem};
+use crate::orchestrator::context::expr_identity_hash;
+use crate::orchestrator::state::StateData;
+use crate::orchestrator::work_item::{
+    SemilinearFingerprintKey, SemilinearTermKey, StateFingerprint, WorkItem,
+};
 
 /// Boost-style hash combination: structurally identical inputs produce identical combined hashes.
 #[inline]
@@ -204,7 +206,7 @@ fn hash_string(s: &str) -> u64 {
     use std::sync::OnceLock;
     static STATE: OnceLock<ahash::RandomState> = OnceLock::new();
     STATE
-        .get_or_init(crate::context::determinism_seeds_ahash)
+        .get_or_init(crate::orchestrator::context::determinism_seeds_ahash)
         .hash_one(s)
 }
 
@@ -224,10 +226,10 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::enums::{Provenance, StateKind};
-    use crate::state::{AstPayload, CandidatePayload, CompetitionResolvedPayload};
-    use cobra_core::expr::Expr;
-    use cobra_core::expr_cost::ExprCost;
+    use crate::core::expr::Expr;
+    use crate::core::expr_cost::ExprCost;
+    use crate::orchestrator::enums::{Provenance, StateKind};
+    use crate::orchestrator::state::{AstPayload, CandidatePayload, CompetitionResolvedPayload};
 
     fn mk_ast_item(expr: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
@@ -269,7 +271,7 @@ mod tests {
             expr: Expr::variable(0),
             real_vars: vec!["x".into(), "y".into()],
             cost: ExprCost::default(),
-            producing_pass: crate::enums::PassId::VerifyCandidate,
+            producing_pass: crate::orchestrator::enums::PassId::VerifyCandidate,
             needs_original_space_verification: true,
         })));
         let fp = compute_fingerprint(&item, 64);
@@ -281,7 +283,7 @@ mod tests {
             expr: Expr::variable(0),
             real_vars: vec!["a".into(), "b".into()],
             cost: ExprCost::default(),
-            producing_pass: crate::enums::PassId::VerifyCandidate,
+            producing_pass: crate::orchestrator::enums::PassId::VerifyCandidate,
             needs_original_space_verification: true,
         })));
         let fp2 = compute_fingerprint(&other, 64);
@@ -324,7 +326,7 @@ mod tests {
 
     #[test]
     fn semilinear_fingerprint_key_sorts_terms() {
-        use cobra_ir::semilinear::{create_atom, OperatorFamily, SemilinearIR, WeightedAtom};
+        use crate::ir::semilinear::{create_atom, OperatorFamily, SemilinearIR, WeightedAtom};
 
         let mut ir = SemilinearIR {
             bitwidth: 8,
@@ -352,7 +354,7 @@ mod tests {
 
     #[test]
     fn semilinear_fingerprint_key_order_independent() {
-        use cobra_ir::semilinear::{create_atom, OperatorFamily, SemilinearIR, WeightedAtom};
+        use crate::ir::semilinear::{create_atom, OperatorFamily, SemilinearIR, WeightedAtom};
 
         let mut ir_a = SemilinearIR {
             bitwidth: 8,

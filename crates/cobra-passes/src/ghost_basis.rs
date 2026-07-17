@@ -6,8 +6,8 @@
 //! recovery) and a builder that materialises it as an `Expr` tree
 //! given the variable indices to substitute.
 
-use cobra_core::arith::bitmask;
-use cobra_core::expr::Expr;
+use crate::core::arith::bitmask;
+use crate::core::expr::Expr;
 use std::sync::Arc;
 
 /// Evaluate the primitive at the given argument vector.
