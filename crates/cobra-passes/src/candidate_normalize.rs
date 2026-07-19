@@ -26,7 +26,13 @@ pub fn merge_certificate(
 
 #[must_use]
 pub fn normalize_candidate_record(mut record: CandidateRecord, bitwidth: u32) -> CandidateRecord {
+    let before = record.expr.clone_tree();
     record.expr = normalize_late_candidate_expr(record.expr, bitwidth);
+    if *record.expr != *before {
+        record.verification = VerificationState::Unverified;
+        record.needs_original_space_verification = true;
+        record.lean_certificate = None;
+    }
     record.cost = compute_cost(&record.expr).cost;
     record.lean_signature_certificate = signature_certificate_for_candidate(
         bitwidth,
@@ -78,6 +84,32 @@ mod tests {
 
         let stale = signature_certificate_for_candidate(64, &[1, 0], &vars, &Expr::variable(0));
         assert!(stale.is_none());
+    }
+
+    #[test]
+    fn changed_candidate_invalidates_expression_bound_verification() {
+        let expr = Expr::add(Expr::variable(0), Expr::constant(0));
+        let record = CandidateRecord {
+            expr: expr.clone_tree(),
+            cost: compute_cost(&expr).cost,
+            verification: VerificationState::Verified,
+            real_vars: vec!["x".to_owned()],
+            source_pass: crate::orchestrator::PassId::SignaturePatternMatch,
+            needs_original_space_verification: false,
+            sig_vector: vec![0, 1],
+            lean_certificate: Some(LeanCertificate {
+                bitwidth: 64,
+                original: expr.clone_tree(),
+                simplified: expr,
+                steps: Vec::new(),
+            }),
+            lean_signature_certificate: None,
+        };
+
+        let normalized = normalize_candidate_record(record, 64);
+        assert_eq!(normalized.verification, VerificationState::Unverified);
+        assert!(normalized.needs_original_space_verification);
+        assert!(normalized.lean_certificate.is_none());
     }
 
     #[test]

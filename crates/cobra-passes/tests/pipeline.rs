@@ -139,8 +139,7 @@ fn registry_contains_expected_passes() {
 /// the full pipeline, expect a Simplified outcome whose expression is
 /// `Xor(Variable(0), Variable(1))`.
 #[test]
-fn pipeline_simplifies_xor_via_pattern_match() {
-    use cobra::core::expr::Kind;
+fn pipeline_keeps_xor_when_no_changed_endpoint_proof_is_needed() {
     use cobra::core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
     let parsed = parse_to_ast("x ^ y", 64).unwrap();
@@ -166,14 +165,10 @@ fn pipeline_simplifies_xor_via_pattern_match() {
     )
     .unwrap();
 
-    assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    assert_eq!(
-        outcome.verified,
-        outcome.proof_level == cobra::core::simplify_outcome::ProofLevel::LeanCertified
-    );
+    assert_eq!(outcome.kind, SimplifyOutcomeKind::UnchangedUnsupported);
+    assert!(!outcome.verified);
     assert_eq!(outcome.real_vars, vec!["x".to_owned(), "y".to_owned()]);
-    let expr = outcome.expr.expect("simplified expression");
-    assert!(matches!(expr.kind, Kind::Xor));
+    assert_eq!(outcome.expr.as_deref(), Some(parsed.expr.as_ref()));
     assert!(outcome.telemetry.candidates_verified >= 1);
 }
 
@@ -181,8 +176,7 @@ fn pipeline_simplifies_xor_via_pattern_match() {
 /// the same affine form. Public verification is reported only when the
 /// result carries Lean-certified evidence.
 #[test]
-fn pipeline_simplifies_scaled_boolean_xor() {
-    use cobra::core::expr::Kind;
+fn pipeline_rejects_unproved_scaled_boolean_xor_candidate() {
     use cobra::core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
     let parsed = parse_to_ast("5 + 2 * (x ^ y)", 64).unwrap();
@@ -212,25 +206,15 @@ fn pipeline_simplifies_scaled_boolean_xor() {
     )
     .unwrap();
 
-    assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    assert_eq!(
-        outcome.verified,
-        outcome.proof_level == cobra::core::simplify_outcome::ProofLevel::LeanCertified
-    );
-    let expr = outcome.expr.expect("simplified expression");
-    // Either Add(5, Mul(2, Xor)) directly, or potentially a tree the
-    // cleanup pass canonicalised — assert via signature equivalence to
-    // shield against later cleanup-rule changes.
-    let actual_sig = cobra::core::evaluate_boolean_signature(&expr, 2, 64);
-    let expected_sig = vec![5u64, 7, 7, 5];
-    assert_eq!(actual_sig, expected_sig);
-    assert!(matches!(expr.kind, Kind::Add | Kind::Mul));
+    assert_eq!(outcome.kind, SimplifyOutcomeKind::UnchangedUnsupported);
+    assert!(!outcome.verified);
+    assert_eq!(outcome.expr.as_deref(), Some(parsed.expr.as_ref()));
 }
 
-/// Pattern matcher recovers a constant from a constant signature.
+/// A constant-signature candidate without an exact endpoint proof is rejected.
 #[test]
-fn pipeline_simplifies_constant() {
-    use cobra::core::expr::{Expr, Kind};
+fn pipeline_rejects_unproved_constant_signature_candidate() {
+    use cobra::core::expr::Expr;
     use cobra::core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
     // 7 & 14 = 6 — no variables; sig = [6].
@@ -254,9 +238,9 @@ fn pipeline_simplifies_constant() {
     )
     .unwrap();
 
-    assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    let simplified = outcome.expr.expect("simplified expression");
-    assert!(matches!(simplified.kind, Kind::Constant(6)));
+    assert_eq!(outcome.kind, SimplifyOutcomeKind::UnchangedUnsupported);
+    assert!(!outcome.verified);
+    assert_eq!(outcome.expr.as_deref(), Some(expr.as_ref()));
 }
 
 /// Canonical README MBA: `(x & y) + (x | y)` must collapse to `x + y`
@@ -322,8 +306,7 @@ fn pipeline_collapses_and_plus_or_to_add_via_pattern_sum() {
 /// `SignatureAnf` rescues a 3-variable Boolean MBA that the 2-var
 /// pattern-matcher and scaled-boolean lift both miss.
 #[test]
-fn pipeline_simplifies_three_var_xor_via_anf() {
-    use cobra::core::expr::Kind;
+fn pipeline_rejects_unproved_three_var_anf_candidate() {
     use cobra::core::simplify_outcome::{Options, SimplifyOutcomeKind};
 
     let parsed = parse_to_ast("x ^ y ^ z", 64).unwrap();
@@ -349,19 +332,9 @@ fn pipeline_simplifies_three_var_xor_via_anf() {
     )
     .unwrap();
 
-    assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    assert_eq!(
-        outcome.verified,
-        outcome.proof_level == cobra::core::simplify_outcome::ProofLevel::LeanCertified
-    );
-    let expr = outcome.expr.expect("simplified expression");
-    // `x ^ y ^ z` — some XOR tree at the top. ANF build yields a
-    // left-associative XOR chain.
-    assert!(matches!(expr.kind, Kind::Xor));
-    // Signature of the simplified expression must equal the input's.
-    let sig_in = cobra::core::evaluate_boolean_signature(&parsed.expr, 3, 64);
-    let sig_out = cobra::core::evaluate_boolean_signature(&expr, 3, 64);
-    assert_eq!(sig_in, sig_out);
+    assert_eq!(outcome.kind, SimplifyOutcomeKind::UnchangedUnsupported);
+    assert!(!outcome.verified);
+    assert_eq!(outcome.expr.as_deref(), Some(parsed.expr.as_ref()));
 }
 
 /// Feed "x + y" through seeding + scheduler. No signature-technique

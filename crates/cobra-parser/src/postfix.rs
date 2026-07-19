@@ -6,6 +6,8 @@ use crate::core::result::{err, CobraError, Result};
 
 use crate::parser::token::{Token, TokenType};
 
+pub const MAX_EXPONENT: u64 = 4096;
+
 /// a new operator pops from the stack while the top is an operator and
 /// either (tok is right-assoc and top's prec < tok's prec) or (tok is
 /// left-assoc and top's prec <= tok's prec).
@@ -93,10 +95,20 @@ pub fn validate_shifts_and_exponents(postfix: &[Token], bitwidth: u32) -> Result
                     .get(i.wrapping_sub(1))
                     .filter(|_| i > 0)
                     .filter(|p| p.ty == TokenType::Number);
-                if prev.is_none() {
+                let Some(p) = prev else {
                     return Err(err(
                         CobraError::ParseError,
                         "unsupported: exponent must be an integer literal",
+                    ));
+                };
+                let exponent: u64 = p
+                    .value
+                    .parse()
+                    .map_err(|_| err(CobraError::ParseError, "invalid exponent literal"))?;
+                if exponent > MAX_EXPONENT {
+                    return Err(err(
+                        CobraError::ParseError,
+                        format!("exponent {exponent} exceeds limit {MAX_EXPONENT}"),
                     ));
                 }
             }
@@ -197,6 +209,14 @@ mod tests {
         let post = to_postfix(&toks).unwrap();
         let e = validate_shifts_and_exponents(&post, 64).unwrap_err();
         assert!(e.message.contains("exponent must be"));
+    }
+
+    #[test]
+    fn validate_exponent_rejects_oversized_literal() {
+        let toks = tokenize("a ** 4097").unwrap();
+        let post = to_postfix(&toks).unwrap();
+        let e = validate_shifts_and_exponents(&post, 64).unwrap_err();
+        assert!(e.message.contains("exceeds limit"));
     }
 
     #[test]

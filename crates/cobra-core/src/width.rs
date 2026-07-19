@@ -21,14 +21,23 @@ use crate::core::result::{err, CobraError, Result};
 /// `default_w`. `Constant` also takes `default_w` (the context width).
 #[must_use]
 pub fn width_of(expr: &Expr, var_widths: &[u32], default_w: u32) -> u32 {
-    match &expr.kind {
+    checked_width_of(expr, var_widths, default_w).unwrap_or(0)
+}
+
+/// Fallible result-width query for untrusted expression trees.
+pub fn checked_width_of(expr: &Expr, var_widths: &[u32], default_w: u32) -> Result<u32> {
+    let width = match &expr.kind {
         Kind::Constant(_) => default_w,
         Kind::Variable(i) => var_widths.get(*i as usize).copied().unwrap_or(default_w),
         Kind::ZExt(w) | Kind::SExt(w) | Kind::Trunc(w) => *w,
-        Kind::Concat => {
-            width_of(&expr.children[0], var_widths, default_w)
-                + width_of(&expr.children[1], var_widths, default_w)
-        }
+        Kind::Concat => checked_width_of(&expr.children[0], var_widths, default_w)?
+            .checked_add(checked_width_of(&expr.children[1], var_widths, default_w)?)
+            .ok_or_else(|| {
+                err(
+                    CobraError::InvalidArgument,
+                    "concatenation width arithmetic overflow",
+                )
+            })?,
         // Same-width ops: inherit the (first) child's width.
         Kind::Not
         | Kind::Neg
@@ -37,8 +46,15 @@ pub fn width_of(expr: &Expr, var_widths: &[u32], default_w: u32) -> u32 {
         | Kind::Mul
         | Kind::And
         | Kind::Or
-        | Kind::Xor => width_of(&expr.children[0], var_widths, default_w),
+        | Kind::Xor => checked_width_of(&expr.children[0], var_widths, default_w)?,
+    };
+    if !(1..=64).contains(&width) {
+        return Err(err(
+            CobraError::InvalidArgument,
+            format!("unsupported expression width: {width}"),
+        ));
     }
+    Ok(width)
 }
 
 /// `true` iff `expr` is uniformly `w`-wide: no cast/`Concat` node anywhere and
@@ -69,14 +85,15 @@ pub fn is_uniform_width(expr: &Expr, var_widths: &[u32], w: u32) -> bool {
 /// any widths; casts are well-formed for any payload. Returns
 /// `CobraError::InvalidArgument` on the first mismatch.
 pub fn validate_widths(expr: &Expr, var_widths: &[u32], default_w: u32) -> Result<()> {
+    checked_width_of(expr, var_widths, default_w)?;
     for child in &expr.children {
         validate_widths(child, var_widths, default_w)?;
     }
     match &expr.kind {
         // Same-width binary: both operands must have equal width.
         Kind::Add | Kind::Mul | Kind::And | Kind::Or | Kind::Xor => {
-            let lw = width_of(&expr.children[0], var_widths, default_w);
-            let rw = width_of(&expr.children[1], var_widths, default_w);
+            let lw = checked_width_of(&expr.children[0], var_widths, default_w)?;
+            let rw = checked_width_of(&expr.children[1], var_widths, default_w)?;
             if lw != rw {
                 return Err(err(
                     CobraError::InvalidArgument,
@@ -130,6 +147,15 @@ mod tests {
         // zext(a,16) ++ trunc(b,4) -> 20
         let e = Expr::concat(Expr::zext(v(0), 16), Expr::trunc(v(1), 4));
         assert_eq!(width_of(&e, &[8, 8], 64), 20);
+    }
+
+    #[test]
+    fn checked_width_rejects_out_of_range_casts_and_concat() {
+        assert!(checked_width_of(&Expr::trunc(v(0), 0), &[64], 64).is_err());
+        assert!(checked_width_of(&Expr::zext(v(0), 65), &[64], 64).is_err());
+        let too_wide = Expr::concat(Expr::zext(v(0), 64), Expr::zext(v(1), 64));
+        assert!(checked_width_of(&too_wide, &[64, 64], 64).is_err());
+        assert_eq!(width_of(&too_wide, &[64, 64], 64), 0);
     }
 
     #[test]

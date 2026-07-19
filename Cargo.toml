@@ -11,9 +11,17 @@ keywords = ["bitvector", "mba", "simplifier", "deobfuscation"]
 categories = ["algorithms", "development-tools", "command-line-utilities"]
 publish = ["crates-io"]
 autobins = false
-# Local developer-only probes and Windows-reserved scratch entries are not
-# release artifacts.
-exclude = ["nul", "crates/cobra-testkit/src/bin/allocprobe.rs"]
+# Keep the immutable crates.io archive focused on the buildable Rust package.
+# In particular, omit the 40 MiB benchmark corpus and local development files.
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/LICENSE",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/crates/**/*.rs",
+    "/tools/parity/rust_main.rs",
+]
 
 [lib]
 name = "cobra"
@@ -29,6 +37,11 @@ path = "crates/cobra-cli/src/main.rs"
 [[bin]]
 name = "cobra-sweep"
 path = "crates/cobra-testkit/src/bin/sweep.rs"
+
+[[bin]]
+name = "cobra-parity-rust"
+path = "tools/parity/rust_main.rs"
+required-features = ["parity-tools"]
 
 [[test]]
 name = "main_loop"
@@ -60,6 +73,9 @@ default = ["simd"]
 simd = ["dep:wide"]
 # Enable the optional Z3 verifier backend. Z3 must be available to the linker.
 z3 = ["dep:z3"]
+# Build the local Rust/C++ parity runner. This is a developer tool rather than
+# part of the installed command-line surface.
+parity-tools = []
 
 [dependencies]
 # Exact pin: fixed-seed hashing (`RandomState::with_seeds`) must hash

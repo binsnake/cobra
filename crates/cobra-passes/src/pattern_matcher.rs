@@ -1,13 +1,7 @@
-//! Fast-path signature recognition. Maps known signature vectors back
-//! 1-variable / 2-variable Boolean arms of
-//!
-//! Higher-arity tables — 3-var Boolean (256 entries), 4-var NPN
-//! equivalence classes (an externally generated table), 5/6-var
-//! Shannon decomposition, and the scaled-boolean coefficient sweep —
-//! land in follow-up sessions. The current subset is enough to
-//! recognise constants, single-variable affine patterns (`a + k*x`),
-//! and every 2-variable Boolean function — which covers the bulk of
-//! the README's smaller MBA examples.
+//! Fast-path signature recognition. Maps known signature vectors back to
+//! constants, single-variable affine forms, complete two-/three-variable
+//! Boolean tables, four-variable NPN representatives, five-/six-variable
+//! Shannon decompositions, and scaled Boolean forms.
 
 use crate::core::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_sub};
 use crate::core::evaluate_boolean_signature;
@@ -1007,6 +1001,237 @@ fn is_constant_masked(expr: &Expr, target: u64, mask: u64) -> bool {
     matches!(expr.kind, Kind::Constant(v) if (v & mask) == (target & mask))
 }
 
+#[derive(Clone, Copy)]
+struct AdditiveTerm<'a> {
+    coeff: u64,
+    atom: &'a Expr,
+}
+
+/// Flatten an additive expression into modular coefficients plus a constant.
+/// Constant multipliers are folded into the coefficient so operands of an
+/// inclusion-exclusion identity may span several terms in the source tree.
+fn flatten_additive<'a>(
+    expr: &'a Expr,
+    coeff: u64,
+    bitwidth: u32,
+    terms: &mut Vec<AdditiveTerm<'a>>,
+    constant: &mut u64,
+) {
+    match &expr.kind {
+        Kind::Add => {
+            for child in &expr.children {
+                flatten_additive(child, coeff, bitwidth, terms, constant);
+            }
+        }
+        Kind::Neg => {
+            flatten_additive(
+                &expr.children[0],
+                mod_neg(coeff, bitwidth),
+                bitwidth,
+                terms,
+                constant,
+            );
+        }
+        Kind::Constant(value) => {
+            *constant = mod_add(*constant, mod_mul(coeff, *value, bitwidth), bitwidth);
+        }
+        Kind::Mul if expr.children.len() == 2 => {
+            if let Kind::Constant(value) = &expr.children[0].kind {
+                flatten_additive(
+                    &expr.children[1],
+                    mod_mul(coeff, *value, bitwidth),
+                    bitwidth,
+                    terms,
+                    constant,
+                );
+            } else if let Kind::Constant(value) = &expr.children[1].kind {
+                flatten_additive(
+                    &expr.children[0],
+                    mod_mul(coeff, *value, bitwidth),
+                    bitwidth,
+                    terms,
+                    constant,
+                );
+            } else {
+                terms.push(AdditiveTerm { coeff, atom: expr });
+            }
+        }
+        _ => terms.push(AdditiveTerm { coeff, atom: expr }),
+    }
+}
+
+/// Mark one exact pool term for every requested coefficient/atom pair.
+/// Failure leaves `consumed` unchanged.
+fn consume_additive_terms(
+    pool: &[AdditiveTerm<'_>],
+    need: &[AdditiveTerm<'_>],
+    consumed: &mut [bool],
+) -> bool {
+    let mut trial = consumed.to_vec();
+    for needed in need {
+        let Some(index) = pool.iter().enumerate().position(|(index, candidate)| {
+            !trial[index] && candidate.coeff == needed.coeff && candidate.atom == needed.atom
+        }) else {
+            return false;
+        };
+        trial[index] = true;
+    }
+    consumed.copy_from_slice(&trial);
+    true
+}
+
+fn rebuild_additive(
+    pool: &[AdditiveTerm<'_>],
+    consumed: &[bool],
+    constant: u64,
+    extra: Option<Arc<Expr>>,
+    bitwidth: u32,
+) -> Arc<Expr> {
+    let mut result = (constant != 0).then(|| Expr::constant(constant));
+    for (index, term) in pool.iter().enumerate() {
+        if consumed[index] {
+            continue;
+        }
+        let term_expr = apply_coefficient(term.atom.clone_tree(), term.coeff, bitwidth);
+        result = Some(match result {
+            Some(acc) => Expr::add(acc, term_expr),
+            None => term_expr,
+        });
+    }
+    if let Some(extra) = extra {
+        result = Some(match result {
+            Some(acc) => Expr::add(acc, extra),
+            None => extra,
+        });
+    }
+    result.unwrap_or_else(|| Expr::constant(0))
+}
+
+fn verify_structural_recovery(original: &Expr, candidate: &Expr, bitwidth: u32) -> bool {
+    let mut support = Vec::new();
+    collect_vars(original, &mut support);
+    let num_vars = support
+        .into_iter()
+        .max()
+        .map_or(0, |index| index.saturating_add(1));
+    let eval = Evaluator::from_expr(original, bitwidth);
+    full_width_check_eval(&eval, num_vars, candidate, bitwidth, DEFAULT_NUM_SAMPLES).passed
+}
+
+fn try_recover_disjunction_at(
+    terms: &[AdditiveTerm<'_>],
+    constant: u64,
+    and_index: usize,
+    expr: &Expr,
+    bitwidth: u32,
+) -> Option<Arc<Expr>> {
+    let and_atom = terms[and_index].atom;
+    if !matches!(&and_atom.kind, Kind::And) || and_atom.children.len() != 2 {
+        return None;
+    }
+
+    // The AND term is `-c * (A & B)`; the positive A/B terms must use
+    // exactly `c`. This strict coefficient match prevents the XOR lowering
+    // `A + B - 2*(A&B)` from being mistaken for OR.
+    let coeff = mod_neg(terms[and_index].coeff, bitwidth);
+    if coeff == 0 {
+        return None;
+    }
+
+    let mut lhs_terms = Vec::new();
+    let mut rhs_terms = Vec::new();
+    let mut lhs_constant = 0;
+    let mut rhs_constant = 0;
+    flatten_additive(
+        &and_atom.children[0],
+        coeff,
+        bitwidth,
+        &mut lhs_terms,
+        &mut lhs_constant,
+    );
+    flatten_additive(
+        &and_atom.children[1],
+        coeff,
+        bitwidth,
+        &mut rhs_terms,
+        &mut rhs_constant,
+    );
+
+    let mut consumed = vec![false; terms.len()];
+    consumed[and_index] = true;
+    if !consume_additive_terms(terms, &lhs_terms, &mut consumed)
+        || !consume_additive_terms(terms, &rhs_terms, &mut consumed)
+    {
+        return None;
+    }
+
+    let new_constant = mod_sub(
+        mod_sub(constant, lhs_constant, bitwidth),
+        rhs_constant,
+        bitwidth,
+    );
+    let or_term = apply_coefficient(
+        Expr::or(
+            and_atom.children[0].clone_tree(),
+            and_atom.children[1].clone_tree(),
+        ),
+        coeff,
+        bitwidth,
+    );
+    let candidate = rebuild_additive(terms, &consumed, new_constant, Some(or_term), bitwidth);
+
+    if !is_better(&compute_cost(&candidate).cost, &compute_cost(expr).cost)
+        || !verify_structural_recovery(expr, &candidate, bitwidth)
+    {
+        return None;
+    }
+    Some(candidate)
+}
+
+/// Cheap no-allocation gate for inclusion-exclusion recovery. It mirrors the
+/// descent performed by [`flatten_additive`] and succeeds only when an AND can
+/// appear as a top-level additive term.
+fn additive_has_binary_and(expr: &Expr) -> bool {
+    match &expr.kind {
+        Kind::Add => expr
+            .children
+            .iter()
+            .any(|child| additive_has_binary_and(child)),
+        Kind::Neg => additive_has_binary_and(&expr.children[0]),
+        Kind::Mul if expr.children.len() == 2 => {
+            if matches!(&expr.children[0].kind, Kind::Constant(_)) {
+                additive_has_binary_and(&expr.children[1])
+            } else if matches!(&expr.children[1].kind, Kind::Constant(_)) {
+                additive_has_binary_and(&expr.children[0])
+            } else {
+                false
+            }
+        }
+        Kind::And => expr.children.len() == 2,
+        _ => false,
+    }
+}
+
+/// Reverse `c*A + c*B - c*(A&B)` into `c*(A|B)`, retaining unrelated
+/// additive terms. A and B are taken verbatim from the AND node and may each
+/// span several flattened terms.
+fn try_recover_inclusion_exclusion(expr: &Expr, bitwidth: u32) -> Option<Arc<Expr>> {
+    if !matches!(&expr.kind, Kind::Add | Kind::Neg) || !additive_has_binary_and(expr) {
+        return None;
+    }
+
+    let mut terms = Vec::new();
+    let mut constant = 0;
+    flatten_additive(expr, 1, bitwidth, &mut terms, &mut constant);
+    for index in 0..terms.len() {
+        if let Some(candidate) = try_recover_disjunction_at(&terms, constant, index, expr, bitwidth)
+        {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 /// Bottom-up recursive application of [`try_simplify_pattern_subtree`].
 /// retry at each newly-formed parent until a fixed point.
 #[must_use]
@@ -1023,13 +1248,90 @@ pub fn simplify_pattern_subtrees(mut expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr
     if let Some(rewritten) = try_simplify_pattern_subtree(&expr, bitwidth) {
         return simplify_pattern_subtrees(rewritten, bitwidth);
     }
+    if let Some(recovered) = try_recover_inclusion_exclusion(&expr, bitwidth) {
+        return simplify_pattern_subtrees(recovered, bitwidth);
+    }
+    expr
+}
+
+fn flatten_xor<'a>(expr: &'a Expr, operands: &mut Vec<&'a Expr>) {
+    if matches!(&expr.kind, Kind::Xor) {
+        for child in &expr.children {
+            flatten_xor(child, operands);
+        }
+    } else {
+        operands.push(expr);
+    }
+}
+
+fn try_xor_self_cancel(expr: &Expr, bitwidth: u32) -> Option<Arc<Expr>> {
+    if !matches!(&expr.kind, Kind::Xor) {
+        return None;
+    }
+
+    let mut operands = Vec::new();
+    flatten_xor(expr, &mut operands);
+
+    let mut consumed = vec![false; operands.len()];
+    let mut survivors = Vec::new();
+    for index in 0..operands.len() {
+        if consumed[index] {
+            continue;
+        }
+        consumed[index] = true;
+        let mut count = 1usize;
+        for other in (index + 1)..operands.len() {
+            if !consumed[other] && operands[index] == operands[other] {
+                consumed[other] = true;
+                count += 1;
+            }
+        }
+        if count % 2 == 1 {
+            survivors.push(operands[index]);
+        }
+    }
+
+    if survivors.len() == operands.len() {
+        return None;
+    }
+
+    let candidate = if survivors.is_empty() {
+        Expr::constant(0)
+    } else {
+        let mut result = survivors[0].clone_tree();
+        for survivor in survivors.iter().skip(1) {
+            result = Expr::xor(result, survivor.clone_tree());
+        }
+        result
+    };
+
+    verify_structural_recovery(expr, &candidate, bitwidth).then_some(candidate)
+}
+
+/// Recursively flatten XOR chains and remove operands with even multiplicity.
+/// This is the exact identity `T ^ T == 0`, valid at every bit width.
+#[must_use]
+pub fn simplify_xor_chains(mut expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
+    // Work top-down so a three-copy chain is counted as one unit rather than
+    // reducing an inner pair to zero and stranding the third copy.
+    if let Some(cancelled) = try_xor_self_cancel(&expr, bitwidth) {
+        return simplify_xor_chains(cancelled, bitwidth);
+    }
+
+    {
+        let node = Arc::make_mut(&mut expr);
+        let children: Vec<Arc<Expr>> = node.children.drain(..).collect();
+        for child in children {
+            node.children.push(simplify_xor_chains(child, bitwidth));
+        }
+    }
     expr
 }
 
 /// Certified form of [`simplify_pattern_subtrees`]. Recognized local rewrites
 /// are emitted as theorem-backed step chains. Larger table-driven pattern
-/// rewrites fall back to an endpoint certificate so generated Lean replay still
-/// checks the exact before/after expression pair.
+/// rewrites remain uncertified unless the complete theorem-backed chain can be
+/// constructed.
 #[must_use]
 pub fn simplify_pattern_subtrees_certified(
     expr: Arc<Expr>,
@@ -1040,7 +1342,6 @@ pub fn simplify_pattern_subtrees_certified(
         return (expected, None);
     }
 
-    let original = expr.clone_tree();
     let mut current = expr;
     let mut chain: Option<LeanCertificate> = None;
     for _ in 0..128 {
@@ -1062,11 +1363,6 @@ pub fn simplify_pattern_subtrees_certified(
 
     if *current == *expected {
         (current, chain)
-    } else if *original != *expected {
-        (
-            expected.clone_tree(),
-            Some(LeanCertificate::new(bitwidth, original, expected)),
-        )
     } else {
         (expected, None)
     }
@@ -1187,6 +1483,19 @@ mod tests {
 
     fn sig_of(expr: &Expr, num_vars: u32, bitwidth: u32) -> Vec<u64> {
         evaluate_boolean_signature(expr, num_vars, bitwidth)
+    }
+
+    fn contains_or(expr: &Expr) -> bool {
+        matches!(&expr.kind, Kind::Or) || expr.children.iter().any(|child| contains_or(child))
+    }
+
+    fn contains_xor(expr: &Expr) -> bool {
+        matches!(&expr.kind, Kind::Xor) || expr.children.iter().any(|child| contains_xor(child))
+    }
+
+    fn full_width_equivalent(original: &Expr, candidate: &Expr, num_vars: u32) -> bool {
+        let eval = Evaluator::from_expr(original, 64);
+        full_width_check_eval(&eval, num_vars, candidate, 64, DEFAULT_NUM_SAMPLES).passed
     }
 
     #[test]
@@ -1453,6 +1762,108 @@ mod tests {
         let input = Expr::variable(0);
         let out = simplify_pattern_subtrees(input.clone_tree(), 64);
         assert!(matches!(out.kind, Kind::Variable(0)));
+    }
+
+    #[test]
+    fn recover_disjunction_with_arithmetic_operand() {
+        // B + x + A - (A & B) -> x + (A | B), where
+        // A = x^4 and B = 10*y+5. B spans multiple additive terms.
+        let a = || Expr::xor(Expr::variable(0), Expr::constant(4));
+        let b = || {
+            Expr::add(
+                Expr::mul(Expr::constant(10), Expr::variable(1)),
+                Expr::constant(5),
+            )
+        };
+        let input = Expr::add(
+            Expr::add(Expr::add(b(), Expr::variable(0)), a()),
+            Expr::neg(Expr::and(a(), b())),
+        );
+
+        let result = simplify_pattern_subtrees(input.clone_tree(), 64);
+        assert!(contains_or(&result));
+        assert!(full_width_equivalent(&input, &result, 2));
+        assert!(is_better(
+            &compute_cost(&result).cost,
+            &compute_cost(&input).cost
+        ));
+    }
+
+    #[test]
+    fn recover_disjunction_two_variable_form() {
+        // (x^4) + y - ((x^4) & y) -> (x^4) | y.
+        let a = || Expr::xor(Expr::variable(0), Expr::constant(4));
+        let input = Expr::add(
+            Expr::add(a(), Expr::variable(1)),
+            Expr::neg(Expr::and(a(), Expr::variable(1))),
+        );
+
+        let result = simplify_pattern_subtrees(input.clone_tree(), 64);
+        assert!(contains_or(&result));
+        assert!(full_width_equivalent(&input, &result, 2));
+    }
+
+    #[test]
+    fn recover_disjunction_does_not_misfire_on_xor_lowering() {
+        // A + B - 2*(A&B) is XOR, not OR.
+        let input = Expr::add(
+            Expr::add(Expr::variable(0), Expr::variable(1)),
+            Expr::neg(Expr::mul(
+                Expr::constant(2),
+                Expr::and(Expr::variable(0), Expr::variable(1)),
+            )),
+        );
+
+        let result = simplify_pattern_subtrees(input.clone_tree(), 64);
+        assert!(!contains_or(&result));
+        assert!(full_width_equivalent(&input, &result, 2));
+    }
+
+    #[test]
+    fn xor_self_cancel_complex_operand() {
+        // (A ^ B) ^ B -> A even when A has a degenerate Boolean signature.
+        let a = || {
+            Expr::or(
+                Expr::and(
+                    Expr::add(Expr::variable(0), Expr::variable(1)),
+                    Expr::variable(2),
+                ),
+                Expr::constant(3),
+            )
+        };
+        let b = || {
+            Expr::add(
+                Expr::or(
+                    Expr::mul(Expr::variable(0), Expr::variable(2)),
+                    Expr::and(Expr::variable(1), Expr::constant(85)),
+                ),
+                Expr::variable(3),
+            )
+        };
+        let input = Expr::xor(Expr::xor(a(), b()), b());
+        let expected = a();
+
+        let result = simplify_xor_chains(input.clone_tree(), 64);
+        assert!(!contains_xor(&result));
+        assert_eq!(result.as_ref(), expected.as_ref());
+        assert!(full_width_equivalent(&input, &result, 4));
+        assert!(is_better(
+            &compute_cost(&result).cost,
+            &compute_cost(&input).cost
+        ));
+    }
+
+    #[test]
+    fn xor_self_cancel_odd_multiplicity_keeps_one_copy() {
+        // T ^ T ^ T -> T.
+        let t = || Expr::and(Expr::variable(0), Expr::variable(1));
+        let input = Expr::xor(Expr::xor(t(), t()), t());
+        let expected = t();
+
+        let result = simplify_xor_chains(input.clone_tree(), 64);
+        assert!(!contains_xor(&result));
+        assert_eq!(result.as_ref(), expected.as_ref());
+        assert!(full_width_equivalent(&input, &result, 2));
     }
 
     #[test]

@@ -88,11 +88,19 @@ pub fn run_prepare_remainder_from_core(
         core.target.eval.clone()
     };
     let num_vars = target_vars.len() as u32;
+    let Ok(signature_len) = crate::core::checked_signature_len(num_vars) else {
+        return Ok(PassResult {
+            decision: PassDecision::Blocked,
+            disposition: ItemDisposition::RetainCurrent,
+            next: Vec::new(),
+            reason: reason("Residual signature dimension exceeds the safe limit", 12),
+        });
+    };
 
     let residual_eval = build_remainder_evaluator(&target_eval, &core.core_expr, ctx.bitwidth);
     // Evaluate residual on Boolean assignments — direct evaluation of
     // the closure at every 0/1 point.
-    let mut residual_sig = vec![0u64; 1usize << num_vars];
+    let mut residual_sig = vec![0u64; signature_len];
     let mut point = vec![0u64; num_vars as usize];
     for (i, slot) in residual_sig.iter_mut().enumerate() {
         for (k, p) in point.iter_mut().enumerate() {
@@ -223,6 +231,7 @@ mod tests {
             core_expr: Expr::variable(0),
             extractor_kind: ExtractorKind::Polynomial,
             degree_used: 1,
+            single_product: false,
             source_sig: vec![5, 6],
             target: RemainderTargetContext {
                 eval: Evaluator::from_expr(&target, 64),

@@ -24,7 +24,7 @@
     clippy::too_many_lines
 )]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::core::arith::bitmask;
@@ -993,6 +993,36 @@ pub fn try_template_decomposition(
     let mut vmap = ValMap::default();
     populate(&mut pool, &mut vmap, num_vars, &pts, bitwidth);
 
+    // Seed data-derived constants so masks such as `x & M` remain
+    // synthesizable when M's set bits are invisible on the Boolean cube.
+    // The OR-fold recovers a single mask while a bounded sample of non-zero
+    // outputs covers split-mask cases. Every candidate is still gated by the
+    // full-width evaluator, so this only widens the search.
+    let mut or_fold = 0u64;
+    for &value in &target.0 {
+        or_fold |= value;
+    }
+    let mut seeded_vals = HashSet::new();
+    let mut seed_const = |value: u64| {
+        if value == 0 || !seeded_vals.insert(value) {
+            return;
+        }
+        let expr = Expr::constant(value);
+        let vals = probe(&expr, &pts, bitwidth);
+        push(&mut pool, &mut vmap, expr, vals);
+    };
+    seed_const(or_fold);
+    let mut seeded = 0u32;
+    for &value in &target.0 {
+        if value != 0 {
+            seed_const(value);
+            seeded += 1;
+            if seeded == 7 {
+                break;
+            }
+        }
+    }
+
     // Direct atom hit on `target`.
     if let Some(slot) = vmap.find(&target) {
         let e = pool[slot].expr.clone_tree();
@@ -1115,6 +1145,16 @@ pub fn try_template_decomposition(
 mod tests {
     use super::*;
 
+    fn masked_add(mask: u64, low_mask: u64, out_mask: u64) -> Arc<Expr> {
+        Expr::and(
+            Expr::add(
+                Expr::and(Expr::variable(0), Expr::constant(mask)),
+                Expr::and(Expr::variable(1), Expr::constant(low_mask)),
+            ),
+            Expr::constant(out_mask),
+        )
+    }
+
     #[test]
     fn no_evaluator_is_inapplicable() {
         let r = try_template_decomposition(None, 1, 64, None);
@@ -1176,5 +1216,58 @@ mod tests {
         };
         let chk = full_width_check_eval(&eval, 3, &t.expr, 64, DEFAULT_NUM_SAMPLES);
         assert!(chk.passed);
+    }
+
+    #[test]
+    fn target_constants_recover_high_mask_carry_free_family() {
+        for bit in 3..=8 {
+            let mask = 1u64 << bit;
+            let expr = masked_add(mask, mask - 1, mask);
+            let eval = Evaluator::from_expr(&expr, 64);
+            let SolverResult::Success(result) =
+                try_template_decomposition(Some(&eval), 2, 64, None)
+            else {
+                panic!("expected mask {mask} to be recovered");
+            };
+
+            let expected = Expr::and(Expr::variable(0), Expr::constant(mask));
+            assert!(
+                full_width_check_eval(&eval, 2, &result.expr, 64, DEFAULT_NUM_SAMPLES).passed,
+                "mask {mask}"
+            );
+            assert!(
+                full_width_check_eval(
+                    &Evaluator::from_expr(&expected, 64),
+                    2,
+                    &result.expr,
+                    64,
+                    DEFAULT_NUM_SAMPLES,
+                )
+                .passed,
+                "mask {mask} did not recover x & mask"
+            );
+        }
+    }
+
+    #[test]
+    fn target_constants_do_not_hide_real_masked_add_carry() {
+        let expr = masked_add(255, 255, 255);
+        let eval = Evaluator::from_expr(&expr, 64);
+        let SolverResult::Success(result) = try_template_decomposition(Some(&eval), 2, 64, None)
+        else {
+            panic!("expected the genuine masked-add carry case to be synthesized");
+        };
+        assert!(full_width_check_eval(&eval, 2, &result.expr, 64, DEFAULT_NUM_SAMPLES).passed);
+        let wrong = Expr::and(Expr::variable(0), Expr::constant(255));
+        assert!(
+            !full_width_check_eval(
+                &Evaluator::from_expr(&wrong, 64),
+                2,
+                &result.expr,
+                64,
+                DEFAULT_NUM_SAMPLES,
+            )
+            .passed
+        );
     }
 }

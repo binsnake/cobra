@@ -55,6 +55,18 @@ pub fn reconstruct_masked_atoms(ir: &SemilinearIR, partitions: &[PartitionClass]
             }
         })
         .collect();
+    entries.sort_by(|left, right| {
+        let left_info = &ir.atom_table[left.atom_id as usize];
+        let right_info = &ir.atom_table[right.atom_id as usize];
+        left_info
+            .key
+            .support
+            .cmp(&right_info.key.support)
+            .then_with(|| left_info.key.truth_table.cmp(&right_info.key.truth_table))
+            .then_with(|| left_info.structural_hash.cmp(&right_info.structural_hash))
+            .then_with(|| left.coeff.cmp(&right.coeff))
+            .then_with(|| left.atom_id.cmp(&right.atom_id))
+    });
 
     let mut consumed = vec![false; entries.len()];
     let mut combined: Vec<Arc<Expr>> = Vec::new();
@@ -130,6 +142,32 @@ mod tests {
         let eval = Evaluator::from_expr(&expr, 64);
         // f(3, 5) = 8
         assert_eq!(eval.eval(&[3, 5]), 8);
+    }
+
+    #[test]
+    fn reconstruction_order_is_independent_of_term_storage_order() {
+        let e = Expr::add(
+            Expr::add(
+                Expr::mul(
+                    Expr::constant(3),
+                    Expr::and(Expr::variable(0), Expr::constant(255)),
+                ),
+                Expr::mul(
+                    Expr::constant(5),
+                    Expr::and(Expr::variable(0), Expr::constant(65_280)),
+                ),
+            ),
+            Expr::mul(
+                Expr::constant(7),
+                Expr::and(Expr::variable(1), Expr::constant(16_711_680)),
+            ),
+        );
+        let mut ir = normalize_to_semilinear(&e, &["x".into(), "y".into()], 64).unwrap();
+        let forward = reconstruct_masked_atoms(&ir, &[]);
+        ir.terms.reverse();
+        let reversed = reconstruct_masked_atoms(&ir, &[]);
+
+        assert_eq!(forward, reversed);
     }
 
     #[test]

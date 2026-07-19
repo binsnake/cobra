@@ -50,8 +50,9 @@ During iterative development, ask rustc to prefer the package's dynamic output.
 Consumer-only changes then have substantially less CoBRA code to relink:
 
 ```powershell
+# Run this in the consumer project, using its binary name.
 $env:RUSTFLAGS='-C prefer-dynamic'
-cargo run
+cargo run --bin your-consumer-bin
 ```
 
 For a persistent consumer-project setting, add this to `.cargo/config.toml`:
@@ -81,6 +82,24 @@ This repository exercises the mode with:
 cargo --config .cargo/dynamic.toml run --bin cobra-cli -- --mba "(x ^ y) + 2 * (x & y)"
 ```
 
+## Upstream compatibility
+
+The core compatibility target for this revision is upstream C++ v1.3.0
+(`ccba252`), also validated against C++ checkout `f9dd212` (whose later changes
+are documentation-only). The targeted v1.3 simplifier and math hot-path changes
+are tracked with an in-process [Rust/C++ parity harness](tools/parity/README.md).
+All 18 targeted cases match semantically. A wider 58-case corpus found one
+input that the upstream C++ CLI rejects while Rust returns a
+sampled-full-width-equivalent result, so literal every-input identity is not
+claimed.
+
+This is semantic parity for the core simplifier, not a claim of whole-repository
+1:1 parity or identical rendered output. The Rust project has no LLVM plugin,
+and its CLI observability, proof metadata, and foreign-function surface differ.
+See the
+[parity and performance report](docs/parity-and-performance-2026-07-17.md)
+for exact commits, validation policy, results, and exclusions.
+
 ## Command line
 
 Install or run the CLI:
@@ -92,6 +111,16 @@ cobra-cli --mba "(x ^ y) + 2 * (x & y)"
 
 Useful flags include `--bitwidth`, `--max-vars`, `--verbose`, and `--verify`.
 The `--verify` flag uses Z3 only when the CLI was built with its `z3` feature.
+For a local build:
+
+```powershell
+cargo build --release --bin cobra-cli --features z3
+.\target\release\cobra-cli.exe --mba "(x ^ y) + 2 * (x & y)" --verify
+```
+
+To install that variant, use
+`cargo install cobra-mba --bin cobra-cli --features z3`. The Z3 library must be
+available to the linker.
 
 ## Verification status
 

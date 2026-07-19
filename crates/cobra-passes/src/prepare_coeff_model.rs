@@ -55,7 +55,14 @@ pub fn run_prepare_coeff_model(
     let sub = &payload.ctx;
     let sig = sub.elimination.reduced_sig.clone();
     let num_vars = sub.real_vars.len() as u32;
-    let expected = 1usize << num_vars;
+    let Ok(expected) = crate::core::checked_signature_len(num_vars) else {
+        return Ok(PassResult {
+            decision: PassDecision::Blocked,
+            disposition: ItemDisposition::RetainCurrent,
+            next: Vec::new(),
+            reason: guard_failed("Reduced signature dimension exceeds the safe limit"),
+        });
+    };
 
     if sig.len() != expected {
         return Ok(PassResult {

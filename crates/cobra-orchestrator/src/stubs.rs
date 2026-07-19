@@ -1,8 +1,9 @@
-//! Forward-declared types from pass-adjacent modules that haven't been
-//! ported yet. Each stub is kept at the exact shape the orchestrator
-//! needs to carry in `StateData` / `ContinuationData` / `JoinState`.
-//! When the owning pass is ported, these move out into their respective
-//! `cobra-passes::*` submodule and this file shrinks.
+//! Shared pass-adjacent data types carried by orchestrator state.
+//!
+//! They remain in this dependency-light module so work-item payloads,
+//! continuations, and joins can name them without coupling the orchestrator
+//! to concrete pass implementations. The historical filename is retained to
+//! avoid a noisy module-path migration.
 
 // ----- AuxVarEliminator -----
 
@@ -64,7 +65,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stub_enums_have_expected_defaults() {
+    fn shared_enums_have_expected_defaults() {
         assert_eq!(ExtractorKind::default(), ExtractorKind::BooleanNullDirect);
         assert_eq!(
             ResidualSolverKind::default(),

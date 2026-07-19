@@ -43,7 +43,7 @@ pub use crate::core::classification::{
 pub use crate::core::compiled::{compile, eval, CompiledExpr, EvalInstr, Opcode};
 pub use crate::core::evaluator::{Evaluator, TraceKind, Workspace};
 pub use crate::core::expr::{render, Expr, Kind};
-pub use crate::core::expr_cost::{compute_cost, is_better, CostInfo, ExprCost};
+pub use crate::core::expr_cost::{compute_cost, is_better, is_cost_blowup, CostInfo, ExprCost};
 pub use crate::core::expr_rewrite::{
     apply_coefficient, build_and_product, build_var_support, cleanup_final_expr,
     has_nonleaf_bitwise, repair_product_shadow, try_build_var_support,
@@ -57,7 +57,9 @@ pub use crate::core::pass_contract::{
 };
 pub use crate::core::result::{err, CobraError, ErrorInfo, Result};
 pub use crate::core::signature_eval::{
-    evaluate_boolean_signature, evaluate_boolean_signature_from_evaluator,
+    checked_signature_len, evaluate_boolean_signature, evaluate_boolean_signature_from_evaluator,
+    try_evaluate_boolean_signature, try_evaluate_boolean_signature_from_evaluator,
+    MAX_SIGNATURE_BYTES, MAX_SIGNATURE_VARS,
 };
 pub use crate::core::signature_eval_stats::{
     sig_stats_record_eval, sig_stats_record_expr, sig_stats_reset, sig_stats_snapshot, SigEvalStats,
@@ -72,4 +74,4 @@ pub use crate::core::spot_check::{
     eval_expr, full_width_check, full_width_check_eval, signature_check, verify_in_original_space,
     CheckResult, DEFAULT_NUM_SAMPLES, RESIDUAL_GATE_NUM_SAMPLES,
 };
-pub use crate::core::width::{is_uniform_width, validate_widths, width_of};
+pub use crate::core::width::{checked_width_of, is_uniform_width, validate_widths, width_of};

@@ -27,10 +27,9 @@ const CLI_STACK_SIZE: usize = 64 * 1024 * 1024;
 )]
 struct Args {
     /// MBA expression in infix syntax (e.g. "x + y" or "(x ^ y) + 2 * (x & y)").
-    ///
-    /// `allow_hyphen_values = true` is required so that leading-unary-minus
-    /// expressions like `--mba "-x - 1"` are accepted instead of being
-    /// swallowed by clap's flag parser.
+    //
+    // Leading-unary-minus expressions must remain values rather than being
+    // interpreted as clap flags.
     #[arg(long, allow_hyphen_values = true)]
     mba: String,
 
@@ -60,6 +59,11 @@ fn run(args: &Args) -> Result<i32, String> {
             "unsupported --bitwidth {} (must be in 1..=64)",
             args.bitwidth
         ));
+    }
+    #[cfg(not(feature = "z3"))]
+    if args.verify {
+        eprintln!("error: --verify requested, but this binary was built without Z3");
+        return Ok(1);
     }
 
     let parsed = parse_to_ast(&args.mba, args.bitwidth)
@@ -110,13 +114,22 @@ fn run(args: &Args) -> Result<i32, String> {
             }
             Ok(0)
         }
-        SimplifyOutcomeKind::UnchangedUnsupported | SimplifyOutcomeKind::Error => {
+        SimplifyOutcomeKind::UnchangedUnsupported => {
             let rendered = render(&original, &parsed.vars, args.bitwidth);
             println!("{rendered}");
             if !outcome.diag.reason.is_empty() {
                 eprintln!("reason: {}", outcome.diag.reason);
             }
             Ok(0)
+        }
+        SimplifyOutcomeKind::Error => {
+            let reason = if outcome.diag.reason.is_empty() {
+                "simplifier returned an unspecified error"
+            } else {
+                &outcome.diag.reason
+            };
+            eprintln!("error: {reason}");
+            Ok(1)
         }
     }
 }
@@ -154,8 +167,8 @@ fn run_z3_verify(original: &Expr, simplified: &Expr, vars: &[String], bitwidth: 
 
 #[cfg(not(feature = "z3"))]
 fn run_z3_verify(_original: &Expr, _simplified: &Expr, _vars: &[String], _bitwidth: u32) -> i32 {
-    eprintln!("Warning: Z3 not available, --verify ignored");
-    0
+    eprintln!("error: --verify requested, but this binary was built without Z3");
+    1
 }
 
 fn real_main() -> ExitCode {
@@ -207,10 +220,10 @@ mod tests {
 
     #[cfg(not(feature = "z3"))]
     #[test]
-    fn run_verify_without_z3_matches_upstream_warning_path() {
+    fn run_verify_without_z3_fails_closed() {
         let mut args = args(64);
         args.verify = true;
-        assert_eq!(run(&args), Ok(0));
+        assert_eq!(run(&args), Ok(1));
     }
 
     #[cfg(feature = "z3")]

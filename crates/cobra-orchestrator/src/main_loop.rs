@@ -2,12 +2,10 @@
 //! `while (!worklist.empty() && expansions < policy.max_expansions)` body of
 //! `Simplify`.
 //!
-//! Seeding (building the initial worklist from a signature or AST) is
-//! intentionally *not* in this file — it depends on the classifier,
-//! pattern matcher, and aux-var eliminator passes, none of which have
-//! been ported yet. This module accepts a pre-seeded worklist and
-//! runs it to either a verified candidate or an exhausted-worklist
-//! result.
+//! Seeding (building the initial worklist from a signature or AST) lives in
+//! the pass layer because it depends on classification, pattern matching, and
+//! auxiliary-variable elimination. This module accepts that seeded worklist
+//! and runs it to either a verified candidate or an exhausted-worklist result.
 
 use crate::core::expr::Expr;
 use crate::core::expr_cost::{compute_cost, is_better, ExprCost};
@@ -66,32 +64,6 @@ struct BestRewrite {
     /// Existing theorem-backed certificate for this rewrite, when the
     /// producing pass attached one.
     lean_certificate: Option<crate::verify::LeanCertificate>,
-}
-
-/// Bit-partition reconstruction passes: they rebuild a bitwise function from
-/// its per-bit truth table as a sum/combination of partition products. For
-/// wide bitwise functions this can explode into a sum-of-products far larger
-/// than the input. Their output is gated by the anti-bloat invariant — a
-/// reconstruction larger than the original input is never a simplification.
-///
-/// Deliberately excludes `SignaturePatternMatch` / `SignatureAnf` /
-/// `SemilinearReconstruct` and all arithmetic-lowering / polynomial-recovery
-/// passes: those emit canonical forms that can be modestly larger than the
-/// input yet are the expected answer (e.g. `~(a + b)` → `-a - b - 1`,
-/// `~(b*b)` → `-(b*b) - 1`).
-/// A bit-partition reconstruction whose weighted size exceeds this multiple of
-/// the original input's is treated as a non-simplifying explosion and dropped.
-/// Set well above the ratio of any legitimate canonical reconstruction (~2x) and
-/// well below the pathological sum-of-products blow-up (~21x).
-const BIT_PARTITION_BLOAT_FACTOR: u32 = 4;
-
-fn is_bit_partition_reconstruction_pass(pass: PassId) -> bool {
-    matches!(
-        pass,
-        PassId::SignatureCobCandidate
-            | PassId::SignatureBitwiseDecompose
-            | PassId::SignatureHybridDecompose
-    )
 }
 
 /// Core dispatch loop. Mutates `ctx`, `worklist`, and `policy` in place;
@@ -167,38 +139,6 @@ pub fn run_main_loop(
             if !cand.needs_original_space_verification {
                 let normalized_expr = cand.expr.clone_tree();
                 let normalized_cost = compute_cost(&normalized_expr).cost;
-
-                // Anti-bloat invariant for signature→bitwise reconstruction
-                // passes: these rebuild an expression purely from a Boolean
-                // truth table, and for wide bitwise functions the rebuild can
-                // explode into a sum-of-products far larger than the input
-                // (e.g. `a & ~(b|..|h)` reconstructed at ~21x size — the same
-                // shape upstream CoBRA emits for >=7-var bitwise atoms). A
-                // reconstruction larger than its own input is never a
-                // simplification, so we drop it and let the loop keep searching
-                // (a cost-reducing rewrite) or echo the input on exhaustion.
-                //
-                // Scoped to reconstruction passes only: arithmetic lowering and
-                // polynomial-recovery passes legitimately emit modestly larger
-                // canonical forms (e.g. `~(b*b)` → `-(b*b) - 1`) that must not
-                // be suppressed.
-                if is_bit_partition_reconstruction_pass(cand.producing_pass)
-                    && original_cost.as_ref().is_some_and(|oc| {
-                        // Generous blow-up factor: legitimate canonical
-                        // reconstructions stay within ~2x of the input; the
-                        // pathological wide-bitwise sum-of-products explodes by
-                        // an order of magnitude (~21x in the motivating case).
-                        normalized_cost.weighted_size
-                            > oc.weighted_size.saturating_mul(BIT_PARTITION_BLOAT_FACTOR)
-                    })
-                {
-                    if let Some(gid) = item.group_id {
-                        if let Some(resolved) = release_handle(&mut ctx.competition_groups, gid) {
-                            worklist.push(resolved);
-                        }
-                    }
-                    continue;
-                }
 
                 // Stamp `transform_produced_candidate` if any rewrite pass
                 // is in the candidate's lineage.
@@ -453,11 +393,7 @@ fn try_promote_best_rewrite(
     let lean_certificate = best
         .lean_certificate
         .as_ref()
-        .filter(|cert| {
-            cert.bitwidth == ctx.bitwidth
-                && *cert.original == *original_expr
-                && *cert.simplified == *best.expr
-        })
+        .filter(|cert| cert.replays_between(ctx.bitwidth, original_expr, &best.expr))
         .cloned()
         .or_else(|| {
             crate::verify::LeanCertificate::try_single_rewrite_between_64(

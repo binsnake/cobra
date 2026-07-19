@@ -27,6 +27,7 @@ pub enum LeanTheorem {
     BnotEqNegAddMask64,
     BnotEqNegAddAllOnes64,
     XorEqAddSubTwoMulAnd64,
+    XorAddTwoMulAndEqAdd64,
     OrSubAndEqXor64,
     AndOrSumEqAdd64,
     TwoMulAndOrSumEqTwoMulAdd64,
@@ -82,6 +83,7 @@ impl LeanTheorem {
         Self::BnotEqNegAddMask64,
         Self::BnotEqNegAddAllOnes64,
         Self::XorEqAddSubTwoMulAnd64,
+        Self::XorAddTwoMulAndEqAdd64,
         Self::OrSubAndEqXor64,
         Self::AndOrSumEqAdd64,
         Self::TwoMulAndOrSumEqTwoMulAdd64,
@@ -130,6 +132,7 @@ impl LeanTheorem {
 
     pub const RECOGNIZED_REWRITE_64: &'static [Self] = &[
         Self::XorEqAddSubTwoMulAnd64,
+        Self::XorAddTwoMulAndEqAdd64,
         Self::OrSubAndEqXor64,
         Self::AndOrSumEqAdd64,
         Self::TwoMulAndOrSumEqTwoMulAdd64,
@@ -178,6 +181,7 @@ impl LeanTheorem {
             Self::BnotEqNegAddMask64 => "Cobra.bnot_eq_neg_add_mask_64",
             Self::BnotEqNegAddAllOnes64 => "Cobra.bnot_eq_neg_add_all_ones_64",
             Self::XorEqAddSubTwoMulAnd64 => "Cobra.xor_eq_add_sub_two_mul_and_64",
+            Self::XorAddTwoMulAndEqAdd64 => "Cobra.xor_add_two_mul_and_eq_add_64",
             Self::OrSubAndEqXor64 => "Cobra.or_sub_and_eq_xor_64",
             Self::AndOrSumEqAdd64 => "Cobra.and_or_sum_eq_add_64",
             Self::TwoMulAndOrSumEqTwoMulAdd64 => "Cobra.two_mul_and_or_sum_eq_two_mul_add_64",
@@ -374,6 +378,11 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
         Kind::Add if before.children.len() == 2 => {
             let lhs = &before.children[0];
             let rhs = &before.children[1];
+            if let Some((a, b)) = xor_add_two_mul_and_operands(before) {
+                if is_add_of(after, a, b) {
+                    return Some(Thm::XorAddTwoMulAndEqAdd64);
+                }
+            }
             if is_zero(rhs) && expr_eq(lhs, after) {
                 return Some(Thm::AddZero64);
             }
@@ -563,6 +572,43 @@ fn is_xor_of(expr: &Expr, lhs: &Expr, rhs: &Expr) -> bool {
     matches!(expr.kind, Kind::Xor)
         && expr.children.len() == 2
         && unordered_pair_eq(&expr.children[0], &expr.children[1], lhs, rhs)
+}
+
+fn xor_add_two_mul_and_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
+    if !matches!(expr.kind, Kind::Add) || expr.children.len() != 2 {
+        return None;
+    }
+    for (xor, scaled_and) in [
+        (&expr.children[0], &expr.children[1]),
+        (&expr.children[1], &expr.children[0]),
+    ] {
+        if !matches!(xor.kind, Kind::Xor)
+            || xor.children.len() != 2
+            || !matches!(scaled_and.kind, Kind::Mul)
+            || scaled_and.children.len() != 2
+        {
+            continue;
+        }
+        let and = if is_const_value(&scaled_and.children[0], 2) {
+            &scaled_and.children[1]
+        } else if is_const_value(&scaled_and.children[1], 2) {
+            &scaled_and.children[0]
+        } else {
+            continue;
+        };
+        if matches!(and.kind, Kind::And)
+            && and.children.len() == 2
+            && unordered_pair_eq(
+                &xor.children[0],
+                &xor.children[1],
+                &and.children[0],
+                &and.children[1],
+            )
+        {
+            return Some((&xor.children[0], &xor.children[1]));
+        }
+    }
+    None
 }
 
 fn is_add_of(expr: &Expr, lhs: &Expr, rhs: &Expr) -> bool {
@@ -853,6 +899,35 @@ impl LeanCertificate {
     #[must_use]
     pub fn matches_endpoints(&self, bitwidth: u32, original: &Expr, simplified: &Expr) -> bool {
         self.bitwidth == bitwidth && *self.original == *original && *self.simplified == *simplified
+    }
+
+    /// Validate that this certificate is a continuous sequence of recognized
+    /// theorem rewrites between the exact requested endpoints.
+    #[must_use]
+    pub fn replays_between(&self, bitwidth: u32, original: &Expr, simplified: &Expr) -> bool {
+        if !self.matches_endpoints(bitwidth, original, simplified) {
+            return false;
+        }
+        if self.steps.is_empty() {
+            return *original == *simplified;
+        }
+        if bitwidth != 64
+            || !is_uniform_width(original, &[], 64)
+            || !is_uniform_width(simplified, &[], 64)
+        {
+            return false;
+        }
+
+        let mut current = self.original.clone_tree();
+        for step in &self.steps {
+            if identify_rewrite_theorem_64(&step.before, &step.after) != Some(step.theorem)
+                || *step.context.plug(step.before.clone_tree()) != *current
+            {
+                return false;
+            }
+            current = step.context.plug(step.after.clone_tree());
+        }
+        *current == *self.simplified
     }
 }
 
@@ -1215,6 +1290,26 @@ mod tests {
         assert!(!cert.matches_endpoints(32, &original, &simplified));
         assert!(!cert.matches_endpoints(64, &simplified, &simplified));
         assert!(!cert.matches_endpoints(64, &original, &original));
+    }
+
+    #[test]
+    fn replay_requires_nonempty_continuous_theorem_evidence_for_changed_output() {
+        let original = Expr::add(Expr::variable(0), Expr::constant(0));
+        let simplified = Expr::variable(0);
+        let empty = LeanCertificate::new(64, original.clone_tree(), simplified.clone_tree());
+        assert!(!empty.replays_between(64, &original, &simplified));
+
+        let valid = LeanCertificate::try_single_rewrite_between_64(
+            64,
+            original.clone_tree(),
+            simplified.clone_tree(),
+        )
+        .expect("recognized add-zero rewrite");
+        assert!(valid.replays_between(64, &original, &simplified));
+
+        let mut forged = valid;
+        forged.steps[0].after = Expr::constant(1);
+        assert!(!forged.replays_between(64, &original, &simplified));
     }
 
     #[test]

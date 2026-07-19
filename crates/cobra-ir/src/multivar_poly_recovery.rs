@@ -25,9 +25,7 @@ use std::sync::Arc;
 
 use ahash::RandomState;
 
-use crate::ir::math_utils::{
-    mod_inverse_odd, odd_part_factorial, precision_bits, twos_in_factorial,
-};
+use crate::ir::math_utils::{mod_inverse_odd, precision_bits, twos_in_factorial};
 use crate::ir::mono::{MonomialKey, MAX_POLY_VARS};
 use crate::ir::poly::{CoeffMap, NormalizedPoly};
 use crate::ir::poly_expr_builder::build_poly_expr;
@@ -56,6 +54,114 @@ fn reason(category: ReasonCategory, sub: u16, msg: &str) -> ReasonDetail {
         },
         causes: Vec::new(),
     }
+}
+
+fn build_odd_factorials(max_degree: u8) -> Vec<u64> {
+    let mut odd_fact = vec![1u64; usize::from(max_degree) + 1];
+    for e in 2..=usize::from(max_degree) {
+        let mut odd = e;
+        while odd & 1 == 0 {
+            odd >>= 1;
+        }
+        odd_fact[e] = odd_fact[e - 1].wrapping_mul(odd as u64);
+    }
+    odd_fact
+}
+
+/// Convert an evaluated `{0..=max_degree}^k` grid into factorial-basis
+/// coefficients. The mixed-radix grid is little-endian over `support_vars`
+/// and is consumed in place by the forward-difference transform.
+fn recover_from_grid(
+    mut table: Vec<u64>,
+    support_vars: &[u32],
+    total_num_vars: u32,
+    bitwidth: u32,
+    max_degree: u8,
+) -> SolverResult<NormalizedPoly> {
+    let k = support_vars.len();
+    let mask = bitmask(bitwidth);
+    let base = usize::from(max_degree) + 1;
+    let table_size = table.len();
+
+    // Tensor-product forward differences, `max_degree` passes per dimension.
+    for dim in 0..k {
+        let stride = (0..dim).fold(1usize, |acc, _| acc * base);
+        for pass in 1..=u32::from(max_degree) {
+            for idx in (0..table_size).rev() {
+                let coord = ((idx / stride) % base) as u32;
+                if coord < pass {
+                    continue;
+                }
+                let lo = idx - stride;
+                table[idx] = table[idx].wrapping_sub(table[lo]) & mask;
+            }
+        }
+    }
+
+    // Factorial-basis coefficient extraction.
+    let nv = total_num_vars as u8;
+    let mut coeffs: CoeffMap = CoeffMap::with_hasher(RandomState::with_seeds(1, 2, 3, 4));
+    let mut exps = [0u8; MAX_POLY_VARS];
+
+    // OddPartFactorial(e, width) is this full-width product masked to
+    // `width`, so compute it once per degree instead of once per monomial.
+    let odd_fact = build_odd_factorials(max_degree);
+
+    for (idx, &alpha) in table.iter().enumerate() {
+        if alpha == 0 {
+            continue;
+        }
+
+        exps.fill(0);
+        let mut tmp = idx;
+        let mut q: u32 = 0;
+        for &support_var in support_vars {
+            let e = (tmp % base) as u8;
+            exps[support_var as usize] = e;
+            q += twos_in_factorial(u32::from(e));
+            tmp /= base;
+        }
+
+        let Some(prec_bits) = precision_bits(q, bitwidth) else {
+            continue;
+        };
+
+        if q > 0 {
+            let low_bits = alpha & ((1u64 << q) - 1);
+            if low_bits != 0 {
+                return SolverResult::Blocked(reason(
+                    ReasonCategory::NoSolution,
+                    subcode::DIVISIBILITY_FAIL,
+                    "falling-factorial coefficient fails divisibility gate",
+                ));
+            }
+        }
+
+        let prec_mask = bitmask(prec_bits);
+        let mut odd_product: u64 = 1;
+        for &support_var in support_vars {
+            let e = exps[support_var as usize];
+            if e >= 2 {
+                odd_product = odd_product.wrapping_mul(odd_fact[usize::from(e)]) & prec_mask;
+            }
+        }
+
+        let mut h = (alpha >> q) & prec_mask;
+        if odd_product != 1 {
+            h = h.wrapping_mul(mod_inverse_odd(odd_product, prec_bits)) & prec_mask;
+        }
+        if h == 0 {
+            continue;
+        }
+        let key = MonomialKey::from_exponents(&exps, nv);
+        coeffs.insert(key, h);
+    }
+
+    SolverResult::Success(NormalizedPoly {
+        num_vars: nv,
+        bitwidth,
+        coeffs,
+    })
 }
 
 /// Recover a [`NormalizedPoly`] whose factorial-basis coefficients
@@ -128,83 +234,7 @@ pub fn recover_multivar_poly(
         point[sv as usize] = 0;
     }
 
-    // Tensor-product forward differences, `max_degree` passes per dim.
-    for dim in 0..k {
-        let stride = (0..dim).fold(1usize, |acc, _| acc * base);
-        for pass in 1..=u32::from(max_degree) {
-            for idx in (0..table_size).rev() {
-                let coord = ((idx / stride) % base) as u32;
-                if coord < pass {
-                    continue;
-                }
-                let lo = idx - stride;
-                table[idx] = table[idx].wrapping_sub(table[lo]) & mask;
-            }
-        }
-    }
-
-    // Factorial-basis coefficient extraction.
-    let nv = total_num_vars as u8;
-    let mut coeffs: CoeffMap = CoeffMap::with_hasher(RandomState::with_seeds(1, 2, 3, 4));
-    let mut exps = [0u8; MAX_POLY_VARS];
-
-    for (idx, &alpha) in table.iter().enumerate() {
-        if alpha == 0 {
-            continue;
-        }
-
-        exps.fill(0);
-        let mut tmp = idx;
-        let mut q: u32 = 0;
-        for i in 0..k {
-            let e = (tmp % base) as u8;
-            exps[support_vars[i] as usize] = e;
-            q += twos_in_factorial(u32::from(e));
-            tmp /= base;
-        }
-
-        let Some(prec_bits) = precision_bits(q, bitwidth) else {
-            continue;
-        };
-
-        if q > 0 {
-            let low_bits = alpha & ((1u64 << q) - 1);
-            if low_bits != 0 {
-                return SolverResult::Blocked(reason(
-                    ReasonCategory::NoSolution,
-                    subcode::DIVISIBILITY_FAIL,
-                    "falling-factorial coefficient fails divisibility gate",
-                ));
-            }
-        }
-
-        let prec_mask = bitmask(prec_bits);
-
-        let mut odd_product: u64 = 1;
-        for &sv in support_vars {
-            let e = exps[sv as usize];
-            if e >= 2 {
-                odd_product = odd_product.wrapping_mul(odd_part_factorial(u32::from(e), prec_bits))
-                    & prec_mask;
-            }
-        }
-
-        let mut h = (alpha >> q) & prec_mask;
-        if odd_product != 1 {
-            h = h.wrapping_mul(mod_inverse_odd(odd_product, prec_bits)) & prec_mask;
-        }
-        if h == 0 {
-            continue;
-        }
-        let key = MonomialKey::from_exponents(&exps, nv);
-        coeffs.insert(key, h);
-    }
-
-    SolverResult::Success(NormalizedPoly {
-        num_vars: nv,
-        bitwidth,
-        coeffs,
-    })
+    recover_from_grid(table, support_vars, total_num_vars, bitwidth, max_degree)
 }
 
 /// Degree-escalating polynomial recovery with full-width verification.
@@ -241,21 +271,91 @@ where
         ));
     }
 
-    for d in min_degree..=max_degree_cap {
-        let poly = recover_multivar_poly(eval, support_vars, total_num_vars, bitwidth, d);
-        let Some(payload) = poly.take_payload() else {
-            continue;
+    // Validate degree-independent preconditions once. The former loop
+    // swallowed per-degree Inapplicable results and ultimately returned
+    // NO_VERIFIED_DEGREE, so invalid inputs still fall through to that same
+    // outcome rather than exposing a different reason code.
+    let mut inputs_ok = !support_vars.is_empty()
+        && total_num_vars as usize <= MAX_POLY_VARS
+        && (2..=64).contains(&bitwidth);
+    if inputs_ok && support_vars.iter().any(|&idx| idx >= total_num_vars) {
+        inputs_ok = false;
+    }
+
+    if inputs_ok {
+        let k = support_vars.len();
+        let mask = bitmask(bitwidth);
+        let mut grid: Vec<u64> = Vec::new();
+        let mut grid_base = 0usize;
+        let mut point = vec![0u64; total_num_vars as usize];
+        let mut eval_at = |idx: usize, base: usize| {
+            let mut tmp = idx;
+            for &support_var in support_vars {
+                point[support_var as usize] = (tmp % base) as u64;
+                tmp /= base;
+            }
+            let value = eval.eval(&point) & mask;
+            for &support_var in support_vars {
+                point[support_var as usize] = 0;
+            }
+            value
         };
-        let Ok(expr) = build_poly_expr(&payload) else {
-            continue;
-        };
-        if !verify(eval, total_num_vars, &expr, bitwidth) {
-            continue;
+
+        for d in min_degree..=max_degree_cap {
+            if d < 1 {
+                continue;
+            }
+
+            let base = usize::from(d) + 1;
+            let table_size = (0..k).fold(1usize, |acc, _| acc * base);
+
+            if grid_base == 0 {
+                grid.resize(table_size, 0);
+                for (idx, slot) in grid.iter_mut().enumerate() {
+                    *slot = eval_at(idx, base);
+                }
+            } else {
+                let mut grown = vec![0u64; table_size];
+                for (idx, slot) in grown.iter_mut().enumerate() {
+                    let mut tmp = idx;
+                    let mut old_idx = 0usize;
+                    let mut place = 1usize;
+                    let mut is_old = true;
+                    for _ in 0..k {
+                        let coord = tmp % base;
+                        tmp /= base;
+                        if coord >= grid_base {
+                            is_old = false;
+                        }
+                        old_idx += coord * place;
+                        place *= grid_base;
+                    }
+
+                    *slot = if is_old {
+                        grid[old_idx]
+                    } else {
+                        eval_at(idx, base)
+                    };
+                }
+                grid = grown;
+            }
+            grid_base = base;
+
+            let poly = recover_from_grid(grid.clone(), support_vars, total_num_vars, bitwidth, d);
+            let Some(payload) = poly.take_payload() else {
+                continue;
+            };
+            let Ok(expr) = build_poly_expr(&payload) else {
+                continue;
+            };
+            if !verify(eval, total_num_vars, &expr, bitwidth) {
+                continue;
+            }
+            return SolverResult::Success(PolyRecoveryResult {
+                expr,
+                degree_used: d,
+            });
         }
-        return SolverResult::Success(PolyRecoveryResult {
-            expr,
-            degree_used: d,
-        });
     }
 
     SolverResult::Blocked(reason(
@@ -300,6 +400,8 @@ mod tests {
     use super::*;
     use crate::core::evaluator::Evaluator;
     use crate::core::expr::Expr;
+    use crate::ir::math_utils::odd_part_factorial;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn recovers_univariate_quadratic() {
@@ -399,5 +501,48 @@ mod tests {
             panic!("expected success");
         };
         assert_eq!(r.degree_used, 2);
+    }
+
+    #[test]
+    fn odd_factorial_table_matches_width_specific_helper() {
+        let table = build_odd_factorials(66);
+        for bitwidth in [1u32, 8, 16, 32, 64] {
+            let mask = bitmask(bitwidth);
+            for (degree, &odd_fact) in table.iter().enumerate() {
+                assert_eq!(
+                    odd_fact & mask,
+                    odd_part_factorial(degree as u32, bitwidth),
+                    "degree={degree}, bitwidth={bitwidth}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn escalating_recovery_evaluates_each_grid_point_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_for_eval = Arc::clone(&calls);
+        let eval = Evaluator::from_closure(move |point| {
+            calls_for_eval.fetch_add(1, Ordering::Relaxed);
+            point[0].wrapping_add(point[1])
+        });
+
+        let result = recover_and_verify_poly(&eval, &[0, 1], 2, 64, 4, 2, |_, _, _, _| false);
+
+        let SolverResult::Blocked(reason) = result else {
+            panic!("expected exhausted recovery");
+        };
+        assert_eq!(
+            reason.top.code,
+            ReasonCode {
+                category: ReasonCategory::SearchExhausted,
+                domain: ReasonDomain::MultivarPoly,
+                subcode: subcode::NO_VERIFIED_DEGREE,
+            }
+        );
+        // The final degree-4 grid has 5^2 points. Incremental growth visits
+        // each point once; independent degree-2/3/4 grids would make
+        // 3^2 + 4^2 + 5^2 = 50 evaluator calls.
+        assert_eq!(calls.load(Ordering::Relaxed), 25);
     }
 }

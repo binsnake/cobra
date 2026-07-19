@@ -6,19 +6,58 @@
 use crate::core::arith::{bitmask, sext, trunc, zext};
 use crate::core::evaluator::{Evaluator, Workspace};
 use crate::core::expr::{Expr, Kind};
+use crate::core::result::{err, CobraError, Result};
 use crate::core::width::width_of;
+
+pub const MAX_SIGNATURE_VARS: u32 = 20;
+pub const MAX_SIGNATURE_BYTES: usize = 8 * 1024 * 1024;
+
+/// Validate a Boolean-signature dimension before shifting or allocating.
+pub fn checked_signature_len(num_vars: u32) -> Result<usize> {
+    if num_vars > MAX_SIGNATURE_VARS {
+        return Err(err(
+            CobraError::TooManyVariables,
+            format!("signature dimension {num_vars} exceeds {MAX_SIGNATURE_VARS} variables"),
+        ));
+    }
+    let len = 1usize.checked_shl(num_vars).ok_or_else(|| {
+        err(
+            CobraError::TooManyVariables,
+            "signature dimension exceeds addressable memory",
+        )
+    })?;
+    let bytes = len.checked_mul(std::mem::size_of::<u64>()).ok_or_else(|| {
+        err(
+            CobraError::TooManyVariables,
+            "signature byte size overflows",
+        )
+    })?;
+    if bytes > MAX_SIGNATURE_BYTES {
+        return Err(err(
+            CobraError::TooManyVariables,
+            format!("signature requires {bytes} bytes; limit is {MAX_SIGNATURE_BYTES}"),
+        ));
+    }
+    Ok(len)
+}
+
+/// Fallible Boolean-signature evaluation for untrusted dimensions.
+pub fn try_evaluate_boolean_signature(
+    expr: &Expr,
+    num_vars: u32,
+    bitwidth: u32,
+) -> Result<Vec<u64>> {
+    let len = checked_signature_len(num_vars)?;
+    let mut pool: Vec<Vec<u64>> = Vec::new();
+    Ok(eval_sig_into(expr, len, bitwidth, &mut pool))
+}
 
 /// Evaluate `expr` at every assignment in `{0, 1}^num_vars`. Variable
 /// index `v` corresponds to bit `v` of the signature index. Returns a
 /// vector of length `2^num_vars`.
 #[must_use]
 pub fn evaluate_boolean_signature(expr: &Expr, num_vars: u32, bitwidth: u32) -> Vec<u64> {
-    let len = 1usize << num_vars;
-    // A free-list of `len`-sized scratch buffers reused across nodes. Without
-    // it the bottom-up walk allocates a fresh `Vec<u64>` per node; with it the
-    // total allocation count drops to roughly the peak live-buffer depth.
-    let mut pool: Vec<Vec<u64>> = Vec::new();
-    eval_sig_into(expr, len, bitwidth, &mut pool)
+    try_evaluate_boolean_signature(expr, num_vars, bitwidth).unwrap_or_default()
 }
 
 /// `Evaluator` overload and reuses a single `Workspace` when the
@@ -29,7 +68,16 @@ pub fn evaluate_boolean_signature_from_evaluator(
     num_vars: u32,
     bitwidth: u32,
 ) -> Vec<u64> {
-    let len = 1usize << num_vars;
+    try_evaluate_boolean_signature_from_evaluator(eval, num_vars, bitwidth).unwrap_or_default()
+}
+
+/// Fallible evaluator-backed signature evaluation for untrusted dimensions.
+pub fn try_evaluate_boolean_signature_from_evaluator(
+    eval: &Evaluator,
+    num_vars: u32,
+    bitwidth: u32,
+) -> Result<Vec<u64>> {
+    let len = checked_signature_len(num_vars)?;
     let mask = bitmask(bitwidth);
     let mut sig = vec![0u64; len];
     let mut point = vec![0u64; num_vars as usize];
@@ -53,7 +101,7 @@ pub fn evaluate_boolean_signature_from_evaluator(
         };
         *slot = raw & mask;
     }
-    sig
+    Ok(sig)
 }
 
 /// Take a `len`-sized scratch buffer from the pool, or allocate one. Pooled
@@ -227,6 +275,22 @@ mod tests {
         let sig = evaluate_boolean_signature(&e, 2, 64);
         // (0,0) → 0, (1,0) → 1, (0,1) → 1, (1,1) → 0
         assert_eq!(sig, vec![0, 1, 1, 0]);
+    }
+
+    #[test]
+    fn oversized_signature_dimension_fails_before_allocation() {
+        assert_eq!(
+            checked_signature_len(MAX_SIGNATURE_VARS + 1)
+                .expect_err("oversized dimension must fail")
+                .code,
+            CobraError::TooManyVariables
+        );
+        assert!(
+            try_evaluate_boolean_signature(&Expr::variable(0), MAX_SIGNATURE_VARS + 1, 64).is_err()
+        );
+        assert!(
+            evaluate_boolean_signature(&Expr::variable(0), MAX_SIGNATURE_VARS + 1, 64).is_empty()
+        );
     }
 
     #[test]

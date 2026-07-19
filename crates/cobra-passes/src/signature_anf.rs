@@ -46,7 +46,8 @@ pub fn run_signature_anf(item: &WorkItem, ctx: &mut OrchestratorContext) -> Resu
     let sig = &sub.elimination.reduced_sig;
     let num_vars = sub.real_vars.len() as u32;
 
-    if !is_boolean_valued(sig) || num_vars > ctx.opts.max_vars {
+    let expected_len = crate::core::checked_signature_len(num_vars).ok();
+    if !is_boolean_valued(sig) || num_vars > ctx.opts.max_vars || expected_len != Some(sig.len()) {
         return Ok(PassResult {
             decision: PassDecision::NoProgress,
             disposition: ItemDisposition::RetainCurrent,

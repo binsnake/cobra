@@ -99,6 +99,23 @@ pub fn is_better(candidate: &ExprCost, baseline: &ExprCost) -> bool {
     )
 }
 
+/// Returns `true` when `candidate` is a pathological size expansion
+/// relative to `baseline`.
+///
+/// Both thresholds must be exceeded: the candidate must be more than twice
+/// the baseline's weighted size and must itself exceed 32 weighted nodes.
+/// The ratio catches exponential change-of-basis expansions while the
+/// absolute floor preserves small, legitimate canonicalization expansions.
+#[inline]
+#[must_use]
+pub fn is_cost_blowup(candidate: &ExprCost, baseline: &ExprCost) -> bool {
+    const BLOWUP_RATIO: u32 = 2;
+    const BLOWUP_ABS_FLOOR: u32 = 32;
+
+    candidate.weighted_size > baseline.weighted_size.saturating_mul(BLOWUP_RATIO)
+        && candidate.weighted_size > BLOWUP_ABS_FLOOR
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,5 +243,21 @@ mod tests {
             max_depth: 3,
         };
         assert!(!is_better(&a, &a));
+    }
+
+    #[test]
+    fn cost_blowup_requires_ratio_and_absolute_floor() {
+        let cost = |weighted_size, nonlinear_mul_count, max_depth| ExprCost {
+            weighted_size,
+            nonlinear_mul_count,
+            max_depth,
+        };
+
+        assert!(is_cost_blowup(&cost(100, 0, 5), &cost(10, 0, 3)));
+        assert!(!is_cost_blowup(&cost(30, 0, 4), &cost(20, 0, 4)));
+        assert!(!is_cost_blowup(&cost(15, 0, 4), &cost(7, 0, 3)));
+        assert!(!is_cost_blowup(&cost(32, 0, 1), &cost(16, 0, 1)));
+        assert!(is_cost_blowup(&cost(33, 0, 1), &cost(16, 0, 1)));
+        assert!(!is_cost_blowup(&cost(10, 50, 50), &cost(100, 0, 1)));
     }
 }

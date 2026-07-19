@@ -1,0 +1,3 @@
+# cobra-parity-manifest-v1
+# case_id<TAB>bitwidth<TAB>max_vars<TAB>expression
+linear_four_vars	64	16	13 * (a ^ b) + 7 * (b & c) - 5 * (c | d) + 19 * (a & d)

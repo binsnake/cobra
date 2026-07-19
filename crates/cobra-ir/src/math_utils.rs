@@ -55,9 +55,10 @@ pub fn odd_part_factorial(k: u32, bitwidth: u32) -> u64 {
     result
 }
 
-/// Modular inverse of an odd `x` modulo `2^bits`. Uses Hensel lifting:
-/// `x*x == 1 (mod 8)` for any odd `x`, giving 3 correct bits to start;
-/// each step doubles the number of correct bits.
+/// Modular inverse of an odd `x` modulo `2^bits`. Uses Newton/Hensel
+/// lifting: the seed `(3*x) ^ 2` (XOR, not exponentiation) is correct
+/// modulo 32 for every odd `x`, giving 5 correct bits to start. Each
+/// step doubles the number of correct bits.
 #[must_use]
 pub fn mod_inverse_odd(x: u64, bits: u32) -> u64 {
     assert!(bits >= 1, "bits must be >= 1");
@@ -67,8 +68,8 @@ pub fn mod_inverse_odd(x: u64, bits: u32) -> u64 {
     } else {
         (1u64 << bits) - 1
     };
-    let mut inv = x & mod_mask;
-    let mut b: u32 = 3;
+    let mut inv = (x.wrapping_mul(3) ^ 2) & mod_mask;
+    let mut b: u32 = 5;
     while b < bits {
         let two_minus_xi = 2u64.wrapping_sub(x.wrapping_mul(inv));
         inv = inv.wrapping_mul(two_minus_xi) & mod_mask;
@@ -170,6 +171,39 @@ mod tests {
                 let prod = x.wrapping_mul(inv) & mask;
                 assert_eq!(prod, 1 & mask, "x={x} bits={bits}");
             }
+        }
+    }
+
+    #[test]
+    fn mod_inverse_odd_is_exhaustive_at_small_widths() {
+        for bits in [1u32, 2, 3, 4, 5, 6, 7, 8, 12, 16] {
+            let mask = bitmask(bits);
+            for x in (1..=mask).step_by(2) {
+                let inv = mod_inverse_odd(x, bits);
+                assert_eq!(
+                    x.wrapping_mul(inv) & mask,
+                    1,
+                    "inverse mismatch for bits={bits}, x={x}"
+                );
+                assert_eq!(inv & mask, inv, "unreduced inverse for bits={bits}, x={x}");
+            }
+        }
+    }
+
+    #[test]
+    fn mod_inverse_odd_handles_random_full_width_values() {
+        let mut state = 0x1234_5678_9ABC_DEF0u64;
+        for _ in 0..100_000 {
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            let x = (z ^ (z >> 31)) | 1;
+            assert_eq!(
+                x.wrapping_mul(mod_inverse_odd(x, 64)),
+                1,
+                "inverse mismatch for x={x}"
+            );
         }
     }
 

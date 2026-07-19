@@ -106,7 +106,7 @@ pub fn endpoint_certificate_matches_candidate_signature(
     real_vars: &[String],
     sig_vector: &[u64],
 ) -> bool {
-    cert.matches_endpoints(bitwidth, &cert.original, expr)
+    cert.replays_between(bitwidth, &cert.original, expr)
         && evaluate_boolean_signature(&cert.original, real_vars.len() as u32, bitwidth)
             == sig_vector
 }

@@ -4,14 +4,10 @@
 //! done via [`PASS_REGISTRY`] — a `'static` slice of
 //! [`PassDescriptor`] entries ordered by [`PassId`] value.
 //!
-//! Currently ported passes:
-//! - [`classify_ast::run_classify_ast`] — structural classifier
-//! - [`lower_not_over_arith::run_lower_not_over_arith`] —
-//!   `~(arith)` → `Add(Neg, mask)` rewrite
-//!
-//! Many more are stubbed out / pending. The registry's current length
-//! orchestrator treats missing entries as "skip" without error, so
-//! enabling more passes is purely additive.
+//! The registry below contains the complete Rust simplification pipeline:
+//! AST processing, signature recovery, semilinear normalization,
+//! decomposition, lifting, competition resolution, and verification.
+//! Descriptor order is canonical pass priority.
 
 #![forbid(unsafe_code)]
 // Expr-building helpers return `Arc<Expr>` to match the ownership shape
@@ -355,7 +351,7 @@ pub use crate::passes::not_over_arith::{
 };
 pub use crate::passes::pattern_matcher::{
     match_1var, match_2var_boolean, match_pattern, pack_bool_sig, simplify_pattern_subtrees,
-    simplify_pattern_subtrees_certified, try_simplify_pattern_subtree,
+    simplify_pattern_subtrees_certified, simplify_xor_chains, try_simplify_pattern_subtree,
     try_simplify_two_var_pattern_sum,
 };
 pub use crate::passes::seed::seed_with_ast;

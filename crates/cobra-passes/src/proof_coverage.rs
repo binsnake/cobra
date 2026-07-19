@@ -294,7 +294,7 @@ pub const ENDPOINT_FALLBACK_INVENTORY: &[EndpointFallbackInventory] = &[
     },
     EndpointFallbackInventory {
         file: "crates/cobra-orchestrator/src/entry.rs",
-        lean_certificate_new_count: 3,
+        lean_certificate_new_count: 2,
         class: EndpointFallbackClass::TestOnly,
         note: "test-only endpoint certificates for public proof-level acceptance",
     },
@@ -344,7 +344,7 @@ pub const ENDPOINT_FALLBACK_INVENTORY: &[EndpointFallbackInventory] = &[
         file: "crates/cobra-passes/src/verify_candidate.rs",
         lean_certificate_new_count: 1,
         class: EndpointFallbackClass::ProductionFallback,
-        note: "production verifier fallback after full-width acceptance when no theorem-backed endpoint chain exists",
+        note: "production constructor is restricted to reflexive equal endpoints; changed candidates require a theorem-backed chain",
     },
     EndpointFallbackInventory {
         file: "crates/cobra-passes/src/signature_pattern_match.rs",
@@ -372,9 +372,9 @@ pub const ENDPOINT_FALLBACK_INVENTORY: &[EndpointFallbackInventory] = &[
     },
     EndpointFallbackInventory {
         file: "crates/cobra-passes/src/pattern_matcher.rs",
-        lean_certificate_new_count: 1,
-        class: EndpointFallbackClass::ProductionFallback,
-        note: "residual pattern matcher fallback when a theorem-backed local rewrite chain cannot be assembled",
+        lean_certificate_new_count: 0,
+        class: EndpointFallbackClass::RemovedProductionFallback,
+        note: "production fallback removed; unmatched pattern rewrites remain uncertified",
     },
     EndpointFallbackInventory {
         file: "crates/cobra-passes/src/seed.rs",
@@ -1094,7 +1094,6 @@ mod tests {
             vec![
                 "crates/cobra-passes/src/atom_simplifier.rs",
                 "crates/cobra-passes/src/verify_candidate.rs",
-                "crates/cobra-passes/src/pattern_matcher.rs",
                 "crates/cobra-passes/src/resolve_competition.rs",
             ],
             "production endpoint fallback inventory changed; prioritize these sites for theorem-chain replacement"

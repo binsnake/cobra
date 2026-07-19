@@ -81,6 +81,8 @@ pub struct CoreCandidatePayload {
     pub core_expr: Arc<Expr>,
     pub extractor_kind: ExtractorKind,
     pub degree_used: u8,
+    /// Product extractor only: the core is the entire unsplit input product.
+    pub single_product: bool,
     pub source_sig: Vec<u64>,
     pub target: RemainderTargetContext,
 }
@@ -214,6 +216,7 @@ mod tests {
             core_expr: Expr::variable(0),
             extractor_kind: ExtractorKind::Polynomial,
             degree_used: 0,
+            single_product: false,
             source_sig: vec![],
             target: RemainderTargetContext::default(),
         }));

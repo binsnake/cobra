@@ -1,0 +1,8 @@
+# cobra-parity-manifest-v1
+# case_id<TAB>bitwidth<TAB>max_vars<TAB>expression
+identity_xor_add	64	16	(x ^ y) + 2 * (x & y)
+inclusion_exclusion	64	16	7 * x + 7 * y - 7 * (x & y)
+xor_even_multiplicity	64	16	x ^ y ^ x
+left_shift	32	16	x << 3
+masked_partition	16	16	(x & 255) + (x & 65280)
+polynomial_square	16	16	x * x + 2 * x + 1

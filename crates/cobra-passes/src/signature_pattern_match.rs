@@ -1,7 +1,5 @@
-//! `RunSignaturePatternMatch` pass — turns a signature-keyed pattern
-//! with the competition-group submission path simplified to a direct
-//! worklist push (groups will be wired through the signature passes
-//! in a later session).
+//! `RunSignaturePatternMatch` pass — turns a recognized signature-keyed
+//! pattern into a candidate and submits it through its competition group.
 
 use crate::core::expr_cost::compute_cost;
 use crate::core::pass_contract::{ReasonDetail, VerificationState};

@@ -6,6 +6,8 @@
 
 #![allow(clippy::format_push_string)]
 
+use std::fmt::Write as _;
+
 use crate::core::expr::{Expr, Kind};
 
 use crate::verify::lean_cert::{
@@ -16,6 +18,8 @@ use crate::verify::lean_match::{
     same_or_and_operands, scaled_and_or_sum_operands, xor_and_absorb_operands,
     xor_via_or_not_operands,
 };
+
+pub const MAX_SIGNATURE_CERT_ROWS: usize = 4096;
 
 #[must_use]
 pub fn emit_expr(expr: &Expr) -> String {
@@ -228,6 +232,21 @@ fn theorem_eval_args(bitwidth: u32, theorem: LeanTheorem, before: &Expr) -> Opti
                 .or_else(|| same_or_and_operands(rhs, lhs))
                 .map(|(x, y)| vec![x, y])?
         }
+        Thm::XorAddTwoMulAndEqAdd64 => {
+            let lhs = binary_child(before, KindTag::Add, 0)?;
+            let rhs = binary_child(before, KindTag::Add, 1)?;
+            let xor = if matches!(lhs.kind, Kind::Xor) {
+                lhs
+            } else if matches!(rhs.kind, Kind::Xor) {
+                rhs
+            } else {
+                return None;
+            };
+            vec![
+                binary_child(xor, KindTag::Xor, 0)?,
+                binary_child(xor, KindTag::Xor, 1)?,
+            ]
+        }
         Thm::TwoMulAndOrSumEqTwoMulAdd64 => {
             let lhs = binary_child(before, KindTag::Add, 0)?;
             let rhs = binary_child(before, KindTag::Add, 1)?;
@@ -340,7 +359,7 @@ pub fn emit_signature_certificate(
     expr: &Expr,
 ) -> Option<String> {
     let expected_len = 1usize.checked_shl(num_vars)?;
-    if signature.len() != expected_len {
+    if signature.len() != expected_len || expected_len > MAX_SIGNATURE_CERT_ROWS {
         return None;
     }
 
@@ -418,15 +437,13 @@ fn emit_nat_list(values: &[u64]) -> String {
 #[allow(clippy::items_after_statements)]
 fn assignment_cases(len: usize) -> String {
     debug_assert!(len > 0);
-    fn go(index: usize, len: usize) -> String {
-        let case = format!("assignment = {index}");
-        if index + 1 == len {
-            case
-        } else {
-            format!("Or ({case}) ({})", go(index + 1, len))
-        }
+    let mut out = String::new();
+    for index in 0..len.saturating_sub(1) {
+        write!(&mut out, "Or (assignment = {index}) (").expect("writing to String cannot fail");
     }
-    go(0, len)
+    write!(&mut out, "assignment = {}", len - 1).expect("writing to String cannot fail");
+    out.extend(std::iter::repeat_n(')', len - 1));
+    out
 }
 
 #[allow(clippy::items_after_statements)]
@@ -559,6 +576,19 @@ mod tests {
         let emitted =
             emit_signature_certificate_model("xor_sig_model", &cert).expect("emitted theorem");
         assert!(emitted.contains("theorem xor_sig_model : Cobra.SignatureSpec 64 2"));
+    }
+
+    #[test]
+    fn oversized_signature_certificate_is_rejected_without_recursion() {
+        let rows = MAX_SIGNATURE_CERT_ROWS * 2;
+        assert!(emit_signature_certificate(
+            "oversized",
+            64,
+            13,
+            &vec![0; rows],
+            &Expr::variable(0),
+        )
+        .is_none());
     }
 
     #[test]

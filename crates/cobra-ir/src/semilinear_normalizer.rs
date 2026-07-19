@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use crate::core::arith::{bitmask, mod_neg, mod_shr};
 use crate::core::expr::{Expr, Kind};
 use crate::core::result::{err, CobraError, Result};
+use crate::core::width::is_uniform_width;
 
 use crate::ir::semilinear::{
     compute_atom_truth_table, structural_hash, AtomId, AtomInfo, AtomKey, GlobalVarIdx,
@@ -439,6 +440,13 @@ pub fn normalize_to_semilinear(
     _vars: &[String],
     bitwidth: u32,
 ) -> Result<SemilinearIR> {
+    if !is_uniform_width(expr, &[], bitwidth) {
+        return Err(err(
+            CobraError::InvalidArgument,
+            "semilinear normalization requires a uniform-width expression",
+        ));
+    }
+
     let mut ctx = CollectCtx {
         bitwidth,
         mask: bitmask(bitwidth),
@@ -521,6 +529,17 @@ mod tests {
         let expr = Expr::mul(Expr::variable(0), Expr::variable(1));
         let res = normalize_to_semilinear(&expr, &["x".into(), "y".into()], 64);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn mixed_width_expression_is_rejected_before_collection() {
+        let expr = Expr::add(
+            Expr::zext(Expr::trunc(Expr::variable(0), 4), 64),
+            Expr::and(Expr::variable(1), Expr::constant(1)),
+        );
+        let error = normalize_to_semilinear(&expr, &["x".into(), "y".into()], 64)
+            .expect_err("mixed-width input must fail closed");
+        assert_eq!(error.code, CobraError::InvalidArgument);
     }
 
     #[test]

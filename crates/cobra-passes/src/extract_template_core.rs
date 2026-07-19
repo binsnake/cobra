@@ -29,6 +29,7 @@ impl Extractor for TemplateCoreExtractor {
                 expr: t.expr,
                 kind: ExtractorKind::Template,
                 degree_used: 0,
+                single_product: false,
             }),
             SolverResult::Inapplicable(r) => SolverResult::Inapplicable(r),
             SolverResult::Blocked(r) => SolverResult::Blocked(r),

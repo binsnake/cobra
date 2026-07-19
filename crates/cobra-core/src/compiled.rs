@@ -31,11 +31,11 @@ pub struct EvalInstr {
     pub op: Opcode,
     /// `Constant` → value (pre-masked to `bitwidth`);
     /// `Variable` → index into the var-values vector;
-    /// `Shr` → shift amount;
+    /// `Shr` → shift amount in the low 32 bits, local width in the high 32;
+    /// same-width arithmetic/bitwise operators → local result width;
     /// `ZExt`/`Trunc` → target width `w`;
     /// `SExt` → source width in the low 32 bits, target width in the high 32;
     /// `Concat` → low-child width in the low 32 bits, output width in the high 32;
-    /// all others → 0 (unused).
     pub operand: u64,
 }
 
@@ -60,14 +60,14 @@ fn emit_op(node: &Expr, bitwidth: u32) -> (Opcode, u64) {
     match &node.kind {
         Kind::Constant(v) => (Opcode::Constant, *v),
         Kind::Variable(i) => (Opcode::Variable, u64::from(*i)),
-        Kind::Shr(k) => (Opcode::Shr, u64::from(*k)),
-        Kind::Not => (Opcode::Not, 0),
-        Kind::Neg => (Opcode::Neg, 0),
-        Kind::Add => (Opcode::Add, 0),
-        Kind::Mul => (Opcode::Mul, 0),
-        Kind::And => (Opcode::And, 0),
-        Kind::Or => (Opcode::Or, 0),
-        Kind::Xor => (Opcode::Xor, 0),
+        Kind::Shr(k) => (Opcode::Shr, pack_widths(*k, width_of(node, &[], bitwidth))),
+        Kind::Not => (Opcode::Not, u64::from(width_of(node, &[], bitwidth))),
+        Kind::Neg => (Opcode::Neg, u64::from(width_of(node, &[], bitwidth))),
+        Kind::Add => (Opcode::Add, u64::from(width_of(node, &[], bitwidth))),
+        Kind::Mul => (Opcode::Mul, u64::from(width_of(node, &[], bitwidth))),
+        Kind::And => (Opcode::And, u64::from(width_of(node, &[], bitwidth))),
+        Kind::Or => (Opcode::Or, u64::from(width_of(node, &[], bitwidth))),
+        Kind::Xor => (Opcode::Xor, u64::from(width_of(node, &[], bitwidth))),
         Kind::ZExt(w) => (Opcode::ZExt, u64::from(*w)),
         Kind::Trunc(w) => (Opcode::Trunc, u64::from(*w)),
         Kind::SExt(w) => {
@@ -197,7 +197,6 @@ pub fn eval(compiled: &CompiledExpr, var_values: &[u64], stack: &mut Vec<u64>) -
         stack.resize(compiled.stack_size, 0);
     }
 
-    let bw = compiled.bitwidth;
     let mask = compiled.mask;
     let mut sp: usize = 0;
 
@@ -212,32 +211,33 @@ pub fn eval(compiled: &CompiledExpr, var_values: &[u64], stack: &mut Vec<u64>) -
                 sp += 1;
             }
             Opcode::Not => {
-                stack[sp - 1] = mod_not(stack[sp - 1], bw);
+                stack[sp - 1] = mod_not(stack[sp - 1], instr.operand as u32);
             }
             Opcode::Neg => {
-                stack[sp - 1] = mod_neg(stack[sp - 1], bw);
+                stack[sp - 1] = mod_neg(stack[sp - 1], instr.operand as u32);
             }
             Opcode::Shr => {
-                stack[sp - 1] = mod_shr(stack[sp - 1], instr.operand, bw);
+                let (amount, local_width) = unpack_widths(instr.operand);
+                stack[sp - 1] = mod_shr(stack[sp - 1], u64::from(amount), local_width);
             }
             Opcode::Add => {
-                stack[sp - 2] = mod_add(stack[sp - 2], stack[sp - 1], bw);
+                stack[sp - 2] = mod_add(stack[sp - 2], stack[sp - 1], instr.operand as u32);
                 sp -= 1;
             }
             Opcode::Mul => {
-                stack[sp - 2] = mod_mul(stack[sp - 2], stack[sp - 1], bw);
+                stack[sp - 2] = mod_mul(stack[sp - 2], stack[sp - 1], instr.operand as u32);
                 sp -= 1;
             }
             Opcode::And => {
-                stack[sp - 2] = (stack[sp - 2] & stack[sp - 1]) & mask;
+                stack[sp - 2] = (stack[sp - 2] & stack[sp - 1]) & bitmask(instr.operand as u32);
                 sp -= 1;
             }
             Opcode::Or => {
-                stack[sp - 2] = (stack[sp - 2] | stack[sp - 1]) & mask;
+                stack[sp - 2] = (stack[sp - 2] | stack[sp - 1]) & bitmask(instr.operand as u32);
                 sp -= 1;
             }
             Opcode::Xor => {
-                stack[sp - 2] = (stack[sp - 2] ^ stack[sp - 1]) & mask;
+                stack[sp - 2] = (stack[sp - 2] ^ stack[sp - 1]) & bitmask(instr.operand as u32);
                 sp -= 1;
             }
             Opcode::ZExt => {
@@ -341,6 +341,24 @@ mod tests {
         // Global bw 8 here; the concat opcode uses its own per-node widths.
         let e = Expr::concat(Expr::variable(0), Expr::variable(1));
         assert_eq!(run(&e, 8, &[0x12, 0x34]), 0x1234);
+    }
+
+    #[test]
+    fn narrow_operations_use_their_declared_local_width() {
+        let narrow_add = Expr::add(
+            Expr::trunc(Expr::variable(0), 8),
+            Expr::trunc(Expr::variable(1), 8),
+        );
+        assert_eq!(run(&narrow_add, 64, &[255, 255]), 254);
+
+        let widened = Expr::zext(narrow_add, 64);
+        assert_eq!(run(&widened, 64, &[255, 255]), 254);
+
+        let narrow_neg = Expr::neg(Expr::trunc(Expr::variable(0), 8));
+        assert_eq!(run(&narrow_neg, 64, &[1]), 255);
+
+        let narrow_shift = Expr::shr(Expr::trunc(Expr::variable(0), 8), 4);
+        assert_eq!(run(&narrow_shift, 64, &[0x1f0]), 15);
     }
 
     #[test]

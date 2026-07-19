@@ -104,10 +104,11 @@ fn verified_reduced_space_candidate_without_endpoint_certificate_is_not_publicly
     )
     .unwrap();
 
-    assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
+    assert_eq!(outcome.kind, SimplifyOutcomeKind::UnchangedUnsupported);
     assert!(!outcome.verified);
-    assert_eq!(outcome.real_vars, vec!["y".to_owned()]);
-    assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
+    assert_eq!(outcome.real_vars, vec!["x".to_owned(), "y".to_owned()]);
+    assert_eq!(outcome.proof_level, ProofLevel::Unverified);
+    assert_eq!(outcome.expr.as_deref(), Some(original.as_ref()));
 }
 
 #[test]
@@ -440,16 +441,10 @@ fn exhaustion_promotes_pic_rewrite_without_lean_certificate_as_unverified_candid
     )
     .unwrap();
 
-    assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
+    assert_eq!(outcome.kind, SimplifyOutcomeKind::UnchangedUnsupported);
     assert!(!outcome.verified);
     assert_eq!(outcome.proof_level, ProofLevel::Unverified);
-    let out_expr = outcome.expr.expect("promoted rewrite present");
-    // Structurally `x * y`.
-    assert!(matches!(out_expr.kind, Kind::Mul));
-    let code = outcome.diag.reason_code.expect("reason_code stamped");
-    assert_eq!(code.category, ReasonCategory::BestRewritePromoted);
-    assert_eq!(code.domain, ReasonDomain::StructuralTransform);
-    assert!(outcome.diag.transform_produced_candidate);
+    assert_eq!(outcome.expr.as_deref(), Some(original.as_ref()));
 }
 
 #[test]

@@ -25,11 +25,11 @@ pub fn interpolate_coefficients_in_place(sig: &mut [u64], num_vars: u32, bitwidt
     );
     let mask = bitmask(bitwidth);
     for var in 0..num_vars {
-        let stride = 1usize << var;
-        for i in 0..n {
-            if (i & stride) != 0 {
-                let lo = i & !stride;
-                sig[i] = mod_sub(sig[i], sig[lo], bitwidth) & mask;
+        let half = 1usize << var;
+        let block = half << 1;
+        for base in (0..n).step_by(block) {
+            for i in base..base + half {
+                sig[i + half] = mod_sub(sig[i + half], sig[i], bitwidth) & mask;
             }
         }
     }
@@ -112,5 +112,47 @@ mod tests {
         // c0 = 200, c1 = (44 - 200) mod 256 = 100.
         let coeffs = interpolate_coefficients(vec![200, 44], 1, 8);
         assert_eq!(coeffs, vec![200, 100]);
+    }
+
+    #[test]
+    fn butterfly_matches_naive_subset_mobius_transform() {
+        fn next(state: &mut u64) -> u64 {
+            *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = *state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+
+        let mut state = 0x0000_000C_0B7A_1234u64;
+        for num_vars in [0u32, 1, 2, 3, 4, 5, 6] {
+            for bitwidth in [1u32, 8, 16, 32, 64] {
+                let mask = bitmask(bitwidth);
+                let len = 1usize << num_vars;
+                let sig: Vec<u64> = (0..len).map(|_| next(&mut state) & mask).collect();
+
+                let mut expected = vec![0u64; len];
+                for (i, expected_value) in expected.iter_mut().enumerate() {
+                    let mut j = i;
+                    loop {
+                        let mut term = sig[j] & mask;
+                        if (i.count_ones() - j.count_ones()) & 1 != 0 {
+                            term = term.wrapping_neg() & mask;
+                        }
+                        *expected_value = expected_value.wrapping_add(term) & mask;
+                        if j == 0 {
+                            break;
+                        }
+                        j = (j - 1) & i;
+                    }
+                }
+
+                assert_eq!(
+                    interpolate_coefficients(sig, num_vars, bitwidth),
+                    expected,
+                    "num_vars={num_vars}, bitwidth={bitwidth}"
+                );
+            }
+        }
     }
 }

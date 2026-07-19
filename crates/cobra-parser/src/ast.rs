@@ -22,6 +22,8 @@ pub struct AstResult {
 }
 
 pub const MAX_VARIABLES: usize = 20;
+pub const MAX_INPUT_BYTES: usize = 1_048_576;
+pub const MAX_TOKENS: usize = 100_000;
 
 /// Parse an MBA expression string into an `Expr` tree. Variables are
 /// extracted and sorted lexicographically; variable indices correspond to
@@ -31,10 +33,22 @@ pub fn parse_to_ast(input: &str, bitwidth: u32) -> Result<AstResult> {
     if input.is_empty() {
         return Err(err(CobraError::ParseError, "empty expression"));
     }
+    if input.len() > MAX_INPUT_BYTES {
+        return Err(err(
+            CobraError::ParseError,
+            format!("expression exceeds input byte limit {MAX_INPUT_BYTES}"),
+        ));
+    }
 
     let tokens = crate::parser::token::tokenize(input)?;
     if tokens.is_empty() {
         return Err(err(CobraError::ParseError, "empty expression"));
+    }
+    if tokens.len() > MAX_TOKENS {
+        return Err(err(
+            CobraError::ParseError,
+            format!("expression exceeds token limit {MAX_TOKENS}"),
+        ));
     }
 
     let vars = collect_sorted_vars(&tokens);

@@ -47,6 +47,10 @@ theorem xor_eq_add_sub_two_mul_and_64 (x y : BitVec 64) :
     x ^^^ y = x + y - (2#64 * (x &&& y)) := by
   bv_decide
 
+theorem xor_add_two_mul_and_eq_add_64 (x y : BitVec 64) :
+    (x ^^^ y) + (2#64 * (x &&& y)) = x + y := by
+  bv_decide
+
 theorem or_sub_and_eq_xor_64 (x y : BitVec 64) :
     (x ||| y) - (x &&& y) = x ^^^ y := by
   bv_decide

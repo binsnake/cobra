@@ -414,6 +414,7 @@ fn theorem_arity(theorem: LeanTheorem) -> usize {
         | LeanTheorem::ShrZero64 => 1,
         LeanTheorem::Const3And1_64 => 0,
         LeanTheorem::XorEqAddSubTwoMulAnd64
+        | LeanTheorem::XorAddTwoMulAndEqAdd64
         | LeanTheorem::OrSubAndEqXor64
         | LeanTheorem::AndOrSumEqAdd64
         | LeanTheorem::TwoMulAndOrSumEqTwoMulAdd64
@@ -569,6 +570,16 @@ fn local_rewrite_theorem_matrix_replays_in_lean() {
             )),
         ),
         LeanTheorem::XorEqAddSubTwoMulAnd64,
+    );
+    replay_local_rewrite_seen(
+        &mut seen,
+        "local_xor_add_two_mul_and_replay",
+        Expr::add(
+            Expr::xor(x.clone_tree(), y.clone_tree()),
+            Expr::mul(Expr::constant(2), Expr::and(x.clone_tree(), y.clone_tree())),
+        ),
+        Expr::add(x.clone_tree(), y.clone_tree()),
+        LeanTheorem::XorAddTwoMulAndEqAdd64,
     );
     replay_local_rewrite_seen(
         &mut seen,
@@ -1074,6 +1085,20 @@ fn seed_pattern_rewrite_generated_certificate_replays_in_lean() {
         .iter()
         .any(|step| step.theorem == LeanTheorem::AndOrSumEqAdd64));
     replay_endpoint_certificate("seed_pattern_rewrite_replay", &cert);
+
+    // Upstream v1.3 inclusion-exclusion recovery accepts compound operands:
+    // A + B - (A & B) = A | B. The local theorem pack has no variadic
+    // additive-flattening rule, so the rewrite remains uncertified and cannot
+    // cross the public proof boundary.
+    let a = || Expr::xor(Expr::variable(0), Expr::constant(4));
+    let inclusion = Expr::add(
+        Expr::add(a(), Expr::variable(1)),
+        Expr::neg(Expr::and(a(), Expr::variable(1))),
+    );
+    let (rewritten, cert) =
+        cobra::passes::pattern_matcher::simplify_pattern_subtrees_certified(inclusion, 64);
+    assert!(matches!(rewritten.kind, Kind::Or));
+    assert!(cert.is_none());
 }
 
 #[test]
@@ -3851,6 +3876,7 @@ fn prepare_remainder_constant_generated_certificate_replays_in_lean() {
         core_expr: Expr::variable(0),
         extractor_kind: ExtractorKind::Polynomial,
         degree_used: 1,
+        single_product: false,
         source_sig: vec![5, 6],
         target: RemainderTargetContext {
             eval: Evaluator::from_expr(&target, 64),
@@ -3884,6 +3910,7 @@ fn prepare_remainder_supported_flow_generated_certificate_replays_in_lean() {
         core_expr: core,
         extractor_kind: ExtractorKind::ProductAst,
         degree_used: 0,
+        single_product: false,
         source_sig,
         target: RemainderTargetContext {
             eval: Evaluator::from_expr(&target, 64),

@@ -23,6 +23,7 @@ use crate::orchestrator::{
     PassDecision, PassId, PassResult, RemainderTargetContext, StateData, WorkItem,
 };
 
+use crate::passes::aux_var::{eliminate_aux_vars, eliminate_aux_vars_fw};
 use crate::passes::candidate_normalize::signature_certificate_for_candidate;
 use crate::passes::classifier::classify_structural;
 use crate::passes::decomposition_helpers::accept_core;
@@ -46,6 +47,8 @@ pub struct CoreCandidate {
     pub expr: Arc<Expr>,
     pub kind: ExtractorKind,
     pub degree_used: u8,
+    /// Product extractor only: the core is the entire unsplit input product.
+    pub single_product: bool,
 }
 
 /// Trait for a concrete core-extractor implementation. Each
@@ -149,6 +152,23 @@ pub fn run_extractor(
                     )
                     .passed
                 {
+                    // An unsplit product core is identical to the input, so its
+                    // direct check passes trivially. If a variable is genuinely
+                    // spurious, decline this no-op winner and let the later
+                    // decomposition/signature passes recover the reduced form.
+                    // The cheap Boolean check gates the full-width probes.
+                    if core.kind == ExtractorKind::ProductAst
+                        && core.single_product
+                        && !eliminate_aux_vars(&sig, &active_vars)
+                            .spurious_vars
+                            .is_empty()
+                        && !eliminate_aux_vars_fw(&sig, &active_vars, eval, ctx.bitwidth)
+                            .spurious_vars
+                            .is_empty()
+                    {
+                        return Ok(not_applicable());
+                    }
+
                     let cost = compute_cost(&core.expr).cost;
                     let lean_signature_certificate = signature_certificate_for_candidate(
                         ctx.bitwidth,
@@ -206,6 +226,7 @@ pub fn run_extractor(
                 core_expr: core.expr,
                 extractor_kind: core.kind,
                 degree_used: core.degree_used,
+                single_product: core.single_product,
                 source_sig: sig,
                 target,
             };
@@ -261,6 +282,7 @@ mod tests {
                 expr: Expr::variable(0),
                 kind: ExtractorKind::ProductAst,
                 degree_used: 0,
+                single_product: false,
             })
         }
     }

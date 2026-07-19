@@ -13,6 +13,7 @@
 
 use crate::core::arith::bitmask;
 use crate::core::evaluator::Evaluator;
+use crate::core::spot_check::RESIDUAL_GATE_NUM_SAMPLES;
 
 use crate::orchestrator::EliminationResult;
 
@@ -72,6 +73,20 @@ fn packed_source_index(packed: u64, live_mask: u64, num_vars: u32) -> u64 {
 #[must_use]
 pub fn eliminate_aux_vars(sig: &[u64], vars: &[String]) -> EliminationResult {
     let num_vars = vars.len() as u32;
+    let names_are_unique = {
+        let mut seen = std::collections::HashSet::with_capacity(vars.len());
+        vars.iter().all(|name| seen.insert(name.as_str()))
+    };
+    if !names_are_unique
+        || crate::core::checked_signature_len(num_vars).ok() != Some(sig.len())
+        || num_vars >= u64::BITS
+    {
+        return EliminationResult {
+            reduced_sig: sig.to_vec(),
+            real_vars: vars.to_vec(),
+            spurious_vars: Vec::new(),
+        };
+    }
     if num_vars == 0 {
         return EliminationResult {
             reduced_sig: sig.to_vec(),
@@ -161,11 +176,11 @@ pub fn eliminate_aux_vars_fw(
 }
 
 fn is_spurious_full_width(eval: &Evaluator, var_index: u32, num_vars: u32, bitwidth: u32) -> bool {
-    const NUM_SAMPLES: u32 = 8;
     let mask = bitmask(bitwidth);
-    let mut state: u64 = (u64::from(var_index)).wrapping_mul(2_654_435_761)
-        ^ (u64::from(num_vars)).wrapping_mul(40_503)
-        ^ 0xDEAD_BEEFu64;
+    let mut state: u64 = (u64::from(var_index))
+        .wrapping_mul(2_654_435_761)
+        .wrapping_add((u64::from(num_vars)).wrapping_mul(40_503))
+        .wrapping_add(0xDEAD_BEEFu64);
     let mut splitmix = || -> u64 {
         state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = state;
@@ -174,7 +189,7 @@ fn is_spurious_full_width(eval: &Evaluator, var_index: u32, num_vars: u32, bitwi
         z ^ (z >> 31)
     };
     let mut inputs = vec![0u64; num_vars as usize];
-    for _ in 0..NUM_SAMPLES {
+    for _ in 0..RESIDUAL_GATE_NUM_SAMPLES {
         for slot in &mut inputs {
             *slot = splitmix() & mask;
         }
@@ -257,5 +272,26 @@ mod tests {
         let expected =
             evaluate_boolean_signature(&Expr::add(Expr::variable(0), Expr::variable(1)), 2, 64);
         assert_eq!(r.reduced_sig, expected);
+    }
+
+    #[test]
+    fn full_width_probe_keeps_sparse_high_bit_dependencies() {
+        // Both variables look dead on {0,1}, but are live when bit 61 is set.
+        // This is also a regression for the exact upstream additive SplitMix
+        // seed: the former XOR seed plus eight samples missed both variables.
+        let high_bit = 1u64 << 61;
+        let expr = Expr::and(
+            Expr::and(Expr::variable(0), Expr::variable(1)),
+            Expr::constant(high_bit),
+        );
+        let vars = names(2);
+        let sig = evaluate_boolean_signature(&expr, 2, 64);
+        assert!(sig.iter().all(|&value| value == 0));
+
+        let eval = Evaluator::from_expr(&expr, 64);
+        let result = eliminate_aux_vars_fw(&sig, &vars, &eval, 64);
+        assert_eq!(result.real_vars, vars);
+        assert!(result.spurious_vars.is_empty());
+        assert_eq!(result.reduced_sig, sig);
     }
 }

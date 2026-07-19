@@ -70,6 +70,7 @@ impl Extractor for ProductCoreExtractor {
             expr: core,
             kind: ExtractorKind::ProductAst,
             degree_used: 0,
+            single_product: products.len() == 1,
         })
     }
 }
@@ -90,7 +91,11 @@ pub fn applicable(item: &WorkItem, ctx: &OrchestratorContext) -> bool {
 mod tests {
     use super::*;
     use crate::core::classification::Classification;
+    use crate::core::evaluator::Evaluator;
     use crate::core::simplify_outcome::Options;
+    use crate::orchestrator::{
+        AstPayload, OrchestratorContext, PassDecision, Provenance, StateData, WorkItem,
+    };
 
     fn mk_ctx<'a>(
         expr: &'a Expr,
@@ -107,6 +112,16 @@ mod tests {
             current_expr: Some(expr),
             cls: Box::leak(Box::new(Classification::default())),
         }
+    }
+
+    fn sign_flip(var_index: u32) -> Arc<Expr> {
+        Expr::add(
+            Expr::constant(1),
+            Expr::mul(
+                Expr::constant(u64::MAX - 1),
+                Expr::and(Expr::variable(var_index), Expr::constant(1)),
+            ),
+        )
     }
 
     #[test]
@@ -126,6 +141,49 @@ mod tests {
             panic!("expected success");
         };
         assert_eq!(core.kind, ExtractorKind::ProductAst);
+        assert!(!core.single_product);
+    }
+
+    #[test]
+    fn marks_unsplit_product_as_single_product() {
+        let expr = Expr::mul(
+            Expr::add(Expr::variable(0), Expr::variable(1)),
+            Expr::variable(2),
+        );
+        let opts = Options::default();
+        let vars: Vec<String> = (0..3).map(|i| format!("v{i}")).collect();
+        let sig = vec![0u64; 8];
+        let ctx = mk_ctx(&expr, &vars, &sig, &opts);
+        let SolverResult::Success(core) = ProductCoreExtractor.extract(&ctx) else {
+            panic!("expected success");
+        };
+        assert!(core.single_product);
+        assert_eq!(*core.expr, *expr);
+    }
+
+    #[test]
+    fn sign_square_single_product_declines_noop_direct_candidate() {
+        let sign = sign_flip(2);
+        let expr = Expr::mul(
+            Expr::mul(
+                Expr::add(Expr::variable(0), Expr::variable(1)),
+                sign.clone_tree(),
+            ),
+            sign,
+        );
+        let vars = vec!["x1".into(), "x2".into(), "x3".into()];
+        let mut ctx = OrchestratorContext::new(Options::default(), vars, 64);
+        ctx.evaluator = Some(Evaluator::from_expr(&expr, 64));
+        let item = WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
+            expr,
+            classification: None,
+            provenance: Provenance::Original,
+            solve_ctx: None,
+        })));
+
+        let result = run_extract_product_core(&item, &mut ctx).unwrap();
+        assert_eq!(result.decision, PassDecision::NotApplicable);
+        assert!(result.next.is_empty());
     }
 
     #[test]

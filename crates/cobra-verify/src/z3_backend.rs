@@ -71,9 +71,9 @@ fn make_var_asts<'c>(
     var_names
         .iter()
         .enumerate()
-        .map(|(i, name)| {
+        .map(|(i, _display_name)| {
             let width = var_widths.get(i).copied().unwrap_or(bitwidth);
-            BV::new_const(ctx, name.as_str(), width)
+            BV::new_const(ctx, format!("__cobra_var_{i}"), width)
         })
         .collect()
 }
@@ -236,6 +236,17 @@ mod tests {
             VerifyOutcome::Disproved { counterexample } => assert!(!counterexample.is_empty()),
             other => panic!("expected Disproved, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn duplicate_display_names_do_not_alias_numeric_variables() {
+        let out = Z3Verifier.prove_equiv(
+            &Expr::variable(0),
+            &Expr::variable(1),
+            &["x".to_owned(), "x".to_owned()],
+            VerifyOpts::default(),
+        );
+        assert!(matches!(out, VerifyOutcome::Disproved { .. }));
     }
 
     #[test]

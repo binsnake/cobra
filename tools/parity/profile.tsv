@@ -1,0 +1,6 @@
+# cobra-parity-manifest-v1
+# case_id<TAB>bitwidth<TAB>max_vars<TAB>expression
+linear_four_vars	64	16	13 * (a ^ b) + 7 * (b & c) - 5 * (c | d) + 19 * (a & d)
+semilinear_three_vars	64	16	(x ^ y) * z + 3 * (x & y) + 5 * (y | z)
+mixed_product	32	16	(x + y) * (x ^ y) + 3 * (x & y) * z + 17
+identity_xor_add	64	16	(x ^ y) + 2 * (x & y)

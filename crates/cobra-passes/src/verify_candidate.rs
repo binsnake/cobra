@@ -70,6 +70,28 @@ pub fn run_verify_candidate(item: &WorkItem, ctx: &mut OrchestratorContext) -> R
     );
 
     if check.passed {
+        let certificate = remapped_endpoint_certificate(ctx, &cand.expr, &cand.real_vars);
+        let Some(certificate) = certificate else {
+            return Ok(PassResult {
+                decision: PassDecision::NoProgress,
+                disposition: ItemDisposition::RetainCurrent,
+                next: Vec::new(),
+                reason: ReasonDetail {
+                    top: ReasonFrame {
+                        code: ReasonCode {
+                            category: ReasonCategory::VerifyFailed,
+                            domain: ReasonDomain::Verifier,
+                            subcode: 1,
+                        },
+                        message:
+                            "Finite checks passed, but no replayable proof covers the exact candidate"
+                                .into(),
+                        fields: Vec::new(),
+                    },
+                    causes: Vec::new(),
+                },
+            });
+        };
         let verified_payload = CandidatePayload {
             expr: cand.expr.clone_tree(),
             real_vars: cand.real_vars.clone(),
@@ -80,10 +102,7 @@ pub fn run_verify_candidate(item: &WorkItem, ctx: &mut OrchestratorContext) -> R
         let mut verified_item = item.clone();
         verified_item.payload = StateData::Candidate(Box::new(verified_payload));
         verified_item.metadata.verification = VerificationState::Verified;
-        if verified_item.metadata.lean_certificate.is_none() {
-            verified_item.metadata.lean_certificate =
-                remapped_endpoint_certificate(ctx, &cand.expr, &cand.real_vars);
-        }
+        verified_item.metadata.lean_certificate = Some(certificate);
 
         return Ok(PassResult {
             decision: PassDecision::Advance,
@@ -138,11 +157,8 @@ fn remapped_endpoint_certificate(
         remapped.clone_tree(),
     )
     .or_else(|| {
-        Some(LeanCertificate::new(
-            ctx.bitwidth,
-            original.clone_tree(),
-            remapped,
-        ))
+        (**original == *remapped)
+            .then(|| LeanCertificate::new(ctx.bitwidth, original.clone_tree(), remapped))
     })
 }
 
@@ -236,6 +252,36 @@ mod tests {
         assert_eq!(pr.decision, PassDecision::NoProgress);
         assert_eq!(pr.disposition, ItemDisposition::RetainCurrent);
         assert_eq!(pr.reason.top.code.category, ReasonCategory::VerifyFailed);
+    }
+
+    #[test]
+    fn finite_probe_survivor_is_not_promoted_without_replayable_proof() {
+        // This expression is one only at x=27. It survives the deterministic
+        // finite probe schedule against zero, but no theorem proves it equal
+        // to zero over the complete 64-bit domain.
+        let target = Expr::mul(
+            Expr::mul(Expr::constant(3), Expr::constant(3)),
+            Expr::constant(3),
+        );
+        let difference = Expr::xor(Expr::variable(0), target);
+        let nonzero = Expr::shr(Expr::or(difference.clone_tree(), Expr::neg(difference)), 63);
+        let original = Expr::xor(Expr::constant(1), nonzero);
+
+        let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into()], 64);
+        ctx.original_expr = Some(original.clone_tree());
+        ctx.evaluator = Some(Evaluator::from_expr(&original, 64));
+
+        let item = WorkItem::new(StateData::Candidate(Box::new(CandidatePayload {
+            expr: Expr::constant(0),
+            real_vars: vec!["x".into()],
+            cost: ExprCost::default(),
+            producing_pass: PassId::VerifyCandidate,
+            needs_original_space_verification: true,
+        })));
+        let result = run_verify_candidate(&item, &mut ctx).expect("verification pass");
+        assert_eq!(result.decision, PassDecision::NoProgress);
+        assert!(result.next.is_empty());
+        assert!(result.reason.top.message.contains("replayable proof"));
     }
 
     #[test]

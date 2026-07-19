@@ -7,10 +7,9 @@
 //! in `cobra-passes`; this crate provides the types they produce and
 //! consume.
 //!
-//! The scheduler logic (`select_next_pass`, `compute_fingerprint`,
-//! `release_handle`, `run_simplify`, etc.) is added in a follow-up.
-//! The data layer exposed here is already sufficient for `cobra-passes`
-//! to start building against.
+//! Scheduler selection, fingerprinting, competition release, and the main
+//! worklist loop are implemented here. The concrete pass registry remains in
+//! `cobra-passes` to preserve the dependency direction.
 
 #![forbid(unsafe_code)]
 

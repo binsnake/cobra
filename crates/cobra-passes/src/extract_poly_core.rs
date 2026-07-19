@@ -115,6 +115,7 @@ impl Extractor for PolyCoreExtractor {
             expr: built,
             kind: ExtractorKind::Polynomial,
             degree_used: self.degree,
+            single_product: false,
         })
     }
 }

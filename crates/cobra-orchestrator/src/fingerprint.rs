@@ -72,6 +72,7 @@ pub fn compute_fingerprint(item: &WorkItem, bitwidth: u32) -> StateFingerprint {
             let mut h = expr_identity_hash(&p.core_expr);
             h = hash_combine(h, p.extractor_kind as u64);
             h = hash_combine(h, u64::from(p.degree_used));
+            h = hash_combine(h, u64::from(p.single_product));
             for v in &p.target.vars {
                 h = hash_combine(h, hash_string(v));
             }
@@ -229,7 +230,11 @@ mod tests {
     use crate::core::expr::Expr;
     use crate::core::expr_cost::ExprCost;
     use crate::orchestrator::enums::{Provenance, StateKind};
-    use crate::orchestrator::state::{AstPayload, CandidatePayload, CompetitionResolvedPayload};
+    use crate::orchestrator::state::{
+        AstPayload, CandidatePayload, CompetitionResolvedPayload, CoreCandidatePayload,
+        RemainderTargetContext,
+    };
+    use crate::orchestrator::ExtractorKind;
 
     fn mk_ast_item(expr: Arc<Expr>) -> WorkItem {
         WorkItem::new(StateData::FoldedAst(Box::new(AstPayload {
@@ -263,6 +268,23 @@ mod tests {
         let fa = compute_fingerprint(&a, 64);
         let fb = compute_fingerprint(&b, 64);
         assert_ne!(fa.payload_hash, fb.payload_hash);
+    }
+
+    #[test]
+    fn core_candidate_fingerprint_includes_single_product_marker() {
+        let make = |single_product| {
+            WorkItem::new(StateData::CoreCandidate(Box::new(CoreCandidatePayload {
+                core_expr: Expr::mul(Expr::variable(0), Expr::variable(1)),
+                extractor_kind: ExtractorKind::ProductAst,
+                degree_used: 0,
+                single_product,
+                source_sig: vec![0, 0, 0, 1],
+                target: RemainderTargetContext::default(),
+            })))
+        };
+        let regular = compute_fingerprint(&make(false), 64);
+        let single = compute_fingerprint(&make(true), 64);
+        assert_ne!(regular.payload_hash, single.payload_hash);
     }
 
     #[test]

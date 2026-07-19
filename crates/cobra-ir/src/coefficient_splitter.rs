@@ -171,12 +171,6 @@ pub fn split_coefficients(
             if (m as u64).count_ones() != k {
                 continue;
             }
-            if cob[m] == 0 {
-                // cob[m] == 0 means and_coeffs[m] starts at 0 and mul_coeffs[m]
-                // stays 0, so this mask's contribution to supermasks is 0 — no
-                // propagation needed.
-                continue;
-            }
             let deg = if k < 2 { 2 } else { k };
 
             for (v, slot) in point.iter_mut().enumerate().take(num_vars as usize) {
@@ -258,6 +252,19 @@ mod tests {
         let r = split_coefficients(&cob, &eval, 2, 64, &[]);
         assert_eq!(r.mul_coeffs[3], 1);
         assert_eq!(r.and_coeffs[3], 0);
+    }
+
+    #[test]
+    fn cancelling_boolean_coefficient_still_runs_distinguishing_probe() {
+        // f = x*y - (x&y) vanishes on the Boolean cube, but f(2,2) = 2.
+        let expr = Expr::add(
+            Expr::mul(Expr::variable(0), Expr::variable(1)),
+            Expr::neg(Expr::and(Expr::variable(0), Expr::variable(1))),
+        );
+        let eval = Evaluator::from_expr(&expr, 64);
+        let r = split_coefficients(&[0, 0, 0, 0], &eval, 2, 64, &[]);
+        assert_eq!(r.mul_coeffs[3], 1);
+        assert_eq!(r.and_coeffs[3], u64::MAX);
     }
 
     #[test]

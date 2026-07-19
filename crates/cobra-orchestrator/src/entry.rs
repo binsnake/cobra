@@ -1,13 +1,14 @@
-//! Top-level convenience entry points over [`crate::orchestrator::main_loop`]. A full
-//! public `simplify(sig, vars, input_expr, opts)` that performs its own
-//! seeding lands once the classifier and pattern-match passes are
-//! ported; until then, `simplify_from_worklist` lets tests and early
-//! integration exercise the dispatch end-to-end.
+//! Top-level conversion helpers over [`crate::orchestrator::main_loop`].
+//! Public seeding is implemented by `crate::passes::entry`; this module owns
+//! the seeded-worklist dispatch and conversion into the public outcome type.
 
 use crate::core::expr::Expr;
+use crate::core::expr_cost::{compute_cost, is_cost_blowup};
 use crate::core::expr_rewrite::{cleanup_final_expr, try_build_var_support};
 use crate::core::expr_utils::{collect_vars, remap_var_indices};
-use crate::core::pass_contract::{PassOutcome, VerificationState};
+use crate::core::pass_contract::{
+    PassOutcome, ReasonCategory, ReasonCode, ReasonDomain, VerificationState,
+};
 use crate::core::result::Result;
 use crate::core::simplify_outcome::{
     Diagnostic, ProofLevel, SimplifyOutcome, SimplifyOutcomeKind, SimplifyTelemetry,
@@ -42,13 +43,15 @@ pub fn simplify_from_worklist(
 
 /// `ToSimplifyOutcome`: success runs `cleanup_final_expr` on the expr,
 /// failure either echoes the input or leaves `expr = None`.
+#[allow(clippy::too_many_lines)]
 pub fn to_simplify_outcome(
-    result: LoopResult,
+    mut result: LoopResult,
     original_expr: Option<&Expr>,
     bitwidth: u32,
     original_vars: &[String],
 ) -> SimplifyOutcome {
     let mut outcome = SimplifyOutcome::default();
+    let mut cost_rejected = false;
 
     match result.outcome {
         PassOutcome::Success {
@@ -57,7 +60,70 @@ pub fn to_simplify_outcome(
             verification,
             ..
         } => {
-            let cleaned_expr = cleanup_final_expr(expr, bitwidth);
+            let cleaned = cleanup_final_expr(expr.clone_tree(), bitwidth);
+            if let Some(original) = original_expr {
+                let existing_proves_cleaned = result
+                    .metadata
+                    .lean_certificate
+                    .as_ref()
+                    .is_some_and(|cert| cert.replays_between(bitwidth, original, &cleaned));
+                if !existing_proves_cleaned {
+                    if let Some(cert) =
+                        crate::verify::LeanCertificate::try_single_rewrite_between_64(
+                            bitwidth,
+                            original.clone_tree(),
+                            cleaned.clone_tree(),
+                        )
+                    {
+                        result.metadata.lean_certificate = Some(cert);
+                    }
+                }
+            }
+            // Cleanup is a transformation too. Prefer the exact cleaned
+            // endpoint when it is certified; otherwise preserve a certified
+            // pre-cleanup endpoint rather than detaching proof metadata from
+            // the expression it actually proves.
+            let cleaned_expr = if original_expr.is_some_and(|original| {
+                result
+                    .metadata
+                    .lean_certificate
+                    .as_ref()
+                    .is_some_and(|cert| {
+                        certificate_matches_public_output(
+                            cert,
+                            bitwidth,
+                            original,
+                            &cleaned,
+                            &real_vars,
+                            original_vars,
+                        )
+                    })
+            }) {
+                cleaned
+            } else if original_expr.is_some_and(|original| {
+                result
+                    .metadata
+                    .lean_certificate
+                    .as_ref()
+                    .is_some_and(|cert| {
+                        certificate_matches_public_output(
+                            cert,
+                            bitwidth,
+                            original,
+                            &expr,
+                            &real_vars,
+                            original_vars,
+                        )
+                    })
+            }) {
+                expr
+            } else {
+                cleaned
+            };
+            // Match upstream's observable rejection contract: a candidate's
+            // signature remains available even if a later public-output guard
+            // rejects the expression.
+            outcome.sig_vector = std::mem::take(&mut result.metadata.sig_vector);
             // Defense-in-depth: the public output's variables must be a
             // subset of the original problem's input variables. A surviving
             // lifted/aux var (index >= number of original input vars) means a
@@ -73,8 +139,9 @@ pub fn to_simplify_outcome(
                 "rejected: simplified expression references a lifted/aux variable \
                  not present in the original input (nested-lift leak)"
                     .clone_into(&mut outcome.diag.reason);
+            } else if reject_cost_blowup(&mut outcome, original_expr, &cleaned_expr) {
+                cost_rejected = true;
             } else {
-                outcome.kind = SimplifyOutcomeKind::Simplified;
                 let has_matching_lean_certificate = result
                     .metadata
                     .lean_certificate
@@ -100,19 +167,29 @@ pub fn to_simplify_outcome(
                             cert.matches_signature(
                                 bitwidth,
                                 real_vars.len() as u32,
-                                &result.metadata.sig_vector,
+                                &outcome.sig_vector,
                                 &cleaned_expr,
                             )
                         });
                 let has_matching_lean_evidence =
                     has_matching_lean_certificate || has_matching_signature_certificate;
-                outcome.expr = Some(cleaned_expr);
-                outcome.real_vars = real_vars;
-                outcome.verified =
-                    verification == VerificationState::Verified && has_matching_lean_evidence;
-                outcome.proof_level =
-                    proof_level_for_verification(verification, has_matching_lean_evidence);
-                outcome.sig_vector = result.metadata.sig_vector;
+                let changed_ast_without_proof = original_expr
+                    .is_some_and(|original| *cleaned_expr != *original)
+                    && !has_matching_lean_certificate;
+                if changed_ast_without_proof {
+                    outcome.kind = SimplifyOutcomeKind::UnchangedUnsupported;
+                    outcome.expr = original_expr.map(Expr::clone_tree);
+                    "rejected: final AST rewrite lacks a replayable proof for the exact output"
+                        .clone_into(&mut outcome.diag.reason);
+                } else {
+                    outcome.kind = SimplifyOutcomeKind::Simplified;
+                    outcome.expr = Some(cleaned_expr);
+                    outcome.real_vars = real_vars;
+                    outcome.verified =
+                        verification == VerificationState::Verified && has_matching_lean_evidence;
+                    outcome.proof_level =
+                        proof_level_for_verification(verification, has_matching_lean_evidence);
+                }
             }
         }
         other => {
@@ -125,6 +202,12 @@ pub fn to_simplify_outcome(
         }
     }
 
+    if outcome.kind == SimplifyOutcomeKind::UnchangedUnsupported && original_expr.is_some() {
+        outcome.real_vars = original_vars.to_vec();
+        outcome.verified = false;
+        outcome.proof_level = ProofLevel::Unverified;
+    }
+
     let existing_reason = std::mem::take(&mut outcome.diag.reason);
     outcome.diag = Diagnostic {
         classification: result.run_metadata.input_classification,
@@ -132,7 +215,15 @@ pub fn to_simplify_outcome(
         transform_produced_candidate: result.metadata.transform_produced_candidate,
         candidate_failed_verification: result.metadata.candidate_failed_verification,
         reason: existing_reason,
-        reason_code: result.metadata.reason_code,
+        reason_code: if cost_rejected {
+            Some(ReasonCode {
+                category: ReasonCategory::CostRejected,
+                domain: ReasonDomain::Orchestrator,
+                subcode: 0,
+            })
+        } else {
+            result.metadata.reason_code
+        },
         cause_chain: result.metadata.cause_chain,
     };
 
@@ -146,6 +237,28 @@ pub fn to_simplify_outcome(
     outcome
 }
 
+fn reject_cost_blowup(
+    outcome: &mut SimplifyOutcome,
+    original_expr: Option<&Expr>,
+    candidate: &Expr,
+) -> bool {
+    let Some(original) = original_expr else {
+        return false;
+    };
+    if !is_cost_blowup(&compute_cost(candidate).cost, &compute_cost(original).cost) {
+        return false;
+    }
+
+    // A Boolean-signature change of basis can be equivalent while expanding
+    // an already-small input into an exponential AND-monomial sum. Reject only
+    // candidates that are both >2x the input and >32 weighted nodes.
+    outcome.kind = SimplifyOutcomeKind::UnchangedUnsupported;
+    outcome.expr = Some(Arc::new(original.clone()));
+    outcome.diag.reason =
+        "rejected: simplified expression is a pathological size expansion".to_string();
+    true
+}
+
 fn certificate_matches_public_output(
     cert: &crate::verify::LeanCertificate,
     bitwidth: u32,
@@ -155,10 +268,9 @@ fn certificate_matches_public_output(
     original_vars: &[String],
 ) -> bool {
     let public_candidates = public_output_candidates(public_expr, real_vars, original_vars);
-    public_candidates.iter().any(|candidate| {
-        cert.matches_endpoints(bitwidth, original, candidate)
-            || certificate_matches_cleanup_of_public_output(cert, bitwidth, original, candidate)
-    })
+    public_candidates
+        .iter()
+        .any(|candidate| cert.replays_between(bitwidth, original, candidate))
 }
 
 fn public_output_candidates(
@@ -178,19 +290,6 @@ fn public_output_candidates(
     candidates
 }
 
-fn certificate_matches_cleanup_of_public_output(
-    cert: &crate::verify::LeanCertificate,
-    bitwidth: u32,
-    original: &Expr,
-    public_expr: &Expr,
-) -> bool {
-    if cert.bitwidth != bitwidth || *cert.original != *original {
-        return false;
-    }
-    let cleaned_cert_endpoint = cleanup_final_expr(cert.simplified.clone_tree(), bitwidth);
-    *cleaned_cert_endpoint == *public_expr
-}
-
 fn proof_level_for_verification(
     verification: VerificationState,
     has_lean_certificate: bool,
@@ -207,6 +306,42 @@ mod tests {
     use super::*;
     use crate::orchestrator::context::{OrchestratorTelemetry, RunMetadata};
     use crate::orchestrator::work_item::ItemMetadata;
+
+    #[test]
+    fn pathological_output_growth_is_rejected_globally() {
+        let original = Expr::variable(0);
+        let mut expanded = Expr::variable(0);
+        for _ in 0..20 {
+            expanded = Expr::add(expanded, Expr::variable(0));
+        }
+        assert!(is_cost_blowup(
+            &compute_cost(&expanded).cost,
+            &compute_cost(&original).cost
+        ));
+
+        let result = LoopResult {
+            outcome: PassOutcome::success(expanded, vec!["x".into()], VerificationState::Verified),
+            metadata: ItemMetadata {
+                sig_vector: vec![0, 21],
+                ..ItemMetadata::default()
+            },
+            run_metadata: RunMetadata::default(),
+            telemetry: OrchestratorTelemetry::default(),
+        };
+
+        let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into()]);
+        assert_eq!(outcome.kind, SimplifyOutcomeKind::UnchangedUnsupported);
+        assert_eq!(outcome.expr, Some(original));
+        assert_eq!(outcome.sig_vector, vec![0, 21]);
+        assert_eq!(
+            outcome.diag.reason_code,
+            Some(ReasonCode {
+                category: ReasonCategory::CostRejected,
+                domain: ReasonDomain::Orchestrator,
+                subcode: 0,
+            })
+        );
+    }
 
     #[test]
     fn lean_certificate_upgrades_public_proof_level() {
@@ -262,28 +397,30 @@ mod tests {
         // input var (not a lifted/aux leak) — this test exercises
         // certificate-mismatch handling, not the nested-lift leak guard.
         let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into(), "y".into()]);
-        assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
+        assert_eq!(outcome.kind, SimplifyOutcomeKind::UnchangedUnsupported);
+        assert_eq!(outcome.expr, Some(original));
+        assert_eq!(outcome.proof_level, ProofLevel::Unverified);
         assert!(!outcome.verified);
     }
 
     #[test]
-    fn cleanup_of_certified_endpoint_preserves_public_proof_level() {
+    fn cleanup_requires_proof_for_the_exact_public_endpoint() {
         let original = Expr::add(
             Expr::add(Expr::variable(0), Expr::constant(0)),
             Expr::constant(0),
         );
         let precleaned = Expr::add(Expr::variable(0), Expr::constant(0));
         let metadata = ItemMetadata {
-            lean_certificate: Some(crate::verify::LeanCertificate::new(
+            lean_certificate: crate::verify::LeanCertificate::try_single_rewrite_between_64(
                 64,
                 original.clone_tree(),
                 precleaned.clone_tree(),
-            )),
+            ),
             ..ItemMetadata::default()
         };
         let result = LoopResult {
             outcome: PassOutcome::success(
-                precleaned,
+                precleaned.clone_tree(),
                 vec!["x".into()],
                 VerificationState::Verified,
             ),
@@ -293,7 +430,7 @@ mod tests {
         };
 
         let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into()]);
-        assert_eq!(outcome.expr, Some(Expr::variable(0)));
+        assert_eq!(outcome.expr, Some(precleaned));
         assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
         assert!(outcome.verified);
     }

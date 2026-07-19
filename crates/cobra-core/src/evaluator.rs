@@ -82,6 +82,13 @@ impl std::fmt::Debug for Evaluator {
 }
 
 impl Evaluator {
+    /// Wrap an arbitrary evaluator callback.
+    ///
+    /// The simplifier treats evaluators as pure deterministic functions of
+    /// their input slice. It may revisit a point, change evaluation order, or
+    /// cache and reuse values across degree-escalating recovery attempts.
+    /// Stateful or time-dependent callbacks therefore violate this contract
+    /// and can produce inconsistent simplification results.
     #[must_use]
     pub fn from_closure<F>(f: F) -> Self
     where

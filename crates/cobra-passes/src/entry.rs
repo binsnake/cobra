@@ -7,20 +7,24 @@
 use crate::core::arith::bitmask;
 use crate::core::evaluator::{Evaluator, TraceKind};
 use crate::core::expr::{Expr, Kind};
-use crate::core::pass_contract::VerificationState;
+use crate::core::expr_cost::{compute_cost, is_better};
+use crate::core::pass_contract::{PassOutcome, VerificationState};
 use crate::core::result::{err, CobraError, Result};
 use crate::core::simplify_outcome::ProofLevel;
 use crate::core::simplify_outcome::{Options, SimplifyOutcome, SimplifyOutcomeKind};
-use crate::core::{evaluate_boolean_signature, is_valid_bitwidth};
+use crate::core::{
+    checked_signature_len, evaluate_boolean_signature, is_valid_bitwidth,
+    try_evaluate_boolean_signature, validate_widths, MAX_SIGNATURE_VARS,
+};
 use crate::ir::{contains_shr, detect_root_low_bit_mask};
 
 use crate::orchestrator::{
-    create_group, simplify_from_worklist, OrchestratorContext, OrchestratorPolicy, Provenance,
-    SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem, Worklist,
+    create_group, run_main_loop, to_simplify_outcome, OrchestratorContext, OrchestratorPolicy,
+    Provenance, SignatureStatePayload, SignatureSubproblemContext, StateData, WorkItem, Worklist,
 };
 
 use crate::passes::aux_var::eliminate_aux_vars;
-use crate::passes::pattern_matcher::match_pattern;
+use crate::passes::pattern_matcher::{match_pattern, simplify_xor_chains};
 use crate::passes::seed::seed_with_ast;
 use crate::passes::spot_check::{
     full_width_check_eval, verify_in_original_space, DEFAULT_NUM_SAMPLES,
@@ -28,7 +32,9 @@ use crate::passes::spot_check::{
 use crate::passes::PASS_REGISTRY;
 
 /// Upper bound checked before any `2^vars.len()` signature allocation.
-pub const MAX_INPUT_VARS: usize = 24;
+pub const MAX_INPUT_VARS: usize = MAX_SIGNATURE_VARS as usize;
+const MAX_EXPRESSION_DEPTH: usize = 512;
+const MAX_LOGICAL_NODES: usize = 100_000;
 
 /// Run the complete simplifier pipeline from a Boolean signature and,
 /// optionally, an original AST.
@@ -43,9 +49,10 @@ pub fn simplify(
     input_expr: Option<&Expr>,
     opts: Options,
 ) -> Result<SimplifyOutcome> {
-    validate_public_inputs(sig, vars, opts.bitwidth)?;
+    validate_public_inputs(sig, vars, opts.bitwidth, opts.max_vars)?;
 
     if let Some(expr) = input_expr {
+        validate_expr_input(expr, vars, opts.bitwidth)?;
         if let Some(result) = try_dynamic_mask(sig, vars, expr, &opts)? {
             return Ok(result);
         }
@@ -64,28 +71,88 @@ pub fn simplify(
         None => seed_no_ast(sig, vars, &mut ctx, &mut worklist)?,
     }
 
-    simplify_from_worklist(
+    let mut policy = OrchestratorPolicy::default();
+    let mut loop_result = run_main_loop(
         &mut ctx,
-        worklist,
-        OrchestratorPolicy::default(),
+        &mut worklist,
+        &mut policy,
         PASS_REGISTRY,
         input_expr,
-    )
+    )?;
+
+    // Exact exhaustion fallback from upstream v1.3: flatten XOR chains and
+    // remove operands with even multiplicity (`T ^ T == 0`). A surviving
+    // operand can have a degenerate Boolean signature, leaving every normal
+    // solver path exhausted even though the raw AST has a much cheaper exact
+    // form. Restrict this to unsupported AST-backed runs, require a strict
+    // cost improvement, and retain the full-width check as defense in depth.
+    // This deliberately runs on the raw exhausted-loop result, before public
+    // conversion. A successful candidate that is later rejected by the global
+    // cost or lifted-variable guards must not be mistaken for exhaustion.
+    if !loop_result.outcome.succeeded() {
+        if let (Some(expr), Some(eval)) = (input_expr, ctx.evaluator.as_ref()) {
+            if contains_xor(expr) {
+                let peeled = simplify_xor_chains(expr.clone_tree(), ctx.bitwidth);
+                if *peeled != *expr
+                    && is_better(&compute_cost(&peeled).cost, &compute_cost(expr).cost)
+                    && full_width_check_eval(
+                        eval,
+                        vars.len() as u32,
+                        &peeled,
+                        ctx.bitwidth,
+                        DEFAULT_NUM_SAMPLES,
+                    )
+                    .passed
+                {
+                    let peeled_sig =
+                        evaluate_boolean_signature(&peeled, vars.len() as u32, ctx.bitwidth);
+                    loop_result.outcome =
+                        PassOutcome::success(peeled, vars.to_vec(), VerificationState::Verified);
+                    loop_result.metadata.verification = VerificationState::Verified;
+                    loop_result.metadata.sig_vector = peeled_sig;
+                    loop_result.metadata.candidate_failed_verification = false;
+                    loop_result.metadata.reason_code = None;
+                    loop_result.metadata.cause_chain.clear();
+                    loop_result.metadata.lean_certificate = None;
+                    loop_result.metadata.lean_signature_certificate = None;
+                }
+            }
+        }
+    }
+
+    Ok(to_simplify_outcome(
+        loop_result,
+        input_expr,
+        ctx.bitwidth,
+        &ctx.original_vars,
+    ))
+}
+
+fn contains_xor(expr: &Expr) -> bool {
+    matches!(expr.kind, Kind::Xor) || expr.children.iter().any(|child| contains_xor(child))
 }
 
 /// Convenience wrapper for callers that have an AST and want the Boolean
 /// signature computed from it.
 pub fn simplify_expr(expr: &Expr, vars: &[String], opts: Options) -> Result<SimplifyOutcome> {
-    validate_var_count(vars)?;
+    validate_var_count(vars, opts.max_vars)?;
     validate_bitwidth(opts.bitwidth)?;
-    let sig = evaluate_boolean_signature(expr, vars.len() as u32, opts.bitwidth);
+    validate_unique_var_names(vars)?;
+    validate_expr_input(expr, vars, opts.bitwidth)?;
+    let sig = try_evaluate_boolean_signature(expr, vars.len() as u32, opts.bitwidth)?;
     simplify(&sig, vars, Some(expr), opts)
 }
 
-fn validate_public_inputs(sig: &[u64], vars: &[String], bitwidth: u32) -> Result<()> {
-    validate_var_count(vars)?;
+fn validate_public_inputs(
+    sig: &[u64],
+    vars: &[String],
+    bitwidth: u32,
+    configured_max: u32,
+) -> Result<()> {
+    validate_var_count(vars, configured_max)?;
     validate_bitwidth(bitwidth)?;
-    let expected_len = 1usize << vars.len();
+    validate_unique_var_names(vars)?;
+    let expected_len = checked_signature_len(vars.len() as u32)?;
     if sig.len() != expected_len {
         return Err(err(
             CobraError::InvalidArgument,
@@ -98,17 +165,68 @@ fn validate_public_inputs(sig: &[u64], vars: &[String], bitwidth: u32) -> Result
     Ok(())
 }
 
-fn validate_var_count(vars: &[String]) -> Result<()> {
-    if vars.len() > MAX_INPUT_VARS {
+fn validate_var_count(vars: &[String], configured_max: u32) -> Result<()> {
+    let limit = MAX_INPUT_VARS.min(configured_max as usize);
+    if vars.len() > limit {
         return Err(err(
             CobraError::TooManyVariables,
             format!(
-                "Input variable count ({}) exceeds MAX_INPUT_VARS ({MAX_INPUT_VARS})",
+                "Input variable count ({}) exceeds configured safe limit ({limit})",
                 vars.len()
             ),
         ));
     }
     Ok(())
+}
+
+fn validate_unique_var_names(vars: &[String]) -> Result<()> {
+    let mut seen = std::collections::HashSet::with_capacity(vars.len());
+    for name in vars {
+        if !seen.insert(name.as_str()) {
+            return Err(err(
+                CobraError::InvalidArgument,
+                format!("duplicate variable name: {name}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_expr_input(expr: &Expr, vars: &[String], bitwidth: u32) -> Result<()> {
+    let mut stack = vec![(expr, 1usize)];
+    let mut logical_nodes = 0usize;
+    while let Some((node, depth)) = stack.pop() {
+        logical_nodes = logical_nodes.checked_add(1).ok_or_else(|| {
+            err(
+                CobraError::InvalidArgument,
+                "expression logical node count overflow",
+            )
+        })?;
+        if logical_nodes > MAX_LOGICAL_NODES {
+            return Err(err(
+                CobraError::InvalidArgument,
+                format!("expression exceeds logical node budget {MAX_LOGICAL_NODES}"),
+            ));
+        }
+        if depth > MAX_EXPRESSION_DEPTH {
+            return Err(err(
+                CobraError::InvalidArgument,
+                format!("expression exceeds depth budget {MAX_EXPRESSION_DEPTH}"),
+            ));
+        }
+        if let Kind::Variable(index) = node.kind {
+            if index as usize >= vars.len() {
+                return Err(err(
+                    CobraError::InvalidArgument,
+                    format!("variable index {index} has no corresponding name"),
+                ));
+            }
+        }
+        for child in &node.children {
+            stack.push((child, depth + 1));
+        }
+    }
+    validate_widths(expr, &[], bitwidth)
 }
 
 fn validate_bitwidth(bitwidth: u32) -> Result<()> {
@@ -284,6 +402,72 @@ mod tests {
     }
 
     #[test]
+    fn boolean_signature_only_product_rewrite_cannot_replace_original_ast() {
+        fn equals_hidden_value(var: u32, a: u64, b: u64) -> std::sync::Arc<Expr> {
+            let target = Expr::mul(Expr::constant(a), Expr::constant(b));
+            let delta = Expr::xor(Expr::variable(var), target);
+            let nonzero = Expr::or(delta.clone_tree(), Expr::neg(delta));
+            Expr::shr(Expr::not(nonzero), 63)
+        }
+
+        let a = 0x12345;
+        let b = 0x10001;
+        let x = Expr::variable(0);
+        let y = Expr::variable(1);
+        let hidden = equals_hidden_value(0, a, b);
+        let original = Expr::add(
+            Expr::mul(
+                Expr::add(Expr::and(x.clone_tree(), y.clone_tree()), hidden),
+                Expr::or(x.clone_tree(), y.clone_tree()),
+            ),
+            Expr::mul(
+                Expr::and(x.clone_tree(), Expr::not(y.clone_tree())),
+                Expr::and(Expr::not(x), y),
+            ),
+        );
+        let outcome = simplify_expr(
+            &original,
+            &["x".to_owned(), "y".to_owned()],
+            Options::default(),
+        )
+        .expect("simplification must fail closed, not error");
+        assert_eq!(outcome.expr, Some(original));
+        assert!(!outcome.verified);
+        assert_eq!(outcome.proof_level, ProofLevel::Unverified);
+    }
+
+    #[test]
+    fn xor_chain_exhaustion_fallback_cancels_complex_duplicate() {
+        let survivor = || {
+            Expr::or(
+                Expr::and(
+                    Expr::add(Expr::variable(0), Expr::variable(1)),
+                    Expr::variable(2),
+                ),
+                Expr::constant(3),
+            )
+        };
+        let duplicate = || {
+            Expr::add(
+                Expr::or(
+                    Expr::mul(Expr::variable(0), Expr::variable(2)),
+                    Expr::and(Expr::variable(1), Expr::constant(85)),
+                ),
+                Expr::variable(3),
+            )
+        };
+        let input = Expr::xor(Expr::xor(survivor(), duplicate()), duplicate());
+        let vars = ["x", "y", "z", "w"].map(str::to_string);
+
+        let outcome = simplify_expr(&input, &vars, Options::default()).expect("simplify");
+        assert_eq!(outcome.kind, SimplifyOutcomeKind::UnchangedUnsupported);
+        assert_eq!(outcome.expr, Some(input));
+        assert_eq!(outcome.proof_level, ProofLevel::Unverified);
+        assert!(!outcome.verified);
+        assert!(outcome.diag.reason.contains("replayable proof"));
+    }
+
+    #[test]
     fn simplify_rejects_invalid_public_inputs() {
         let vars = vec!["x".to_string()];
         let sig = vec![0, 1];
@@ -301,6 +485,49 @@ mod tests {
 
         let err = simplify(&[0], &vars, None, Options::default()).unwrap_err();
         assert_eq!(err.code, CobraError::InvalidArgument);
+    }
+
+    #[test]
+    fn simplify_rejects_duplicate_variable_names_without_panicking() {
+        let expr = Expr::xor(Expr::variable(0), Expr::variable(1));
+        let error = simplify_expr(&expr, &["x".to_owned(), "x".to_owned()], Options::default())
+            .expect_err("duplicate names must be rejected");
+        assert_eq!(error.code, CobraError::InvalidArgument);
+        assert!(error.message.contains("duplicate variable name"));
+    }
+
+    #[test]
+    fn simplify_applies_configured_var_limit_before_signature_work() {
+        let expr = Expr::xor(Expr::variable(0), Expr::variable(1));
+        let error = simplify_expr(
+            &expr,
+            &["x".to_owned(), "y".to_owned()],
+            Options {
+                max_vars: 1,
+                ..Options::default()
+            },
+        )
+        .expect_err("configured limit must fail before signature construction");
+        assert_eq!(error.code, CobraError::TooManyVariables);
+    }
+
+    #[test]
+    fn simplify_rejects_invalid_width_and_excessive_depth() {
+        let error = simplify_expr(
+            &Expr::zext(Expr::variable(0), 65),
+            &["x".to_owned()],
+            Options::default(),
+        )
+        .expect_err("widths above u64 capacity must be rejected");
+        assert_eq!(error.code, CobraError::InvalidArgument);
+
+        let mut deep = Expr::variable(0);
+        for _ in 0..MAX_EXPRESSION_DEPTH {
+            deep = Expr::not(deep);
+        }
+        let error = simplify_expr(&deep, &["x".to_owned()], Options::default())
+            .expect_err("excessive depth must be rejected before recursive walkers");
+        assert_eq!(error.code, CobraError::InvalidArgument);
     }
 
     #[test]
@@ -384,14 +611,17 @@ mod tests {
     }
 
     #[test]
-    fn mixed_width_concat_is_handled_soundly() {
-        // concat(v0:u8, v1:u8) — a width-summing node buried in arithmetic.
+    fn oversized_concat_is_rejected_at_public_boundary() {
+        // Bare variables are 64-bit, so their concatenation cannot be
+        // represented by the public u64 evaluator.
         let expr = Expr::add(
             Expr::concat(Expr::variable(0), Expr::variable(1)),
             Expr::variable(2),
         );
         let vars = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-        assert_simplify_preserves_semantics(&expr, &vars, 64);
+        let error = simplify_expr(&expr, &vars, Options::default())
+            .expect_err("128-bit concatenation must fail closed");
+        assert_eq!(error.code, CobraError::InvalidArgument);
     }
 
     #[test]
@@ -400,7 +630,10 @@ mod tests {
         // path must keep it equivalent (output == input semantically).
         let expr = Expr::xor(
             Expr::trunc(Expr::variable(0), 8),
-            Expr::and(Expr::variable(1), Expr::constant(0xFF)),
+            Expr::and(
+                Expr::trunc(Expr::variable(1), 8),
+                Expr::trunc(Expr::constant(0xFF), 8),
+            ),
         );
         let vars = vec!["a".to_string(), "b".to_string()];
         assert_simplify_preserves_semantics(&expr, &vars, 64);

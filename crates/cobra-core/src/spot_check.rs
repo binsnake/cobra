@@ -9,7 +9,7 @@ use crate::core::compiled::{compile, eval as eval_compiled, CompiledExpr};
 use crate::core::evaluator::{Evaluator, Workspace};
 use crate::core::expr::{Expr, Kind};
 use crate::core::expr_utils::remap_var_indices;
-use crate::core::signature_eval::evaluate_boolean_signature;
+use crate::core::signature_eval::{checked_signature_len, try_evaluate_boolean_signature};
 use crate::core::width::width_of;
 
 /// inputs that produced a disagreement (when `passed == false`).
@@ -30,9 +30,13 @@ pub fn signature_check(
     num_vars: u32,
     bitwidth: u32,
 ) -> CheckResult {
-    let computed = evaluate_boolean_signature(simplified, num_vars, bitwidth);
+    let Ok(len) = checked_signature_len(num_vars) else {
+        return CheckResult::default();
+    };
+    let Ok(computed) = try_evaluate_boolean_signature(simplified, num_vars, bitwidth) else {
+        return CheckResult::default();
+    };
     let mask = bitmask(bitwidth);
-    let len = 1usize << num_vars;
     if original_sig.len() < len || computed.len() < len {
         return CheckResult::default();
     }
@@ -432,7 +436,10 @@ pub fn verify_in_original_space(
     bitwidth: u32,
 ) -> CheckResult {
     let all_count = all_vars.len() as u32;
-    if real_vars.is_empty() || real_vars.len() == all_vars.len() {
+    if compile(reduced_expr, bitwidth).arity > real_vars.len() as u32 {
+        return CheckResult::default();
+    }
+    if real_vars == all_vars {
         return full_width_check_eval(eval, all_count, reduced_expr, bitwidth, DEFAULT_NUM_SAMPLES);
     }
     // When `real_vars` lives in a namespace other than `all_vars`
@@ -606,6 +613,32 @@ mod tests {
         let simplified = Expr::add(Expr::variable(0), Expr::variable(1));
         let r = full_width_check(&original, 3, &simplified, &[0, 2], 64, DEFAULT_NUM_SAMPLES);
         assert!(r.passed);
+    }
+
+    #[test]
+    fn original_space_check_remaps_equal_length_permuted_names() {
+        let original = Expr::variable(0);
+        let eval = Evaluator::from_expr(&original, 64);
+        let result = verify_in_original_space(
+            &eval,
+            &["a".to_owned(), "b".to_owned()],
+            &["b".to_owned(), "a".to_owned()],
+            &Expr::variable(0),
+            64,
+        );
+        assert!(
+            !result.passed,
+            "b must not be checked as original variable a"
+        );
+    }
+
+    #[test]
+    fn original_space_check_rejects_nonconstant_empty_namespace() {
+        let original = Expr::variable(0);
+        let eval = Evaluator::from_expr(&original, 64);
+        let result =
+            verify_in_original_space(&eval, &["a".to_owned()], &[], &Expr::variable(0), 64);
+        assert!(!result.passed);
     }
 
     #[test]
