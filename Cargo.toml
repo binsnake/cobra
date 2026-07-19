@@ -82,7 +82,7 @@ parity-tools = []
 # identically across builds.
 ahash = "=0.8.11"
 clap = { version = "4", features = ["derive"] }
-hashbrown = "0.14"
+hashbrown = "0.17"
 indexmap = "2"
 smallvec = { version = "1.13", features = ["union"] }
 thiserror = "1"
