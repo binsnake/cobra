@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-24
+
+### Added
+
+- Width-generic Lean theorem pack. Every rewrite the certificate machinery
+  recognizes now has a `_w` counterpart proved at an arbitrary `BitVec w`, so
+  certificates exist at every bitwidth in `1..=64`, not just 64. The bitwise
+  and ring identities are proved directly; the arithmetic MBA family
+  (`xor_eq_add_sub_two_mul_and` and relatives) is derived from a single carry
+  identity, `(a &&& b) + (a ||| b) = a + b`, proved by induction on binary
+  digits — no decision procedure, which is what makes it width-generic.
+- Mixed-width Lean layer (`formal/lean/Cobra/Mixed.lean`): an `MExpr` model
+  mirroring the full expression `Kind` (casts and `Concat` included) with an
+  evaluator matching the compiled Rust evaluator arm for arm, width-generic
+  cast-rewrite theorems, and a context-congruence theorem. Certificates can
+  now be issued and replayed for cast-bearing (non-uniform-width) trees.
+- A proved carry bridge (`ofExpr`, `evalW_ofExpr`, `semEqW_of_semEq`) embedding
+  the uniform `BitVec w` world into the mixed evaluator, so a mixed-chain step
+  on a cast-free redex cites the named uniform theorem rather than falling back
+  to a decision procedure.
+- `try_compile` and `Evaluator::try_from_expr`: fallible compilation that
+  rejects trees whose node widths do not validate, instead of silently
+  producing a program that evaluates to zero everywhere.
+- `Options::require_lean_certificate` (default `true`): when set, a
+  simplification is discarded unless a replayable certificate covers its exact
+  output. Turning it off accepts probe-only assurance and raises the
+  simplification rate on non-adversarial input.
+
+### Fixed
+
+- Closed a soundness hole in the eval-side acceptance gate: probe derivation
+  now includes the original's constants and their pairwise products, catching
+  trap candidates that differ from the original only at an unprobed point, and
+  no longer truncates away high-magnitude probes.
+- Corrected cast width validation and Z3 cast lowering (narrowing casts were
+  silently no-ops), unified three tree-walking evaluators onto the compiled
+  evaluator so casts use one width model, and replaced a degenerate `ValMap`
+  identity key that made the all-ones atom invisible.
+- Balanced competition-handle accounting across clone, fan-out, and resolve;
+  revalidated stale mask pairings; made `AtomId` assignment deterministic;
+  stopped counting associative chains against the expression-depth budget (the
+  sole dataset error case now completes).
+- Added absorption, complement, and constant-reassociation rewrites with their
+  Lean theorems, so `x & (x | y)`, `x & ~x`, `(a | b) & a` and similar simplify
+  with a replayable certificate.
+
+### Changed
+
+- Certificate generation is no longer gated to 64-bit: multi-step certified
+  chains are produced at every width.
+- The `require_lean_certificate` gate replaces the previous unconditional
+  discard of uncertified rewrites; see **Added**.
+
+### Performance
+
+- Batch throughput for repeated `simplify_expr` calls improved ~25% on trivial
+  input via identity fast paths (equal-endpoint certificates, skipped probing
+  of unchanged candidates), a candidate-normalization memo, and per-bitwidth
+  caching of the singleton-recovery degree table.
+- Cut redundant work in the pipeline: deferred phase-2 verification past its
+  loop nest, dropped a whole-tree replay re-scan, carried a width stack through
+  `compile`, capped the inner-composition table, and collapsed a redundant
+  interpolation-table dimension.
+
+
 ## [0.2.0] - 2026-08-24
 
 ### Fixed
@@ -65,6 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserved the candidate signature and structured `CostRejected` diagnostic
   when the global size guard declines a pathological expansion.
 
-[Unreleased]: https://github.com/binsnake/cobra/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/binsnake/cobra/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/binsnake/cobra/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/binsnake/cobra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/binsnake/cobra/releases/tag/v0.1.0
