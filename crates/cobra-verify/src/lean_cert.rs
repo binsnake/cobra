@@ -7,7 +7,7 @@
 
 use crate::core::expr::Expr;
 use crate::core::expr::Kind;
-use crate::core::width::is_uniform_width;
+use crate::core::width::{is_uniform_width, validate_widths};
 use std::sync::Arc;
 
 use crate::verify::lean_match::{
@@ -76,6 +76,12 @@ pub enum LeanTheorem {
     AndConstAssoc64,
     OrConstAssoc64,
     XorConstAssoc64,
+    ZextIdentityW,
+    TruncIdentityW,
+    SextIdentityW,
+    ZextZextW,
+    TruncTruncW,
+    TruncZextW,
     ZeroAnd64,
     OrZero64,
     ZeroOr64,
@@ -141,6 +147,12 @@ impl LeanTheorem {
         Self::AndConstAssoc64,
         Self::OrConstAssoc64,
         Self::XorConstAssoc64,
+        Self::ZextIdentityW,
+        Self::TruncIdentityW,
+        Self::SextIdentityW,
+        Self::ZextZextW,
+        Self::TruncTruncW,
+        Self::TruncZextW,
         Self::AndOrAbsorb64,
         Self::AndOrAbsorbRight64,
         Self::OrAndAbsorb64,
@@ -217,6 +229,20 @@ impl LeanTheorem {
         Self::DemorganNotOrNotNot64,
         Self::BnotEqNegAddAllOnes64,
         Self::ShrZero64,
+    ];
+
+    /// Mixed-width (`MExpr`-world) rewrites recognized by
+    /// [`identify_mixed_rewrite_theorem_at`]. Kept separate from
+    /// [`Self::RECOGNIZED_REWRITE_64`]: these are citable only through the
+    /// mixed certificate path, and are width-generic by construction, so they
+    /// hold at every valid bitwidth.
+    pub const RECOGNIZED_MIXED_REWRITE: &'static [Self] = &[
+        Self::ZextIdentityW,
+        Self::TruncIdentityW,
+        Self::SextIdentityW,
+        Self::ZextZextW,
+        Self::TruncTruncW,
+        Self::TruncZextW,
     ];
 
     /// Name of this theorem's width-generic counterpart in the Lean pack, if
@@ -341,6 +367,12 @@ impl LeanTheorem {
             Self::AndConstAssoc64 => "Cobra.and_const_assoc_64",
             Self::OrConstAssoc64 => "Cobra.or_const_assoc_64",
             Self::XorConstAssoc64 => "Cobra.xor_const_assoc_64",
+            Self::ZextIdentityW => "Cobra.MExpr.zext_identity",
+            Self::TruncIdentityW => "Cobra.MExpr.trunc_identity",
+            Self::SextIdentityW => "Cobra.MExpr.sext_identity",
+            Self::ZextZextW => "Cobra.MExpr.zext_zext",
+            Self::TruncTruncW => "Cobra.MExpr.trunc_trunc",
+            Self::TruncZextW => "Cobra.MExpr.trunc_zext",
             Self::ZeroAnd64 => "Cobra.zero_and_64",
             Self::OrZero64 => "Cobra.or_zero_64",
             Self::ZeroOr64 => "Cobra.zero_or_64",
@@ -381,6 +413,11 @@ pub enum ContextFrame {
     Not,
     Neg,
     Shr { amount: u32 },
+    ZExt { w: u32 },
+    SExt { w: u32 },
+    Trunc { w: u32 },
+    ConcatHi { lo: Arc<Expr> },
+    ConcatLo { hi: Arc<Expr> },
 }
 
 /// Explicit context payload corresponding to `Cobra.Ctx`.
@@ -416,6 +453,11 @@ impl ContextFrame {
             Self::Not => Expr::not(expr),
             Self::Neg => Expr::neg(expr),
             Self::Shr { amount } => Expr::shr(expr, u64::from(*amount)),
+            Self::ZExt { w } => Expr::zext(expr, *w),
+            Self::SExt { w } => Expr::sext(expr, *w),
+            Self::Trunc { w } => Expr::trunc(expr, *w),
+            Self::ConcatHi { lo } => Expr::concat(expr, lo.clone_tree()),
+            Self::ConcatLo { hi } => Expr::concat(hi.clone_tree(), expr),
         }
     }
 }
@@ -482,6 +524,24 @@ pub fn context_from_path(root: &Expr, path: &ExprPath) -> Option<(ExprContext, A
             crate::core::expr::Kind::Shr(amount) if current.children.len() == 1 && index == 0 => {
                 ContextFrame::Shr { amount: *amount }
             }
+            crate::core::expr::Kind::ZExt(w) if current.children.len() == 1 && index == 0 => {
+                ContextFrame::ZExt { w: *w }
+            }
+            crate::core::expr::Kind::SExt(w) if current.children.len() == 1 && index == 0 => {
+                ContextFrame::SExt { w: *w }
+            }
+            crate::core::expr::Kind::Trunc(w) if current.children.len() == 1 && index == 0 => {
+                ContextFrame::Trunc { w: *w }
+            }
+            crate::core::expr::Kind::Concat if current.children.len() == 2 => match index {
+                0 => ContextFrame::ConcatHi {
+                    lo: current.children[1].clone_tree(),
+                },
+                1 => ContextFrame::ConcatLo {
+                    hi: current.children[0].clone_tree(),
+                },
+                _ => return None,
+            },
             _ => return None,
         };
         root_to_site.push(frame);
@@ -753,6 +813,94 @@ pub fn identify_rewrite_theorem_at(
     None
 }
 
+/// Recognize one mixed-width rewrite step.
+///
+/// A step is either a cast rewrite from the `MExpr` theorem pack, or a
+/// uniform rewrite on a cast-free redex. A cast-free redex is always at the
+/// global width: only cast nodes change width, and a cast-free subtree's
+/// leaves are variables and constants, which default to `bitwidth`.
+///
+/// Every recognized step preserves the redex width, which
+/// `MCtx.plug_preserves_sem_eq_w` requires — the surrounding context masks at
+/// the width of its (plugged) child, so a width-changing rewrite would change
+/// every enclosing mask.
+#[must_use]
+pub fn identify_mixed_rewrite_theorem_at(
+    bitwidth: u32,
+    before: &Expr,
+    after: &Expr,
+) -> Option<LeanTheorem> {
+    use crate::core::width::width_of;
+    use LeanTheorem as Thm;
+
+    let w_before = width_of(before, &[], bitwidth);
+    if w_before == 0 || w_before != width_of(after, &[], bitwidth) {
+        return None;
+    }
+
+    if is_uniform_width(before, &[], bitwidth) && is_uniform_width(after, &[], bitwidth) {
+        let theorem = identify_rewrite_theorem_at(bitwidth, before, after)?;
+        // The same rule as the uniform path: off 64, only a theorem with a
+        // width-generic counterpart is citable.
+        if bitwidth != 64 && !theorem.is_width_parametric() {
+            return None;
+        }
+        return Some(theorem);
+    }
+
+    match &before.kind {
+        Kind::ZExt(w) if before.children.len() == 1 => {
+            let inner = &before.children[0];
+            if expr_eq(inner, after) && width_of(inner, &[], bitwidth) == *w {
+                return Some(Thm::ZextIdentityW);
+            }
+            if let Kind::ZExt(w1) = &inner.kind {
+                let base = &inner.children[0];
+                if let Kind::ZExt(w2) = &after.kind {
+                    if w2 == w
+                        && expr_eq(&after.children[0], base)
+                        && width_of(base, &[], bitwidth) <= *w1
+                    {
+                        return Some(Thm::ZextZextW);
+                    }
+                }
+            }
+        }
+        Kind::SExt(w) if before.children.len() == 1 => {
+            let inner = &before.children[0];
+            if expr_eq(inner, after) && width_of(inner, &[], bitwidth) == *w {
+                return Some(Thm::SextIdentityW);
+            }
+        }
+        Kind::Trunc(w) if before.children.len() == 1 => {
+            let inner = &before.children[0];
+            if expr_eq(inner, after) && width_of(inner, &[], bitwidth) == *w {
+                return Some(Thm::TruncIdentityW);
+            }
+            match &inner.kind {
+                Kind::Trunc(w1) => {
+                    let base = &inner.children[0];
+                    if let Kind::Trunc(w2) = &after.kind {
+                        if w2 == w && expr_eq(&after.children[0], base) && *w <= *w1 {
+                            return Some(Thm::TruncTruncW);
+                        }
+                    }
+                }
+                Kind::ZExt(w1) => {
+                    let base = &inner.children[0];
+                    let base_w = width_of(base, &[], bitwidth);
+                    if expr_eq(base, after) && base_w <= *w1 && base_w == *w {
+                        return Some(Thm::TruncZextW);
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
 fn not_of_and_or(expr: &Expr) -> Option<(&Expr, &Expr, bool)> {
     if !matches!(expr.kind, Kind::And | Kind::Or) || expr.children.len() != 2 {
         return None;
@@ -991,20 +1139,32 @@ impl LeanCertificate {
         if !is_valid_certificate_bitwidth(bitwidth) {
             return None;
         }
-        // Soundness wall: a cast or `Concat` makes the tree non-uniform in
-        // width, and no theorem in either pack covers that, so it must not
-        // yield a certificate. With an empty `var_widths` every variable
-        // defaults to `bitwidth`.
-        if !is_uniform_width(&original, &[], bitwidth) || !is_uniform_width(&after, &[], bitwidth) {
+        // A cast or `Concat` makes the tree non-uniform in width (empty
+        // `var_widths` defaults every variable to `bitwidth`). Uniform trees
+        // stay in the `Expr`/`SemEq` world; non-uniform trees are certified
+        // in the `MExpr`/`SemEqW` world, and only when every node width
+        // validates — a malformed tree must never reach the prover.
+        let uniform =
+            is_uniform_width(&original, &[], bitwidth) && is_uniform_width(&after, &[], bitwidth);
+        if !uniform && validate_widths(&original, &[], bitwidth).is_err() {
             return None;
         }
         let (context, before) = context_from_path(&original, &path)?;
-        let theorem = identify_rewrite_theorem_at(bitwidth, &before, &after)?;
-        // Off 64, only a theorem with a width-generic counterpart is citable.
-        if bitwidth != 64 && !theorem.is_width_parametric() {
+        let theorem = if uniform {
+            let theorem = identify_rewrite_theorem_at(bitwidth, &before, &after)?;
+            // Off 64, only a theorem with a width-generic counterpart is
+            // citable.
+            if bitwidth != 64 && !theorem.is_width_parametric() {
+                return None;
+            }
+            theorem
+        } else {
+            identify_mixed_rewrite_theorem_at(bitwidth, &before, &after)?
+        };
+        let simplified = context.plug(after.clone_tree());
+        if !uniform && validate_widths(&simplified, &[], bitwidth).is_err() {
             return None;
         }
-        let simplified = context.plug(after.clone_tree());
         let mut cert = Self::new(bitwidth, original, simplified);
         cert.steps.push(CertStep {
             theorem,
@@ -1024,12 +1184,6 @@ impl LeanCertificate {
         simplified: Arc<Expr>,
     ) -> Option<Self> {
         if !is_valid_certificate_bitwidth(bitwidth) {
-            return None;
-        }
-        // Soundness wall: never emit a certificate for a mixed-width tree
-        // (any cast/Concat node makes `is_uniform_width` false). Empty
-        // `var_widths` defaults every variable to width 64 to match the gate.
-        if !is_uniform_width(&original, &[], 64) || !is_uniform_width(&simplified, &[], 64) {
             return None;
         }
 
@@ -1102,6 +1256,14 @@ impl LeanCertificate {
         Some(self)
     }
 
+    /// `true` when this certificate's claim lives in the mixed-width
+    /// (`MExpr`/`SemEqW`) world rather than the uniform `Expr`/`SemEq` world.
+    #[must_use]
+    pub fn is_mixed(&self) -> bool {
+        !is_uniform_width(&self.original, &[], self.bitwidth)
+            || !is_uniform_width(&self.simplified, &[], self.bitwidth)
+    }
+
     #[must_use]
     pub fn matches_endpoints(&self, bitwidth: u32, original: &Expr, simplified: &Expr) -> bool {
         self.bitwidth == bitwidth && *self.original == *original && *self.simplified == *simplified
@@ -1117,23 +1279,36 @@ impl LeanCertificate {
         if self.steps.is_empty() {
             return *original == *simplified;
         }
-        if !is_valid_certificate_bitwidth(bitwidth)
-            || !is_uniform_width(original, &[], bitwidth)
-            || !is_uniform_width(simplified, &[], bitwidth)
+        if !is_valid_certificate_bitwidth(bitwidth) {
+            return false;
+        }
+        let uniform = is_uniform_width(original, &[], bitwidth)
+            && is_uniform_width(simplified, &[], bitwidth);
+        if !uniform
+            && (validate_widths(original, &[], bitwidth).is_err()
+                || validate_widths(simplified, &[], bitwidth).is_err())
         {
             return false;
         }
 
         let mut current = self.original.clone_tree();
         for step in &self.steps {
-            // Off 64, every step must cite a theorem with a width-generic
-            // counterpart -- otherwise the chain is not replayable at this
-            // width even though each step is individually recognized.
-            if bitwidth != 64 && !step.theorem.is_width_parametric() {
-                return false;
-            }
-            if identify_rewrite_theorem_at(bitwidth, &step.before, &step.after)
-                != Some(step.theorem)
+            let recognized = if uniform {
+                // Off 64, every step must cite a theorem with a width-generic
+                // counterpart -- otherwise the chain is not replayable at
+                // this width even though each step is individually
+                // recognized.
+                if bitwidth != 64 && !step.theorem.is_width_parametric() {
+                    return false;
+                }
+                identify_rewrite_theorem_at(bitwidth, &step.before, &step.after)
+            } else {
+                // The mixed recognizer enforces per-step width preservation,
+                // matching the `decide` obligations the emitted proof
+                // discharges for `MCtx.plug_preserves_sem_eq_w`.
+                identify_mixed_rewrite_theorem_at(bitwidth, &step.before, &step.after)
+            };
+            if recognized != Some(step.theorem)
                 || *step.context.plug(step.before.clone_tree()) != *current
             {
                 return false;

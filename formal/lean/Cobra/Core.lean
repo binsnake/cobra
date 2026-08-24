@@ -301,14 +301,14 @@ theorem xor_not_self_w {w : Nat} (x : BitVec w) : x ^^^ (~~~x) = allOnes w := by
   intro i
   simp [allOnes]
   intro h
-  cases hx : x.getLsbD i <;> simp [h, hx]
+  cases hx : x.getLsbD i <;> simp [h]
 
 theorem not_xor_self_w {w : Nat} (x : BitVec w) : (~~~x) ^^^ x = allOnes w := by
   apply BitVec.eq_of_getLsbD_eq
   intro i
   simp [allOnes]
   intro h
-  cases hx : x.getLsbD i <;> simp [h, hx]
+  cases hx : x.getLsbD i <;> simp [h]
 
 /-! ### Absorption laws, width-generic -/
 

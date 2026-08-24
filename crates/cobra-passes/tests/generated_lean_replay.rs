@@ -343,6 +343,132 @@ fn public_cleanup_after_certified_endpoint_replays_in_lean() {
 }
 
 #[test]
+fn mixed_width_certificates_replay_in_lean() {
+    type MixedCase = (&'static str, u32, Arc<Expr>, Arc<Expr>, LeanTheorem);
+
+    let x = || Expr::variable(0);
+    let y = || Expr::variable(1);
+    let t8 = |e| Expr::trunc(e, 8);
+
+    // (name, bitwidth, original, simplified, expected step theorem)
+    let cases: Vec<MixedCase> = vec![
+        (
+            // A uniform rewrite (x & ~x -> 0) plugged through a mixed
+            // context: the redex is cast-free, so it sits at the global
+            // width even though the surrounding tree is not uniform.
+            "mixed_uniform_redex_in_cast_context",
+            64,
+            Expr::zext(t8(Expr::or(Expr::and(x(), Expr::not(x())), y())), 32),
+            Expr::zext(t8(Expr::or(Expr::constant(0), y())), 32),
+            LeanTheorem::AndNotSelf64,
+        ),
+        (
+            "mixed_trunc_zext_roundtrip",
+            64,
+            Expr::trunc(Expr::zext(t8(x()), 32), 8),
+            t8(x()),
+            LeanTheorem::TruncZextW,
+        ),
+        (
+            "mixed_zext_identity_under_add",
+            64,
+            Expr::add(Expr::zext(t8(x()), 8), t8(y())),
+            Expr::add(t8(x()), t8(y())),
+            LeanTheorem::ZextIdentityW,
+        ),
+        (
+            "mixed_trunc_trunc_collapse",
+            64,
+            Expr::trunc(Expr::trunc(x(), 16), 8),
+            t8(x()),
+            LeanTheorem::TruncTruncW,
+        ),
+        (
+            "mixed_zext_zext_collapse",
+            64,
+            Expr::zext(Expr::zext(t8(x()), 16), 32),
+            Expr::zext(t8(x()), 32),
+            LeanTheorem::ZextZextW,
+        ),
+        (
+            "mixed_sext_identity",
+            64,
+            Expr::sext(t8(x()), 8),
+            t8(x()),
+            LeanTheorem::SextIdentityW,
+        ),
+        (
+            // Off-64: the cast-free redex cites the width-generic pack, and
+            // the whole claim is stated at SemEqW 32.
+            "mixed_uniform_redex_off_64",
+            32,
+            Expr::trunc(Expr::or(Expr::and(x(), Expr::not(x())), y()), 8),
+            Expr::trunc(Expr::or(Expr::constant(0), y()), 8),
+            LeanTheorem::AndNotSelf64,
+        ),
+    ];
+
+    for (name, bitwidth, original, simplified, theorem) in cases {
+        let cert = LeanCertificate::try_single_rewrite_between_64(
+            bitwidth,
+            original.clone_tree(),
+            simplified.clone_tree(),
+        )
+        .unwrap_or_else(|| panic!("{name}: mixed certificate must be issued"));
+        assert!(cert.is_mixed(), "{name}: certificate must be mixed-width");
+        assert_eq!(cert.steps.len(), 1, "{name}: single rewrite expected");
+        assert_eq!(cert.steps[0].theorem, theorem, "{name}: wrong theorem");
+        assert!(
+            cert.replays_between(bitwidth, &original, &simplified),
+            "{name}: in-process validation must accept the certificate"
+        );
+        let source = emit_step_chain_certificate(name, &cert)
+            .unwrap_or_else(|| panic!("{name}: mixed chain emission must succeed"));
+        assert!(
+            source.contains("Cobra.MExpr.SemEqW"),
+            "{name}: mixed certificates must be stated in the MExpr world"
+        );
+        replay_lean(name, &source);
+    }
+}
+
+#[test]
+fn mixed_width_certificates_reject_unsound_shapes() {
+    let x = || Expr::variable(0);
+
+    // Width-changing rewrite: trunc(x, 8) -> x rewrites an 8-bit value into a
+    // 64-bit one; the surrounding context's masks would change.
+    assert!(
+        LeanCertificate::try_single_rewrite_between_64(64, Expr::trunc(x(), 8), x(),).is_none(),
+        "width-changing rewrites must not certify"
+    );
+
+    // Malformed widths: a narrowing zext never validates, so no certificate
+    // may be issued for any rewrite of it.
+    assert!(
+        LeanCertificate::try_single_rewrite_between_64(
+            64,
+            Expr::add(Expr::zext(x(), 8), Expr::zext(x(), 8)),
+            Expr::add(Expr::trunc(x(), 8), Expr::trunc(x(), 8)),
+        )
+        .is_none(),
+        "malformed (narrowing-zext) trees must not certify"
+    );
+
+    // A trunc/trunc collapse that widens (w2 > w1) is not the recognized
+    // shape even though both trees validate.
+    assert!(
+        LeanCertificate::try_single_rewrite_between_64(
+            64,
+            Expr::trunc(Expr::trunc(x(), 8), 16),
+            Expr::trunc(x(), 16),
+        )
+        .is_none(),
+        "trunc-trunc with a widening outer trunc must not certify"
+    );
+}
+
+#[test]
 fn lean_theorem_exports_replays_in_lean() {
     let mut source = String::from("import Cobra\n\n");
     for theorem in LeanTheorem::ALL {
@@ -394,6 +520,7 @@ fn replay_direct_rewrite_theorem(name: &str, cert: &LeanCertificate, theorem: Le
 
 fn theorem_arity(theorem: LeanTheorem) -> usize {
     match theorem {
+
         LeanTheorem::BnotEqNegAddMask64
         | LeanTheorem::BnotEqNegAddAllOnes64
         | LeanTheorem::AddZero64
@@ -423,7 +550,16 @@ fn theorem_arity(theorem: LeanTheorem) -> usize {
         | LeanTheorem::OrNotSelf64
         | LeanTheorem::NotOrSelf64
         | LeanTheorem::XorNotSelf64
-        | LeanTheorem::NotXorSelf64 => 1,
+        | LeanTheorem::NotXorSelf64
+        // Mixed-width theorems are never replayed through the direct-theorem
+        // template -- the mixed emitter unfolds `evalW` at concrete widths --
+        // but the match must stay total.
+        | LeanTheorem::ZextIdentityW
+        | LeanTheorem::TruncIdentityW
+        | LeanTheorem::SextIdentityW
+        | LeanTheorem::ZextZextW
+        | LeanTheorem::TruncTruncW
+        | LeanTheorem::TruncZextW => 1,
         LeanTheorem::Const3And1_64 => 0,
         LeanTheorem::XorEqAddSubTwoMulAnd64
         | LeanTheorem::XorAddTwoMulAndEqAdd64

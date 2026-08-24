@@ -80,6 +80,9 @@ pub fn emit_certificate_header(name: &str, cert: &LeanCertificate) -> String {
 /// theorem chains.
 #[must_use]
 pub fn emit_bv_decide_certificate(name: &str, cert: &LeanCertificate) -> String {
+    if cert.is_mixed() {
+        return emit_mixed_bv_decide_certificate(name, cert);
+    }
     let mut out = String::new();
     out.push_str("import Cobra\n\n");
     out.push_str("namespace Cobra.Generated\n\n");
@@ -107,6 +110,9 @@ pub fn emit_bv_decide_certificate(name: &str, cert: &LeanCertificate) -> String 
 
 #[must_use]
 pub fn emit_step_chain_certificate(name: &str, cert: &LeanCertificate) -> Option<String> {
+    if cert.is_mixed() {
+        return emit_mixed_step_chain_certificate(name, cert);
+    }
     if cert.steps.is_empty() {
         return None;
     }
@@ -148,6 +154,175 @@ pub fn emit_step_chain_certificate(name: &str, cert: &LeanCertificate) -> Option
     out.push_str(&sem_eq_chain_expr(cert.steps.len()));
     out.push_str("\n\nend Cobra.Generated\n");
     Some(out)
+}
+
+/// Print an expression as an `MExpr` term. Unlike [`emit_expr`], every Rust
+/// `Kind` — casts and `Concat` included — has a Lean constructor here.
+#[must_use]
+pub fn emit_mexpr(expr: &Expr) -> String {
+    match &expr.kind {
+        Kind::Constant(value) => format!("Cobra.MExpr.const {value}"),
+        Kind::Variable(index) => format!("Cobra.MExpr.var {index}"),
+        Kind::Add => emit_mbinary("add", &expr.children[0], &expr.children[1]),
+        Kind::Mul => emit_mbinary("mul", &expr.children[0], &expr.children[1]),
+        Kind::And => emit_mbinary("band", &expr.children[0], &expr.children[1]),
+        Kind::Or => emit_mbinary("bor", &expr.children[0], &expr.children[1]),
+        Kind::Xor => emit_mbinary("bxor", &expr.children[0], &expr.children[1]),
+        Kind::Not => format!("Cobra.MExpr.bnot ({})", emit_mexpr(&expr.children[0])),
+        Kind::Neg => format!("Cobra.MExpr.neg ({})", emit_mexpr(&expr.children[0])),
+        Kind::Shr(amount) => {
+            format!(
+                "Cobra.MExpr.shr ({}) {amount}",
+                emit_mexpr(&expr.children[0])
+            )
+        }
+        Kind::ZExt(w) => format!("Cobra.MExpr.zext ({}) {w}", emit_mexpr(&expr.children[0])),
+        Kind::SExt(w) => format!("Cobra.MExpr.sext ({}) {w}", emit_mexpr(&expr.children[0])),
+        Kind::Trunc(w) => format!("Cobra.MExpr.trunc ({}) {w}", emit_mexpr(&expr.children[0])),
+        Kind::Concat => emit_mbinary("concat", &expr.children[0], &expr.children[1]),
+    }
+}
+
+fn emit_mbinary(kind: &str, lhs: &Expr, rhs: &Expr) -> String {
+    format!(
+        "Cobra.MExpr.{kind} ({}) ({})",
+        emit_mexpr(lhs),
+        emit_mexpr(rhs)
+    )
+}
+
+#[must_use]
+pub fn emit_mctx(context: &ExprContext) -> String {
+    context
+        .frames
+        .iter()
+        .fold("Cobra.MCtx.hole".to_string(), emit_mctx_frame)
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn emit_mctx_frame(inner: String, frame: &ContextFrame) -> String {
+    match frame {
+        ContextFrame::AddL { rhs } => format!("Cobra.MCtx.addL ({inner}) ({})", emit_mexpr(rhs)),
+        ContextFrame::AddR { lhs } => format!("Cobra.MCtx.addR ({}) ({inner})", emit_mexpr(lhs)),
+        ContextFrame::MulL { rhs } => format!("Cobra.MCtx.mulL ({inner}) ({})", emit_mexpr(rhs)),
+        ContextFrame::MulR { lhs } => format!("Cobra.MCtx.mulR ({}) ({inner})", emit_mexpr(lhs)),
+        ContextFrame::AndL { rhs } => format!("Cobra.MCtx.bandL ({inner}) ({})", emit_mexpr(rhs)),
+        ContextFrame::AndR { lhs } => format!("Cobra.MCtx.bandR ({}) ({inner})", emit_mexpr(lhs)),
+        ContextFrame::OrL { rhs } => format!("Cobra.MCtx.borL ({inner}) ({})", emit_mexpr(rhs)),
+        ContextFrame::OrR { lhs } => format!("Cobra.MCtx.borR ({}) ({inner})", emit_mexpr(lhs)),
+        ContextFrame::XorL { rhs } => format!("Cobra.MCtx.bxorL ({inner}) ({})", emit_mexpr(rhs)),
+        ContextFrame::XorR { lhs } => format!("Cobra.MCtx.bxorR ({}) ({inner})", emit_mexpr(lhs)),
+        ContextFrame::Not => format!("Cobra.MCtx.bnot ({inner})"),
+        ContextFrame::Neg => format!("Cobra.MCtx.neg ({inner})"),
+        ContextFrame::Shr { amount } => format!("Cobra.MCtx.shr ({inner}) {amount}"),
+        ContextFrame::ZExt { w } => format!("Cobra.MCtx.zext ({inner}) {w}"),
+        ContextFrame::SExt { w } => format!("Cobra.MCtx.sext ({inner}) {w}"),
+        ContextFrame::Trunc { w } => format!("Cobra.MCtx.trunc ({inner}) {w}"),
+        ContextFrame::ConcatHi { lo } => {
+            format!("Cobra.MCtx.concatHi ({inner}) ({})", emit_mexpr(lo))
+        }
+        ContextFrame::ConcatLo { hi } => {
+            format!("Cobra.MCtx.concatLo ({}) ({inner})", emit_mexpr(hi))
+        }
+    }
+}
+
+/// Emit a mixed-width (`MExpr`-world) step-chain certificate.
+///
+/// Each step is plugged through `MCtx.plug_preserves_sem_eq_w`. The
+/// width-preservation side condition is discharged by `decide` — widths are
+/// concrete at certificate time — and the local rewrite by unfolding `evalW`
+/// and handing the concrete-width bit-vector goal to `bv_decide`. The named
+/// theorem is recorded per step for the in-process structural validation in
+/// `replays_between`; the replayed proof is the decision procedure.
+#[must_use]
+pub fn emit_mixed_step_chain_certificate(name: &str, cert: &LeanCertificate) -> Option<String> {
+    if cert.steps.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    out.push_str("import Cobra\n\n");
+    out.push_str("set_option linter.unusedSimpArgs false\n\n");
+    out.push_str("namespace Cobra.Generated\n\n");
+    out.push_str(&format!(
+        "theorem {name} : Cobra.MExpr.SemEqW {} ({}) ({}) := by\n",
+        cert.bitwidth,
+        emit_mexpr(&cert.original),
+        emit_mexpr(&cert.simplified),
+    ));
+    out.push_str(&format!(
+        "  -- generated mixed-width step-chain certificate: bitwidth={}, steps={}\n",
+        cert.bitwidth,
+        cert.steps.len()
+    ));
+    for (index, step) in cert.steps.iter().enumerate() {
+        out.push_str(&format!(
+            "  have h{index} : Cobra.MExpr.SemEqW {} (Cobra.MCtx.plug ({}) ({})) (Cobra.MCtx.plug ({}) ({})) := by\n",
+            cert.bitwidth,
+            emit_mctx(&step.context),
+            emit_mexpr(&step.before),
+            emit_mctx(&step.context),
+            emit_mexpr(&step.after),
+        ));
+        out.push_str(&format!(
+            "    -- step theorem: {}\n",
+            step.theorem.lean_name()
+        ));
+        out.push_str("    apply Cobra.MCtx.plug_preserves_sem_eq_w\n");
+        out.push_str("    \u{b7} decide\n");
+        out.push_str("    \u{b7} intro env\n");
+        out.push_str(
+            "      simp [Cobra.MExpr.evalW, Cobra.MExpr.widthOf, Cobra.maskBV, Cobra.sextBV, Cobra.signBitBV]\n",
+        );
+        out.push_str("      try bv_decide\n");
+    }
+    out.push_str("  exact ");
+    out.push_str(&sem_eq_w_chain_expr(cert.steps.len()));
+    out.push_str("\n\nend Cobra.Generated\n");
+    Some(out)
+}
+
+fn sem_eq_w_chain_expr(steps: usize) -> String {
+    fn go(index: usize, steps: usize) -> String {
+        if index + 1 == steps {
+            format!("h{index}")
+        } else {
+            format!(
+                "Cobra.MExpr.SemEqW.trans h{index} ({})",
+                go(index + 1, steps)
+            )
+        }
+    }
+    debug_assert!(steps > 0);
+    go(0, steps)
+}
+
+/// Mixed-width endpoint fallback: state the claim under `SemEqW` and hand the
+/// concrete-width goal to `bv_decide`, mirroring the uniform fallback.
+#[must_use]
+pub fn emit_mixed_bv_decide_certificate(name: &str, cert: &LeanCertificate) -> String {
+    let mut out = String::new();
+    out.push_str("import Cobra\n\n");
+    out.push_str("set_option linter.unusedSimpArgs false\n\n");
+    out.push_str("namespace Cobra.Generated\n\n");
+    out.push_str(&format!(
+        "theorem {name} : Cobra.MExpr.SemEqW {} ({}) ({}) := by\n",
+        cert.bitwidth,
+        emit_mexpr(&cert.original),
+        emit_mexpr(&cert.simplified),
+    ));
+    out.push_str(&format!(
+        "  -- generated mixed-width endpoint certificate: bitwidth={}, steps={}\n",
+        cert.bitwidth,
+        cert.steps.len()
+    ));
+    out.push_str("  intro env\n");
+    out.push_str(
+        "  simp [Cobra.MExpr.evalW, Cobra.MExpr.widthOf, Cobra.maskBV, Cobra.sextBV, Cobra.signBitBV]\n",
+    );
+    out.push_str("  try bv_decide\n\n");
+    out.push_str("end Cobra.Generated\n");
+    out
 }
 
 fn emit_direct_rewrite_step_proof(bitwidth: u32, step: &CertStep) -> Option<String> {
@@ -361,6 +536,15 @@ fn theorem_eval_args(bitwidth: u32, theorem: LeanTheorem, before: &Expr) -> Opti
         | Thm::ChainSound => {
             return None;
         }
+        // Mixed-width (`MExpr`-world) theorems never appear in a uniform
+        // chain; the mixed emitter proves each step by unfolding `evalW` at
+        // concrete widths instead of citing the theorem directly.
+        Thm::ZextIdentityW
+        | Thm::TruncIdentityW
+        | Thm::SextIdentityW
+        | Thm::ZextZextW
+        | Thm::TruncTruncW
+        | Thm::TruncZextW => return None,
     };
 
     Some(
@@ -565,6 +749,19 @@ fn emit_context_frame(inner: String, frame: &ContextFrame) -> String {
         ContextFrame::Not => format!("Cobra.Ctx.bnot ({inner})"),
         ContextFrame::Neg => format!("Cobra.Ctx.neg ({inner})"),
         ContextFrame::Shr { amount } => format!("Cobra.Ctx.shr ({inner}) {amount}"),
+        // Cast frames only occur in mixed certificates, which route through
+        // `emit_mixed_step_chain_certificate`. Emitting the MCtx names here
+        // keeps this total and makes a dispatch bug fail loudly in Lean
+        // rather than panicking during emission.
+        ContextFrame::ZExt { w } => format!("Cobra.MCtx.zext ({inner}) {w}"),
+        ContextFrame::SExt { w } => format!("Cobra.MCtx.sext ({inner}) {w}"),
+        ContextFrame::Trunc { w } => format!("Cobra.MCtx.trunc ({inner}) {w}"),
+        ContextFrame::ConcatHi { lo } => {
+            format!("Cobra.MCtx.concatHi ({inner}) ({})", emit_mexpr(lo))
+        }
+        ContextFrame::ConcatLo { hi } => {
+            format!("Cobra.MCtx.concatLo ({}) ({inner})", emit_mexpr(hi))
+        }
     }
 }
 

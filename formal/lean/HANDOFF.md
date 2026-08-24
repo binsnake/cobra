@@ -45,6 +45,42 @@ The strongest current evidence is:
 - Public-output proof preservation now composes a pass endpoint certificate with final public cleanup evidence when applicable.
 - Product-shadow repair is documented/tested as not generally semantics-preserving; the guarded ANF route has replay evidence.
 
+## Mixed-Width Support
+
+`formal/lean/Cobra/Mixed.lean` adds a second, mixed-width world:
+
+- `MExpr` mirrors the full Rust `Kind`, casts (`zext`/`sext`/`trunc`) and
+  `concat` included. It is a separate type from `Expr` on purpose: uniform
+  `SemEq` claims about cast-bearing trees stay unrepresentable, so the uniform
+  theorem pack cannot be cited for a mixed tree by accident.
+- `MExpr.evalW` mirrors the Rust compiled evaluator arm for arm: a fixed
+  64-bit carrier, leaves masked at the global width, same-width operators
+  masked at their node-local width, casts per `arith.rs`. `SemEqW` is
+  equivalence under that evaluator.
+- `evalW_masked` proves every evaluated value is already masked at its own
+  node width; the cast theorem pack (`zext_identity`, `trunc_identity`,
+  `sext_identity`, `zext_zext`, `trunc_trunc`, `trunc_zext`) is width-generic
+  and built on that invariant plus mask algebra.
+- `MCtx.plug_preserves_sem_eq_w` is the mixed congruence theorem. It carries a
+  width-preservation hypothesis, which is load-bearing: context operators mask
+  at the width of their plugged child, so a width-changing rewrite would change
+  every enclosing mask. The Rust recognizer enforces the same condition.
+
+Rust integration: `identify_mixed_rewrite_theorem_at` recognizes either a cast
+rewrite or a uniform rewrite on a cast-free redex (always at the global width);
+`try_single_rewrite_64` / `try_single_rewrite_between_64` / `replays_between`
+route non-uniform trees through it after `validate_widths`; emission states
+mixed claims as `SemEqW` with per-step `plug_preserves_sem_eq_w`, discharging
+the width side condition by `decide` and the local rewrite by unfolding
+`evalW` at concrete widths into `bv_decide`.
+
+Known limitation: mixed chain steps are replayed by decision procedure rather
+than by citing the named theorem term directly (the named theorem is still
+recorded per step and re-checked structurally in-process). Lifting the
+width-generic uniform pack into the `evalW` world via a proved
+uniform-embedding bridge would restore the named-proof architecture for
+cast-free redexes; that bridge does not exist yet.
+
 ## Current Known Gap
 
 The exact atom simplifier case `3 & 1 -> 1` and the pattern matcher De Morgan table cases `~(~x | ~y) -> x & y` / `~(~x & ~y) -> x | y` are now theorem-backed. `atom_simplifier.rs` and `pattern_matcher.rs` still have residual production fallbacks for rewrites that cannot be assembled as named theorem chains. Those fallbacks are Lean-replayed via endpoint `bv_decide`; this is useful bounded evidence, but it is not yet the desired named-proof architecture for all simplifications.
