@@ -63,11 +63,21 @@ pub fn reduce_mask(coeff: u64, mask: u64, bitwidth: u32) -> u64 {
 struct RefineTerm {
     coeff: u64,
     mask: u64,
+    /// The mask this term entered refinement with, so the rebuild pass can
+    /// skip terms whose mask was never reduced.
+    original_mask: u64,
     atom_id: AtomId,
     consumed: bool,
 }
 
 fn create_masked_atom(ir: &mut SemilinearIR, basis: &Expr, mask: u64) -> AtomId {
+    // A full-width mask is the identity, so `basis & -1` is just `basis`.
+    // Building the masked form anyway de-optimizes an already-minimal term:
+    // 3*(x&15) + 3*(x&240) reconstructed as 3 * (x & -1) instead of 3*x.
+    // The sibling pass in structure_recovery already special-cases this.
+    if mask == bitmask(ir.bitwidth) {
+        return create_atom(ir, basis.clone_tree(), OperatorFamily::And);
+    }
     let expr = Expr::and(basis.clone_tree(), Expr::constant(mask));
     create_atom(ir, expr, OperatorFamily::And)
 }
@@ -188,9 +198,12 @@ fn refine_group(group: &mut [RefineTerm], ir: &mut SemilinearIR, basis: &Expr, m
         }
     }
     // Rebuild atoms for any reduced masks after the loop to avoid
-    // overlapping &mut borrows.
+    // overlapping &mut borrows. Only for terms whose mask actually changed --
+    // rebuilding unconditionally re-minted an atom for every surviving term,
+    // which both wasted AtomIds and de-optimized terms that were already in
+    // their minimal form.
     for t in group.iter_mut() {
-        if t.consumed {
+        if t.consumed || t.mask == t.original_mask {
             continue;
         }
         let new_id = create_masked_atom(ir, basis, t.mask);
@@ -304,6 +317,7 @@ pub fn refine_terms(ir: &mut SemilinearIR) {
             .push(RefineTerm {
                 coeff: term.coeff,
                 mask: decomp.mask,
+                original_mask: decomp.mask,
                 atom_id: term.atom_id,
                 consumed: false,
             });

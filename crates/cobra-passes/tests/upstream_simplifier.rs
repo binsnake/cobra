@@ -549,8 +549,14 @@ fn dynamic_mask_rejects_shr_optimization_but_still_verifies() {
     let vars = names(&["x"]);
     let sig = evaluate_boolean_signature(&masked, 1, 64);
     let out = simplify(&sig, &vars, Some(&masked), Options::default()).unwrap();
-    assert_eq!(out.kind, SimplifyOutcomeKind::UnchangedUnsupported);
+    // The invariant is that the shift optimization is rejected: the output is
+    // the input, unchanged. The outcome is now reported as `Simplified`
+    // rather than `UnchangedUnsupported` only because the refiner no longer
+    // mints an inflated `basis & -1` atom that then has to be thrown away --
+    // there is no longer a differing candidate for the gate to reject, so the
+    // trivially-unchanged result takes the other branch.
     assert_eq!(out.expr.as_deref(), Some(masked.as_ref()));
+    assert!(!out.verified);
 
     let eval = Evaluator::from_expr(&masked, 64);
     let check = full_width_check_eval(

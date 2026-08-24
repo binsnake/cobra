@@ -38,7 +38,7 @@ use crate::core::pass_contract::{
 
 use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
-const N_PROBES: usize = 16;
+use crate::simd::N_PROBES;
 const MAX_VARS: u32 = 6;
 
 mod subcode {
@@ -54,37 +54,12 @@ pub struct TemplateResult {
     pub cost: ExprCost,
 }
 
-#[derive(Copy, Clone)]
-enum Gate {
-    And,
-    Or,
-    Xor,
-    Add,
-    Mul,
-}
+use crate::simd::Gate;
 
 const ALL_GATES: [Gate; 5] = [Gate::And, Gate::Or, Gate::Xor, Gate::Add, Gate::Mul];
 
 fn gate_invertible(g: Gate) -> bool {
     matches!(g, Gate::Xor | Gate::Add)
-}
-
-fn gate_apply(a: u64, b: u64, g: Gate, mask: u64) -> u64 {
-    match g {
-        Gate::And => a & b,
-        Gate::Or => a | b,
-        Gate::Xor => a ^ b,
-        Gate::Add => a.wrapping_add(b) & mask,
-        Gate::Mul => a.wrapping_mul(b) & mask,
-    }
-}
-
-fn gate_residual(target: u64, a: u64, g: Gate, mask: u64) -> u64 {
-    match g {
-        Gate::Xor => target ^ a,
-        Gate::Add => target.wrapping_sub(a) & mask,
-        _ => 0,
-    }
 }
 
 fn gate_expr(g: Gate, a: Arc<Expr>, b: Arc<Expr>) -> Arc<Expr> {
@@ -127,19 +102,15 @@ impl ProbeVals {
     }
 
     fn apply_gate(&self, other: &Self, g: Gate, mask: u64) -> Self {
-        let mut r = Self::default();
-        for i in 0..N_PROBES {
-            r.0[i] = gate_apply(self.0[i], other.0[i], g, mask);
-        }
-        r
+        Self(crate::simd::gate_apply(&self.0, &other.0, g, mask))
     }
 
     fn residual(&self, a: &Self, g: Gate, mask: u64) -> Self {
-        let mut r = Self::default();
-        for i in 0..N_PROBES {
-            r.0[i] = gate_residual(self.0[i], a.0[i], g, mask);
-        }
-        r
+        Self(crate::simd::gate_residual(&self.0, &a.0, g, mask))
+    }
+
+    fn matches(&self, other: &Self, target: &Self, g: Gate, mask: u64) -> bool {
+        crate::simd::gate_matches(&self.0, &other.0, &target.0, g, mask)
     }
 
     fn neg(&self, mask: u64) -> Self {
@@ -169,20 +140,19 @@ fn probe(e: &Expr, pts: &[Vec<u64>], bw: u32) -> ProbeVals {
 }
 
 // ---------------------------------------------------------------
-// Match predicates (scalar; the C++ uses Highway SIMD here).
+// Match predicates. These route through `crate::simd`, which has a
+// `wide::u64x4` backend under the `simd` feature. This module previously
+// carried private scalar copies of the same kernels, so the two hottest
+// loops in the pass ran fully scalar while the 4-wide kernel sat unused
+// with no call site anywhere in the workspace.
 // ---------------------------------------------------------------
 
 fn probe0_matches(a0: u64, b0: u64, t0: u64, g: Gate, mask: u64) -> bool {
-    gate_apply(a0, b0, g, mask) == t0
+    crate::simd::probe0_matches(a0, b0, t0, g, mask)
 }
 
 fn gate_matches(a: &ProbeVals, b: &ProbeVals, target: &ProbeVals, g: Gate, mask: u64) -> bool {
-    for i in 0..N_PROBES {
-        if gate_apply(a.0[i], b.0[i], g, mask) != target.0[i] {
-            return false;
-        }
-    }
-    true
+    a.matches(b, target, g, mask)
 }
 
 fn and_matches(a: &ProbeVals, b: &ProbeVals, target: &ProbeVals) -> bool {

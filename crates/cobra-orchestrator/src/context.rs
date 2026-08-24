@@ -46,6 +46,11 @@ pub struct RunMetadata {
     pub semilinear_failure: Option<ReasonDetail>,
 }
 
+/// Memo keyed by `(structural hash, num_vars, bitwidth)`. The expression is
+/// stored beside the signature so a hash collision resolves to a miss.
+pub type BooleanSigCache =
+    std::collections::HashMap<(u64, u32, u32), (Arc<crate::core::expr::Expr>, Vec<u64>)>;
+
 /// Mutable context threaded through every pass call. The borrow strategy
 /// method helpers (added in the scheduler session) so passes can mutate
 /// them without aliasing the rest of the context.
@@ -68,6 +73,12 @@ pub struct OrchestratorContext {
     pub next_group_id: GroupId,
     pub join_states: JoinMap,
     pub next_join_id: JoinId,
+    /// Memo for `evaluate_boolean_signature`, keyed by structural hash plus
+    /// dimensions. Five extractor passes route through one body against the
+    /// same item and recomputed a bit-identical 2^n signature each time. The
+    /// expression is stored alongside so a hash collision resolves to a miss
+    /// rather than to the wrong signature.
+    pub boolean_sig_cache: BooleanSigCache,
 }
 
 impl OrchestratorContext {
@@ -88,6 +99,7 @@ impl OrchestratorContext {
             next_group_id: 0,
             join_states: JoinMap::with_hasher(determinism_seeds_ahash()),
             next_join_id: 0,
+            boolean_sig_cache: BooleanSigCache::default(),
         }
     }
 }

@@ -17,6 +17,7 @@ use crate::core::pass_contract::{ReasonDetail, SolverResult};
 use crate::core::result::Result;
 use crate::core::simplify_outcome::Options;
 use crate::orchestrator::competition::acquire_handle;
+use crate::orchestrator::expr_identity_hash;
 use std::sync::Arc;
 
 use crate::orchestrator::{
@@ -32,6 +33,29 @@ use crate::passes::spot_check::{full_width_check_eval, DEFAULT_NUM_SAMPLES};
 
 /// `DecompositionContext` layout, with the evaluator passed in
 /// separately so it can be `None`.
+/// `evaluate_boolean_signature` memoized on `ctx`.
+///
+/// Five extractor passes share this body against the same item (all with
+/// `prereq_mask: 0`), so the identical 2^n signature was computed five times.
+/// Keyed by structural hash plus dimensions, with the expression stored so a
+/// hash collision misses rather than returning the wrong signature.
+fn cached_boolean_signature(
+    ctx: &mut OrchestratorContext,
+    expr: &Arc<Expr>,
+    num_vars: u32,
+) -> Vec<u64> {
+    let key = (expr_identity_hash(expr), num_vars, ctx.bitwidth);
+    if let Some((cached_expr, sig)) = ctx.boolean_sig_cache.get(&key) {
+        if **cached_expr == **expr {
+            return sig.clone();
+        }
+    }
+    let sig = evaluate_boolean_signature(expr, num_vars, ctx.bitwidth);
+    ctx.boolean_sig_cache
+        .insert(key, (expr.clone_tree(), sig.clone()));
+    sig
+}
+
 pub struct DecompositionContext<'a> {
     pub opts: &'a Options,
     pub bitwidth: u32,
@@ -117,7 +141,7 @@ pub fn run_extractor(
 
     let (active_vars, active_eval, target_vars) = active_view(item, ctx);
     let num_vars = active_vars.len() as u32;
-    let sig = evaluate_boolean_signature(&ast.expr, num_vars, ctx.bitwidth);
+    let sig = cached_boolean_signature(ctx, &ast.expr, num_vars);
     let cls = ast
         .classification
         .unwrap_or_else(|| classify_structural(&ast.expr));
