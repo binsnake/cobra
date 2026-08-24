@@ -29,7 +29,7 @@ A **pre-existing** upstream bug (reproduces identically on `main`), found by run
 
 ## Verification
 
-Dataset harness: `cargo build --release --bin cobra-sweep`, then `cobra-sweep datasets/**/*.txt --bitwidth 64`. Gate = `unsafe=0` (no simplification that isn't equivalent to its input).
+Dataset harness: `cargo build --release --features cli --bin cobra-sweep`, then `cobra-sweep datasets/**/*.txt --bitwidth 64`. Gate = `unsafe=0` (no simplification that isn't equivalent to its input).
 
 Full sweep, 74,885 cases (all datasets except the pathologically-slow 5-var `simba/e1_5vars`, spot-checked separately and identical to `main`):
 

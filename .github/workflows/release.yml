@@ -34,15 +34,15 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Lint package
-        run: cargo clippy --all-targets --locked -- -D warnings
+        run: cargo clippy --all-targets --features cli --locked -- -D warnings
 
       - name: Test package
-        run: cargo test --locked
+        run: cargo test --features cli --locked
 
       - name: Test dynamic-linking mode
         env:
           RUSTFLAGS: -C prefer-dynamic
-        run: cargo run --bin cobra-cli --locked -- --mba "(x ^ y) + 2 * (x & y)"
+        run: cargo run --bin cobra-cli --features cli --locked -- --mba "(x ^ y) + 2 * (x & y)"
 
       - name: Verify package
         run: cargo package --locked
@@ -74,7 +74,7 @@ jobs:
         run: rustup toolchain install 1.88.0 --profile minimal --target ${{ matrix.target }}
 
       - name: Build static release CLI
-        run: cargo build --bin cobra-cli --release --locked --target ${{ matrix.target }}
+        run: cargo build --bin cobra-cli --features cli --release --locked --target ${{ matrix.target }}
 
       - name: Assemble archive
         shell: bash

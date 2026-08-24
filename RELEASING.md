@@ -48,10 +48,10 @@ See the official
    ```powershell
    python tools/release.py check
    cargo fmt --all -- --check
-   cargo clippy --all-targets -- -D warnings
-   cargo test --locked
-   cargo --config .cargo/dynamic.toml run --bin cobra-cli --locked -- --mba "x"
-   cargo build --bin cobra-cli --release --locked
+   cargo clippy --all-targets --features cli -- -D warnings
+   cargo test --features cli --locked
+   cargo --config .cargo/dynamic.toml run --bin cobra-cli --features cli --locked -- --mba "x"
+   cargo build --bin cobra-cli --features cli --release --locked
    cargo package --locked
    ```
 

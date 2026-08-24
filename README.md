@@ -28,6 +28,10 @@ crate name:
 cobra = { package = "cobra-mba", version = "0.1" }
 ```
 
+The command-line programs live in the same package but sit behind the `cli`
+feature, which is off by default. A library dependency therefore does not pull
+`clap` (or its `syn`-based derive) into the build.
+
 ```rust
 use cobra::{parse_to_ast, render, simplify_expr, Options};
 
@@ -79,7 +83,7 @@ This is a Rust `dylib`, not a C-compatible `cdylib`:
 This repository exercises the mode with:
 
 ```powershell
-cargo --config .cargo/dynamic.toml run --bin cobra-cli -- --mba "(x ^ y) + 2 * (x & y)"
+cargo --config .cargo/dynamic.toml run --bin cobra-cli --features cli -- --mba "(x ^ y) + 2 * (x & y)"
 ```
 
 ## Upstream compatibility
@@ -105,21 +109,24 @@ for exact commits, validation policy, results, and exclusions.
 Install or run the CLI:
 
 ```powershell
-cargo install cobra-mba --bin cobra-cli
+cargo install cobra-mba --bin cobra-cli --features cli
 cobra-cli --mba "(x ^ y) + 2 * (x & y)"
 ```
+
+The `cli` feature is required: it is what enables the argument parser, and it is
+off by default so that library consumers do not build it.
 
 Useful flags include `--bitwidth`, `--max-vars`, `--verbose`, and `--verify`.
 The `--verify` flag uses Z3 only when the CLI was built with its `z3` feature.
 For a local build:
 
 ```powershell
-cargo build --release --bin cobra-cli --features z3
+cargo build --release --bin cobra-cli --features cli,z3
 .\target\release\cobra-cli.exe --mba "(x ^ y) + 2 * (x & y)" --verify
 ```
 
 To install that variant, use
-`cargo install cobra-mba --bin cobra-cli --features z3`. The Z3 library must be
+`cargo install cobra-mba --bin cobra-cli --features cli,z3`. The Z3 library must be
 available to the linker.
 
 ## Verification status
@@ -150,10 +157,13 @@ The main checks are:
 
 ```powershell
 cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-cargo --config .cargo/dynamic.toml run --bin cobra-cli -- --mba "x"
+cargo clippy --all-targets --features cli -- -D warnings
+cargo test --features cli
+cargo --config .cargo/dynamic.toml run --bin cobra-cli --features cli -- --mba "x"
 ```
+
+`--features cli` is what puts `cobra-cli` and `cobra-sweep` in scope; without it
+those binaries and their unit tests are not compiled.
 
 Lean verification:
 

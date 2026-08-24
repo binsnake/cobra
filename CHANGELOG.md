@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `clap` is now an optional dependency behind the new `cli` feature, which is
+  off by default. The library's default dependency graph no longer contains
+  `clap`, `clap_derive`, or their transitive crates.
+- The `cobra-cli` and `cobra-sweep` binaries declare
+  `required-features = ["cli"]`. Building, testing, or installing them now needs
+  `--features cli`, for example
+  `cargo install cobra-mba --bin cobra-cli --features cli`.
+
 ## [0.1.0] - 2026-07-19
 
 ### Added

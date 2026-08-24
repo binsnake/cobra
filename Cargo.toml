@@ -33,10 +33,12 @@ crate-type = ["rlib", "dylib"]
 [[bin]]
 name = "cobra-cli"
 path = "crates/cobra-cli/src/main.rs"
+required-features = ["cli"]
 
 [[bin]]
 name = "cobra-sweep"
 path = "crates/cobra-testkit/src/bin/sweep.rs"
+required-features = ["cli"]
 
 [[bin]]
 name = "cobra-parity-rust"
@@ -73,6 +75,10 @@ default = ["simd"]
 simd = ["dep:wide"]
 # Enable the optional Z3 verifier backend. Z3 must be available to the linker.
 z3 = ["dep:z3"]
+# Build the `cobra-cli` and `cobra-sweep` command-line programs. Only these
+# binaries need an argument parser, so the library keeps `clap` (and its
+# `syn`-based derive) out of the default dependency graph.
+cli = ["dep:clap"]
 # Build the local Rust/C++ parity runner. This is a developer tool rather than
 # part of the installed command-line surface.
 parity-tools = []
@@ -81,7 +87,7 @@ parity-tools = []
 # Exact pin: fixed-seed hashing (`RandomState::with_seeds`) must hash
 # identically across builds.
 ahash = "=0.8.11"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive"], optional = true }
 hashbrown = "0.14"
 indexmap = "2"
 smallvec = { version = "1.13", features = ["union"] }

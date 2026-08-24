@@ -39,7 +39,7 @@ jobs:
         run: cargo build --lib --locked
 
       - name: Run the dynamically linked CLI
-        run: cargo run --bin cobra-cli --locked -- --mba "(x ^ y) + 2 * (x & y)"
+        run: cargo run --bin cobra-cli --features cli --locked -- --mba "(x ^ y) + 2 * (x & y)"
 
   rust-and-lean:
     name: Rust and Lean verification
@@ -64,13 +64,13 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Check all targets
-        run: cargo check --all-targets --locked
+        run: cargo check --all-targets --features cli --locked
 
       - name: Check release metadata
         run: python tools/release.py check
 
       - name: Lint all targets
-        run: cargo clippy --all-targets --locked -- -D warnings
+        run: cargo clippy --all-targets --features cli --locked -- -D warnings
 
       - name: Check the publishable package
         run: cargo package --locked
@@ -79,7 +79,7 @@ jobs:
         run: cargo test proof_coverage::tests
 
       - name: Test package
-        run: cargo test --locked
+        run: cargo test --features cli --locked
 
       - name: Test scalar fallback
         run: cargo test --no-default-features --locked
