@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::core::arith::{bitmask, mod_add};
+use crate::core::arith::{bitmask, mod_add, mod_mul};
 use crate::core::expr::{Expr, Kind};
 use crate::core::expr_utils::{eval_constant, has_var_dep, is_constant_subtree};
 
@@ -182,6 +182,35 @@ fn fold_constant_arithmetic(mut expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
 
     if is_constant_subtree(&expr) && !matches!(expr.kind, Kind::Constant(_)) {
         return Expr::constant(eval_constant(&expr, bitwidth));
+    }
+
+    // Mul chains fold the same way. The parser emits the constant on the
+    // right -- `x << k` lowers to `Expr::mul(lhs, Expr::constant(2^k))` -- so
+    // `(x << 3) << 2` stayed as `x * 8 * 4` while the Add dual folded. The
+    // folded `E * 32` is also likelier to obtain a single-rewrite certificate.
+    if matches!(expr.kind, Kind::Mul) {
+        let mut factors: Vec<Arc<Expr>> = Vec::new();
+        flatten_mul(expr, &mut factors);
+
+        let mut const_product: u64 = 1;
+        let mut non_const: Vec<Arc<Expr>> = Vec::new();
+        for f in factors {
+            if let Kind::Constant(v) = f.kind {
+                const_product = mod_mul(const_product, v, bitwidth);
+            } else {
+                non_const.push(f);
+            }
+        }
+
+        if const_product == 0 || non_const.is_empty() {
+            return Expr::constant(const_product);
+        }
+        if const_product != 1 {
+            // Constant first; the Add branch places its constant last. Either
+            // way the position is canonical, so equal trees compare equal.
+            non_const.insert(0, Expr::constant(const_product));
+        }
+        return rebuild_mul(non_const);
     }
 
     if !matches!(expr.kind, Kind::Add) {

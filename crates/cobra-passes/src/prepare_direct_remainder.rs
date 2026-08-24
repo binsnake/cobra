@@ -74,9 +74,8 @@ pub fn run_prepare_direct_remainder(
     // evaluation of the AST. This is the residual candidate.
     let decomp_sig = evaluate_boolean_signature(&ast.expr, num_vars, ctx.bitwidth);
 
-    let elim = eliminate_aux_vars_fw(&decomp_sig, &active_vars, &eval, ctx.bitwidth);
-    let support = build_var_support(&active_vars, &elim.real_vars);
-
+    // Guard first: nothing on the reject path reads `elim` or `support`, and
+    // they are only consumed by the payload built after this returns.
     if !is_boolean_null_sig(&decomp_sig) {
         return Ok(PassResult {
             decision: PassDecision::NotApplicable,
@@ -85,6 +84,9 @@ pub fn run_prepare_direct_remainder(
             reason: ReasonDetail::default(),
         });
     }
+
+    let elim = eliminate_aux_vars_fw(&decomp_sig, &active_vars, &eval, ctx.bitwidth);
+    let support = build_var_support(&active_vars, &elim.real_vars);
 
     let payload = RemainderStatePayload {
         origin: RemainderOrigin::DirectBooleanNull,

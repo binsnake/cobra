@@ -225,10 +225,30 @@ fn validate_expr_input(expr: &Expr, vars: &[String], bitwidth: u32) -> Result<()
             }
         }
         for child in &node.children {
-            stack.push((child, depth + 1));
+            // An associative chain is not nesting. `Expr::add` is binary, so a
+            // flat N-addend sum is an N-deep left spine and a 512-term sum
+            // tripped the depth budget before a single pass ran -- while
+            // MAX_LOGICAL_NODES (100_000) was 50x from firing, making the two
+            // budgets mutually inconsistent for chain-shaped input. Only count
+            // a step when the operator actually changes.
+            let child_depth = if is_associative_chain_step(&node.kind, &child.kind) {
+                depth
+            } else {
+                depth + 1
+            };
+            stack.push((child, child_depth));
         }
     }
     validate_widths(expr, &[], bitwidth)
+}
+
+/// `true` when descending from `parent` into `child` continues one flat
+/// associative chain rather than nesting a new operator.
+fn is_associative_chain_step(parent: &Kind, child: &Kind) -> bool {
+    matches!(
+        parent,
+        Kind::Add | Kind::Mul | Kind::And | Kind::Or | Kind::Xor
+    ) && parent == child
 }
 
 fn validate_bitwidth(bitwidth: u32) -> Result<()> {
