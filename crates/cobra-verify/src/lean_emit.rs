@@ -154,6 +154,81 @@ fn theorem_eval_args(bitwidth: u32, theorem: LeanTheorem, before: &Expr) -> Opti
 
     let args: Vec<&Expr> = match theorem {
         Thm::Const3And1_64 => Vec::new(),
+        // Complement laws: the theorem takes just `x`, read from whichever
+        // operand is not the `Not`.
+        Thm::AndNotSelf64 => vec![binary_child(before, KindTag::And, 0)?],
+        Thm::NotAndSelf64 => vec![binary_child(before, KindTag::And, 1)?],
+        Thm::OrNotSelf64 => vec![binary_child(before, KindTag::Or, 0)?],
+        Thm::NotOrSelf64 => vec![binary_child(before, KindTag::Or, 1)?],
+        Thm::XorNotSelf64 => vec![binary_child(before, KindTag::Xor, 0)?],
+        Thm::NotXorSelf64 => vec![binary_child(before, KindTag::Xor, 1)?],
+        // Absorption: `x` is the bare operand, `y` the other operand of the
+        // nested node.
+        Thm::AndOrAbsorb64 => {
+            let x = binary_child(before, KindTag::And, 0)?;
+            let inner = binary_child(before, KindTag::And, 1)?;
+            vec![x, binary_child(inner, KindTag::Or, 1)?]
+        }
+        Thm::AndOrAbsorbRight64 => {
+            let x = binary_child(before, KindTag::And, 0)?;
+            let inner = binary_child(before, KindTag::And, 1)?;
+            vec![x, binary_child(inner, KindTag::Or, 0)?]
+        }
+        Thm::OrAndAbsorb64 => {
+            let x = binary_child(before, KindTag::Or, 0)?;
+            let inner = binary_child(before, KindTag::Or, 1)?;
+            vec![x, binary_child(inner, KindTag::And, 1)?]
+        }
+        Thm::OrAndAbsorbRight64 => {
+            let x = binary_child(before, KindTag::Or, 0)?;
+            let inner = binary_child(before, KindTag::Or, 1)?;
+            vec![x, binary_child(inner, KindTag::And, 0)?]
+        }
+        Thm::AndOrAbsorbComm64 => {
+            let x = binary_child(before, KindTag::And, 1)?;
+            let inner = binary_child(before, KindTag::And, 0)?;
+            vec![x, binary_child(inner, KindTag::Or, 1)?]
+        }
+        Thm::AndOrAbsorbCommRight64 => {
+            let x = binary_child(before, KindTag::And, 1)?;
+            let inner = binary_child(before, KindTag::And, 0)?;
+            vec![x, binary_child(inner, KindTag::Or, 0)?]
+        }
+        Thm::OrAndAbsorbComm64 => {
+            let x = binary_child(before, KindTag::Or, 1)?;
+            let inner = binary_child(before, KindTag::Or, 0)?;
+            vec![x, binary_child(inner, KindTag::And, 1)?]
+        }
+        Thm::OrAndAbsorbCommRight64 => {
+            let x = binary_child(before, KindTag::Or, 1)?;
+            let inner = binary_child(before, KindTag::Or, 0)?;
+            vec![x, binary_child(inner, KindTag::And, 0)?]
+        }
+        // Constant reassociation: `(x op c1) op c2` supplies x, c1, c2.
+        Thm::AndConstAssoc64 => {
+            let inner = binary_child(before, KindTag::And, 0)?;
+            vec![
+                binary_child(inner, KindTag::And, 0)?,
+                binary_child(inner, KindTag::And, 1)?,
+                binary_child(before, KindTag::And, 1)?,
+            ]
+        }
+        Thm::OrConstAssoc64 => {
+            let inner = binary_child(before, KindTag::Or, 0)?;
+            vec![
+                binary_child(inner, KindTag::Or, 0)?,
+                binary_child(inner, KindTag::Or, 1)?,
+                binary_child(before, KindTag::Or, 1)?,
+            ]
+        }
+        Thm::XorConstAssoc64 => {
+            let inner = binary_child(before, KindTag::Xor, 0)?;
+            vec![
+                binary_child(inner, KindTag::Xor, 0)?,
+                binary_child(inner, KindTag::Xor, 1)?,
+                binary_child(before, KindTag::Xor, 1)?,
+            ]
+        }
         Thm::AddZero64 => vec![binary_child(before, KindTag::Add, 0)?],
         Thm::ZeroAdd64 => vec![binary_child(before, KindTag::Add, 1)?],
         Thm::MulZero64 | Thm::MulOne64 => vec![binary_child(before, KindTag::Mul, 0)?],

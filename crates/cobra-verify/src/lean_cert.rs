@@ -59,6 +59,23 @@ pub enum LeanTheorem {
     ZeroXor64,
     AndZero64,
     Const3And1_64,
+    AndNotSelf64,
+    NotAndSelf64,
+    OrNotSelf64,
+    NotOrSelf64,
+    XorNotSelf64,
+    NotXorSelf64,
+    AndOrAbsorb64,
+    AndOrAbsorbRight64,
+    OrAndAbsorb64,
+    OrAndAbsorbRight64,
+    AndOrAbsorbComm64,
+    AndOrAbsorbCommRight64,
+    OrAndAbsorbComm64,
+    OrAndAbsorbCommRight64,
+    AndConstAssoc64,
+    OrConstAssoc64,
+    XorConstAssoc64,
     ZeroAnd64,
     OrZero64,
     ZeroOr64,
@@ -115,6 +132,23 @@ impl LeanTheorem {
         Self::ZeroXor64,
         Self::AndZero64,
         Self::Const3And1_64,
+        Self::AndNotSelf64,
+        Self::NotAndSelf64,
+        Self::OrNotSelf64,
+        Self::NotOrSelf64,
+        Self::XorNotSelf64,
+        Self::NotXorSelf64,
+        Self::AndConstAssoc64,
+        Self::OrConstAssoc64,
+        Self::XorConstAssoc64,
+        Self::AndOrAbsorb64,
+        Self::AndOrAbsorbRight64,
+        Self::OrAndAbsorb64,
+        Self::OrAndAbsorbRight64,
+        Self::AndOrAbsorbComm64,
+        Self::AndOrAbsorbCommRight64,
+        Self::OrAndAbsorbComm64,
+        Self::OrAndAbsorbCommRight64,
         Self::ZeroAnd64,
         Self::OrZero64,
         Self::ZeroOr64,
@@ -155,6 +189,20 @@ impl LeanTheorem {
         Self::ZeroXor64,
         Self::AndZero64,
         Self::Const3And1_64,
+        Self::AndNotSelf64,
+        Self::NotAndSelf64,
+        Self::OrNotSelf64,
+        Self::NotOrSelf64,
+        Self::XorNotSelf64,
+        Self::NotXorSelf64,
+        Self::AndOrAbsorb64,
+        Self::AndOrAbsorbRight64,
+        Self::OrAndAbsorb64,
+        Self::OrAndAbsorbRight64,
+        Self::AndOrAbsorbComm64,
+        Self::AndOrAbsorbCommRight64,
+        Self::OrAndAbsorbComm64,
+        Self::OrAndAbsorbCommRight64,
         Self::ZeroAnd64,
         Self::OrZero64,
         Self::ZeroOr64,
@@ -213,6 +261,23 @@ impl LeanTheorem {
             Self::ZeroXor64 => "Cobra.zero_xor_64",
             Self::AndZero64 => "Cobra.and_zero_64",
             Self::Const3And1_64 => "Cobra.const_3_and_1_64",
+            Self::AndNotSelf64 => "Cobra.and_not_self_64",
+            Self::NotAndSelf64 => "Cobra.not_and_self_64",
+            Self::OrNotSelf64 => "Cobra.or_not_self_64",
+            Self::NotOrSelf64 => "Cobra.not_or_self_64",
+            Self::XorNotSelf64 => "Cobra.xor_not_self_64",
+            Self::NotXorSelf64 => "Cobra.not_xor_self_64",
+            Self::AndOrAbsorb64 => "Cobra.and_or_absorb_64",
+            Self::AndOrAbsorbRight64 => "Cobra.and_or_absorb_right_64",
+            Self::OrAndAbsorb64 => "Cobra.or_and_absorb_64",
+            Self::OrAndAbsorbRight64 => "Cobra.or_and_absorb_right_64",
+            Self::AndOrAbsorbComm64 => "Cobra.and_or_absorb_comm_64",
+            Self::AndOrAbsorbCommRight64 => "Cobra.and_or_absorb_comm_right_64",
+            Self::OrAndAbsorbComm64 => "Cobra.or_and_absorb_comm_64",
+            Self::OrAndAbsorbCommRight64 => "Cobra.or_and_absorb_comm_right_64",
+            Self::AndConstAssoc64 => "Cobra.and_const_assoc_64",
+            Self::OrConstAssoc64 => "Cobra.or_const_assoc_64",
+            Self::XorConstAssoc64 => "Cobra.xor_const_assoc_64",
             Self::ZeroAnd64 => "Cobra.zero_and_64",
             Self::OrZero64 => "Cobra.or_zero_64",
             Self::ZeroOr64 => "Cobra.zero_or_64",
@@ -450,6 +515,30 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
             if is_const_value(lhs, 3) && is_const_value(rhs, 1) && is_const_value(after, 1) {
                 return Some(Thm::Const3And1_64);
             }
+            // Complement: x & ~x -> 0, both operand orders.
+            if is_not_of(rhs, lhs) && is_zero(after) {
+                return Some(Thm::AndNotSelf64);
+            }
+            if is_not_of(lhs, rhs) && is_zero(after) {
+                return Some(Thm::NotAndSelf64);
+            }
+            // Absorption: x & (x | y) -> x, in all four operand orders.
+            if expr_eq(lhs, after) && rhs.kind == Kind::Or && rhs.children.len() == 2 {
+                if expr_eq(&rhs.children[0], lhs) {
+                    return Some(Thm::AndOrAbsorb64);
+                }
+                if expr_eq(&rhs.children[1], lhs) {
+                    return Some(Thm::AndOrAbsorbRight64);
+                }
+            }
+            if expr_eq(rhs, after) && lhs.kind == Kind::Or && lhs.children.len() == 2 {
+                if expr_eq(&lhs.children[0], rhs) {
+                    return Some(Thm::AndOrAbsorbComm64);
+                }
+                if expr_eq(&lhs.children[1], rhs) {
+                    return Some(Thm::AndOrAbsorbCommRight64);
+                }
+            }
             if is_zero(lhs) && is_zero(after) {
                 return Some(Thm::ZeroAnd64);
             }
@@ -465,6 +554,28 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
             let rhs = &before.children[1];
             if expr_eq(lhs, rhs) && expr_eq(lhs, after) {
                 return Some(Thm::OrSelf64);
+            }
+            if is_not_of(rhs, lhs) && is_all_ones(after) {
+                return Some(Thm::OrNotSelf64);
+            }
+            if is_not_of(lhs, rhs) && is_all_ones(after) {
+                return Some(Thm::NotOrSelf64);
+            }
+            if expr_eq(lhs, after) && rhs.kind == Kind::And && rhs.children.len() == 2 {
+                if expr_eq(&rhs.children[0], lhs) {
+                    return Some(Thm::OrAndAbsorb64);
+                }
+                if expr_eq(&rhs.children[1], lhs) {
+                    return Some(Thm::OrAndAbsorbRight64);
+                }
+            }
+            if expr_eq(rhs, after) && lhs.kind == Kind::And && lhs.children.len() == 2 {
+                if expr_eq(&lhs.children[0], rhs) {
+                    return Some(Thm::OrAndAbsorbComm64);
+                }
+                if expr_eq(&lhs.children[1], rhs) {
+                    return Some(Thm::OrAndAbsorbCommRight64);
+                }
             }
             if is_zero(rhs) && expr_eq(lhs, after) {
                 return Some(Thm::OrZero64);
@@ -485,6 +596,16 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
             }
         }
         Kind::Xor if before.children.len() == 2 => {
+            {
+                let lhs = &before.children[0];
+                let rhs = &before.children[1];
+                if is_not_of(rhs, lhs) && is_all_ones(after) {
+                    return Some(Thm::XorNotSelf64);
+                }
+                if is_not_of(lhs, rhs) && is_all_ones(after) {
+                    return Some(Thm::NotXorSelf64);
+                }
+            }
             let lhs = &before.children[0];
             let rhs = &before.children[1];
             if is_xor_lowering_of(after, lhs, rhs) {

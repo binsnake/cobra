@@ -411,7 +411,13 @@ fn theorem_arity(theorem: LeanTheorem) -> usize {
         | LeanTheorem::AllOnesAnd64
         | LeanTheorem::OrAllOnes64
         | LeanTheorem::AllOnesOr64
-        | LeanTheorem::ShrZero64 => 1,
+        | LeanTheorem::ShrZero64
+        | LeanTheorem::AndNotSelf64
+        | LeanTheorem::NotAndSelf64
+        | LeanTheorem::OrNotSelf64
+        | LeanTheorem::NotOrSelf64
+        | LeanTheorem::XorNotSelf64
+        | LeanTheorem::NotXorSelf64 => 1,
         LeanTheorem::Const3And1_64 => 0,
         LeanTheorem::XorEqAddSubTwoMulAnd64
         | LeanTheorem::XorAddTwoMulAndEqAdd64
@@ -431,11 +437,23 @@ fn theorem_arity(theorem: LeanTheorem) -> usize {
         | LeanTheorem::DemorganOrNotNot64
         | LeanTheorem::DemorganNotAndNotNot64
         | LeanTheorem::DemorganNotOr64
-        | LeanTheorem::DemorganNotOrNotNot64 => 2,
+        | LeanTheorem::DemorganNotOrNotNot64
+        | LeanTheorem::AndOrAbsorb64
+        | LeanTheorem::AndOrAbsorbRight64
+        | LeanTheorem::OrAndAbsorb64
+        | LeanTheorem::OrAndAbsorbRight64
+        | LeanTheorem::AndOrAbsorbComm64
+        | LeanTheorem::AndOrAbsorbCommRight64
+        | LeanTheorem::OrAndAbsorbComm64
+        | LeanTheorem::OrAndAbsorbCommRight64 => 2,
         LeanTheorem::AddAssoc64
         | LeanTheorem::MulAssoc64
         | LeanTheorem::MulAdd64
-        | LeanTheorem::AddMul64 => 3,
+        | LeanTheorem::AddMul64
+        // Constant reassociation takes `x`, `c1`, `c2`.
+        | LeanTheorem::AndConstAssoc64
+        | LeanTheorem::OrConstAssoc64
+        | LeanTheorem::XorConstAssoc64 => 3,
         LeanTheorem::CompileSound
         | LeanTheorem::ContextPreservesSemanticEquivalence
         | LeanTheorem::RewriteStepSound
@@ -855,6 +873,100 @@ fn local_rewrite_theorem_matrix_replays_in_lean() {
         x,
         LeanTheorem::ShrZero64,
     );
+
+    // --- Complement, absorption, and constant-reassociation laws ---
+    let v = || Expr::variable(0);
+    let w = || Expr::variable(1);
+    let all_ones = || Expr::constant(u64::MAX);
+
+    for (name, before, after, theorem) in [
+        (
+            "local_and_not_self_replay",
+            Expr::and(v(), Expr::not(v())),
+            Expr::constant(0),
+            LeanTheorem::AndNotSelf64,
+        ),
+        (
+            "local_not_and_self_replay",
+            Expr::and(Expr::not(v()), v()),
+            Expr::constant(0),
+            LeanTheorem::NotAndSelf64,
+        ),
+        (
+            "local_or_not_self_replay",
+            Expr::or(v(), Expr::not(v())),
+            all_ones(),
+            LeanTheorem::OrNotSelf64,
+        ),
+        (
+            "local_not_or_self_replay",
+            Expr::or(Expr::not(v()), v()),
+            all_ones(),
+            LeanTheorem::NotOrSelf64,
+        ),
+        (
+            "local_xor_not_self_replay",
+            Expr::xor(v(), Expr::not(v())),
+            all_ones(),
+            LeanTheorem::XorNotSelf64,
+        ),
+        (
+            "local_not_xor_self_replay",
+            Expr::xor(Expr::not(v()), v()),
+            all_ones(),
+            LeanTheorem::NotXorSelf64,
+        ),
+        (
+            "local_and_or_absorb_replay",
+            Expr::and(v(), Expr::or(v(), w())),
+            v(),
+            LeanTheorem::AndOrAbsorb64,
+        ),
+        (
+            "local_and_or_absorb_right_replay",
+            Expr::and(v(), Expr::or(w(), v())),
+            v(),
+            LeanTheorem::AndOrAbsorbRight64,
+        ),
+        (
+            "local_or_and_absorb_replay",
+            Expr::or(v(), Expr::and(v(), w())),
+            v(),
+            LeanTheorem::OrAndAbsorb64,
+        ),
+        (
+            "local_or_and_absorb_right_replay",
+            Expr::or(v(), Expr::and(w(), v())),
+            v(),
+            LeanTheorem::OrAndAbsorbRight64,
+        ),
+        (
+            "local_and_or_absorb_comm_replay",
+            Expr::and(Expr::or(v(), w()), v()),
+            v(),
+            LeanTheorem::AndOrAbsorbComm64,
+        ),
+        (
+            "local_and_or_absorb_comm_right_replay",
+            Expr::and(Expr::or(w(), v()), v()),
+            v(),
+            LeanTheorem::AndOrAbsorbCommRight64,
+        ),
+        (
+            "local_or_and_absorb_comm_replay",
+            Expr::or(Expr::and(v(), w()), v()),
+            v(),
+            LeanTheorem::OrAndAbsorbComm64,
+        ),
+        (
+            "local_or_and_absorb_comm_right_replay",
+            Expr::or(Expr::and(w(), v()), v()),
+            v(),
+            LeanTheorem::OrAndAbsorbCommRight64,
+        ),
+    ] {
+        replay_local_rewrite_seen(&mut seen, name, before, after, theorem);
+    }
 
     let expected: HashSet<_> = LeanTheorem::RECOGNIZED_REWRITE_64.iter().copied().collect();
     assert_eq!(

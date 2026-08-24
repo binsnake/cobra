@@ -50,10 +50,90 @@ fn negate_bitwise_child(child: Arc<Expr>) -> Arc<Expr> {
     Expr::not(child)
 }
 
+/// `true` if `a` is exactly `Not(b)` or `b` is exactly `Not(a)`.
+fn are_complements(a: &Expr, b: &Expr) -> bool {
+    let is_not_of = |outer: &Expr, inner: &Expr| {
+        matches!(outer.kind, Kind::Not) && outer.children.len() == 1 && *outer.children[0] == *inner
+    };
+    is_not_of(a, b) || is_not_of(b, a)
+}
+
+/// `true` if `whole` is an `op`-node with `part` as one of its two operands.
+fn contains_operand(whole: &Expr, op: &Kind, part: &Expr) -> bool {
+    whole.kind == *op
+        && whole.children.len() == 2
+        && (*whole.children[0] == *part || *whole.children[1] == *part)
+}
+
+/// Reassociate `(x op C1) op C2` into `x op (C1 op C2)` so the sibling-constant
+/// fold can fire.
+///
+/// `constant_val` matches only a direct `Constant` child, so for the
+/// left-associated `And(And(x, 15), 240)` the inner node folds nothing and the
+/// outer sees only `rc = Some(240)`. `x & 15 & 240` therefore never folded
+/// while `x & (15 & 240)` folded to 0.
+fn reassociate_constant(
+    kind: &Kind,
+    lhs: &Expr,
+    rhs_const: u64,
+    bitwidth: u32,
+) -> Option<Arc<Expr>> {
+    if lhs.kind != *kind || lhs.children.len() != 2 {
+        return None;
+    }
+    let inner_const = constant_val(&lhs.children[1]).or_else(|| constant_val(&lhs.children[0]))?;
+    let inner_other = if constant_val(&lhs.children[1]).is_some() {
+        lhs.children[0].clone_tree()
+    } else {
+        lhs.children[1].clone_tree()
+    };
+    let mask = bitmask(bitwidth);
+    let folded = match kind {
+        Kind::And => inner_const & rhs_const & mask,
+        Kind::Or => (inner_const | rhs_const) & mask,
+        Kind::Xor => (inner_const ^ rhs_const) & mask,
+        _ => return None,
+    };
+    Some(try_fold_binary(
+        kind.clone(),
+        inner_other,
+        Expr::constant(folded),
+        bitwidth,
+    ))
+}
+
 fn try_fold_binary(kind: Kind, lhs: Arc<Expr>, rhs: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
     let all_ones = bitmask(bitwidth);
     let lc = constant_val(&lhs);
     let rc = constant_val(&rhs);
+
+    // Constant reassociation, before the per-operator arms.
+    if matches!(kind, Kind::And | Kind::Or | Kind::Xor) {
+        if let Some(c) = rc {
+            if let Some(folded) = reassociate_constant(&kind, &lhs, c, bitwidth) {
+                return folded;
+            }
+        }
+        if let Some(c) = lc {
+            if let Some(folded) = reassociate_constant(&kind, &rhs, c, bitwidth) {
+                return folded;
+            }
+        }
+    }
+
+    // Complement and absorption laws, in all operand orders.
+    match kind {
+        Kind::And if are_complements(&lhs, &rhs) => return Expr::constant(0),
+        Kind::Or | Kind::Xor if are_complements(&lhs, &rhs) => {
+            return Expr::constant(all_ones);
+        }
+        // Absorption: x & (x | y) -> x, and the dual x | (x & y) -> x.
+        Kind::And if contains_operand(&rhs, &Kind::Or, &lhs) => return lhs,
+        Kind::And if contains_operand(&lhs, &Kind::Or, &rhs) => return rhs,
+        Kind::Or if contains_operand(&rhs, &Kind::And, &lhs) => return lhs,
+        Kind::Or if contains_operand(&lhs, &Kind::And, &rhs) => return rhs,
+        _ => {}
+    }
 
     match kind {
         Kind::And => {
@@ -374,6 +454,89 @@ pub fn simplify_structure(ir: &mut SemilinearIR) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn complement_laws_fold() {
+        let x = || Expr::variable(0);
+        let all_ones = bitmask(64);
+
+        assert_eq!(
+            *try_fold_binary(Kind::And, x(), Expr::not(x()), 64),
+            *Expr::constant(0)
+        );
+        assert_eq!(
+            *try_fold_binary(Kind::And, Expr::not(x()), x(), 64),
+            *Expr::constant(0)
+        );
+        assert_eq!(
+            *try_fold_binary(Kind::Or, x(), Expr::not(x()), 64),
+            *Expr::constant(all_ones)
+        );
+        assert_eq!(
+            *try_fold_binary(Kind::Xor, Expr::not(x()), x(), 64),
+            *Expr::constant(all_ones)
+        );
+    }
+
+    #[test]
+    fn absorption_laws_fold() {
+        let x = || Expr::variable(0);
+        let y = || Expr::variable(1);
+
+        // x & (x | y) -> x, both operand orders and both operand positions.
+        assert_eq!(
+            *try_fold_binary(Kind::And, x(), Expr::or(x(), y()), 64),
+            *x()
+        );
+        assert_eq!(
+            *try_fold_binary(Kind::And, x(), Expr::or(y(), x()), 64),
+            *x()
+        );
+        assert_eq!(
+            *try_fold_binary(Kind::And, Expr::or(x(), y()), x(), 64),
+            *x()
+        );
+        // x | (x & y) -> x, the dual.
+        assert_eq!(
+            *try_fold_binary(Kind::Or, x(), Expr::and(x(), y()), 64),
+            *x()
+        );
+        assert_eq!(
+            *try_fold_binary(Kind::Or, Expr::and(y(), x()), x(), 64),
+            *x()
+        );
+    }
+
+    #[test]
+    fn constants_reassociate_across_a_chain() {
+        let x = Expr::variable(0);
+        // `x & 15 & 240` is left-associated, so the outer node only ever saw
+        // one constant and folded nothing; 15 & 240 == 0.
+        let folded = try_fold_binary(
+            Kind::And,
+            Expr::and(x.clone_tree(), Expr::constant(15)),
+            Expr::constant(240),
+            64,
+        );
+        assert_eq!(*folded, *Expr::constant(0));
+
+        // Or and Xor duals.
+        let ored = try_fold_binary(
+            Kind::Or,
+            Expr::or(x.clone_tree(), Expr::constant(0xF0)),
+            Expr::constant(0x0F),
+            64,
+        );
+        assert_eq!(*ored, *Expr::or(x.clone_tree(), Expr::constant(0xFF)));
+
+        let xored = try_fold_binary(
+            Kind::Xor,
+            Expr::xor(x.clone_tree(), Expr::constant(0b1100)),
+            Expr::constant(0b1010),
+            64,
+        );
+        assert_eq!(*xored, *Expr::xor(x, Expr::constant(0b0110)));
+    }
     use crate::ir::{normalize_to_semilinear, semilinear::OperatorFamily};
 
     #[test]

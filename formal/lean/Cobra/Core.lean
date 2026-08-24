@@ -207,6 +207,85 @@ theorem all_ones_or_64 (x : BitVec 64) :
   simp [allOnes]
   bv_decide
 
+/-! ### Complement laws -/
+
+theorem and_not_self_64 (x : BitVec 64) :
+    x &&& (~~~x) = 0#64 := by
+  bv_decide
+
+theorem not_and_self_64 (x : BitVec 64) :
+    (~~~x) &&& x = 0#64 := by
+  bv_decide
+
+theorem or_not_self_64 (x : BitVec 64) :
+    x ||| (~~~x) = allOnes 64 := by
+  simp [allOnes]
+
+theorem not_or_self_64 (x : BitVec 64) :
+    (~~~x) ||| x = allOnes 64 := by
+  simp [allOnes]
+
+theorem xor_not_self_64 (x : BitVec 64) :
+    x ^^^ (~~~x) = allOnes 64 := by
+  simp [allOnes]
+  bv_decide
+
+theorem not_xor_self_64 (x : BitVec 64) :
+    (~~~x) ^^^ x = allOnes 64 := by
+  simp [allOnes]
+  bv_decide
+
+/-! ### Absorption laws -/
+
+theorem and_or_absorb_64 (x y : BitVec 64) :
+    x &&& (x ||| y) = x := by
+  bv_decide
+
+theorem and_or_absorb_right_64 (x y : BitVec 64) :
+    x &&& (y ||| x) = x := by
+  bv_decide
+
+theorem or_and_absorb_64 (x y : BitVec 64) :
+    x ||| (x &&& y) = x := by
+  bv_decide
+
+theorem or_and_absorb_right_64 (x y : BitVec 64) :
+    x ||| (y &&& x) = x := by
+  bv_decide
+
+theorem and_or_absorb_comm_64 (x y : BitVec 64) :
+    (x ||| y) &&& x = x := by
+  bv_decide
+
+theorem and_or_absorb_comm_right_64 (x y : BitVec 64) :
+    (y ||| x) &&& x = x := by
+  bv_decide
+
+theorem or_and_absorb_comm_64 (x y : BitVec 64) :
+    (x &&& y) ||| x = x := by
+  bv_decide
+
+theorem or_and_absorb_comm_right_64 (x y : BitVec 64) :
+    (y &&& x) ||| x = x := by
+  bv_decide
+
+/-! ### Constant reassociation
+
+    General replacements for the single `const_3_and_1_64` special case: the
+    constants are universally quantified, so one theorem covers every pair. -/
+
+theorem and_const_assoc_64 (x c1 c2 : BitVec 64) :
+    (x &&& c1) &&& c2 = x &&& (c1 &&& c2) := by
+  bv_decide
+
+theorem or_const_assoc_64 (x c1 c2 : BitVec 64) :
+    (x ||| c1) ||| c2 = x ||| (c1 ||| c2) := by
+  bv_decide
+
+theorem xor_const_assoc_64 (x c1 c2 : BitVec 64) :
+    (x ^^^ c1) ^^^ c2 = x ^^^ (c1 ^^^ c2) := by
+  bv_decide
+
 theorem demorgan_not_and_64 (x y : BitVec 64) :
     ~~~(x &&& y) = (~~~x) ||| (~~~y) := by
   bv_decide
