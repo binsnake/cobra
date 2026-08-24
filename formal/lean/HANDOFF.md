@@ -45,6 +45,22 @@ The strongest current evidence is:
 - Public-output proof preservation now composes a pass endpoint certificate with final public cleanup evidence when applicable.
 - Product-shadow repair is documented/tested as not generally semantics-preserving; the guarded ANF route has replay evidence.
 
+## Width-Generic Arithmetic Pack
+
+The arithmetic MBA identities (`xor_eq_add_sub_two_mul_and`, `xor_via_or_not`,
+the `not_or` family, and the rest) were the last 64-only theorems: `bv_decide`
+cannot discharge a variable-width goal. They are now width-generic, derived
+without any decision procedure from one fundamental carry fact,
+`Cobra.nat_and_add_or : (a &&& b) + (a ||| b) = a + b`, proved by induction on
+binary digits (`Nat.div2Induction`, with the per-bit balance
+`nat_and_or_mod_two`). Lifting through `toNat` gives the BitVec form; a
+disjoint-add corollary and bitwise cover/disjointness facts split sums into
+digit and carry parts; and the whole `_w` arithmetic pack follows by
+equational reasoning (`ac_rfl`, the `sub`/`add` iff lemmas, and
+`BitVec.neg_eq_not_add`). Every recognized rewrite now has a width-generic
+counterpart, so certificates exist at every bitwidth in 1..=64 for the full
+recognized pack, uniform and mixed alike.
+
 ## Mixed-Width Support
 
 `formal/lean/Cobra/Mixed.lean` adds a second, mixed-width world:

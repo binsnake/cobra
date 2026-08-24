@@ -494,6 +494,11 @@ fn lean_theorem_exports_replays_in_lean() {
         source.push_str("#check ");
         source.push_str(theorem.lean_name());
         source.push('\n');
+        if let Some(parametric) = theorem.width_parametric_lean_name() {
+            source.push_str("#check ");
+            source.push_str(parametric);
+            source.push('\n');
+        }
     }
     replay_lean("lean_theorem_exports", &source);
 }
@@ -1141,7 +1146,7 @@ fn local_rewrite_theorem_matrix_replays_in_lean() {
             std::sync::Arc<Expr>,
             std::sync::Arc<Expr>,
             LeanTheorem,
-        ); 5] = [
+        ); 7] = [
             (
                 "w_and_not_self",
                 Expr::and(x.clone_tree(), Expr::not(x.clone_tree())),
@@ -1171,6 +1176,23 @@ fn local_rewrite_theorem_matrix_replays_in_lean() {
                 Expr::add(x.clone_tree(), Expr::constant(0)),
                 x.clone_tree(),
                 LeanTheorem::AddZero64,
+            ),
+            (
+                // Arithmetic MBA below 64: certifiable only because the carry
+                // identity is proved width-generically.
+                "w_and_or_sum_eq_add",
+                Expr::add(
+                    Expr::and(x.clone_tree(), y.clone_tree()),
+                    Expr::or(x.clone_tree(), y.clone_tree()),
+                ),
+                Expr::add(x.clone_tree(), y.clone_tree()),
+                LeanTheorem::AndOrSumEqAdd64,
+            ),
+            (
+                "w_const_3_and_1",
+                Expr::and(Expr::constant(3), Expr::constant(1)),
+                Expr::constant(1),
+                LeanTheorem::Const3And1_64,
             ),
         ];
         for (label, before, after, theorem) in cases {

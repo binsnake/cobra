@@ -250,14 +250,34 @@ impl LeanTheorem {
     ///
     /// The `_64` pack is stated over `BitVec 64`, so a certificate citing it is
     /// replayable only at that width -- which made every width in 1..=63
-    /// unsimplifiable once the public gate began requiring a certificate. The
-    /// pure bitwise and ring identities hold at every width and have `_w`
-    /// counterparts; the arithmetic MBA identities do not, because their proofs
-    /// need carry reasoning `bv_decide` cannot discharge without a concrete
-    /// width.
+    /// unsimplifiable once the public gate began requiring a certificate.
+    /// Every recognized rewrite now has a `_w` counterpart. The bitwise and
+    /// ring identities are proved by bit- or ring-level reasoning; the
+    /// arithmetic MBA family is derived from the carry identity
+    /// `(a &&& b) + (a ||| b) = a + b`, proved by induction on binary digits
+    /// (`Cobra.nat_and_add_or`), since `bv_decide` cannot discharge a
+    /// variable-width goal.
     #[must_use]
     pub const fn width_parametric_lean_name(self) -> Option<&'static str> {
         match self {
+            Self::BnotEqNegAddMask64 => Some("Cobra.bnot_eq_neg_add_mask_w"),
+            Self::BnotEqNegAddAllOnes64 => Some("Cobra.bnot_eq_neg_add_all_ones_w"),
+            Self::XorEqAddSubTwoMulAnd64 => Some("Cobra.xor_eq_add_sub_two_mul_and_w"),
+            Self::XorAddTwoMulAndEqAdd64 => Some("Cobra.xor_add_two_mul_and_eq_add_w"),
+            Self::OrSubAndEqXor64 => Some("Cobra.or_sub_and_eq_xor_w"),
+            Self::AndOrSumEqAdd64 => Some("Cobra.and_or_sum_eq_add_w"),
+            Self::TwoMulAndOrSumEqTwoMulAdd64 => Some("Cobra.two_mul_and_or_sum_eq_two_mul_add_w"),
+            Self::NotOrSubNotEqAnd64 => Some("Cobra.not_or_sub_not_eq_and_w"),
+            Self::NotOrAddSelfAddOneEqAnd64 => Some("Cobra.not_or_add_self_add_one_eq_and_w"),
+            Self::XorViaOrNot64 => Some("Cobra.xor_via_or_not_w"),
+            Self::XorAndEqAndNot64 => Some("Cobra.xor_and_eq_and_not_w"),
+            Self::Const3And1_64 => Some("Cobra.const_3_and_1_w"),
+            Self::AddComm64 => Some("Cobra.add_comm_w"),
+            Self::AddAssoc64 => Some("Cobra.add_assoc_w"),
+            Self::MulComm64 => Some("Cobra.mul_comm_w"),
+            Self::MulAssoc64 => Some("Cobra.mul_assoc_w"),
+            Self::MulAdd64 => Some("Cobra.mul_add_w"),
+            Self::AddMul64 => Some("Cobra.add_mul_w"),
             Self::AddZero64 => Some("Cobra.add_zero_w"),
             Self::ZeroAdd64 => Some("Cobra.zero_add_w"),
             Self::MulZero64 => Some("Cobra.mul_zero_w"),
