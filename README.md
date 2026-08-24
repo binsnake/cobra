@@ -25,7 +25,7 @@ crate name:
 
 ```toml
 [dependencies]
-cobra = { package = "cobra-mba", version = "0.1" }
+cobra = { package = "cobra-mba", version = "0.2" }
 ```
 
 The command-line programs live in the same package but sit behind the `cli`
