@@ -338,16 +338,15 @@ fn try_solve(
     let mut full_point: Vec<u64> = vec![0u64; total_num_vars as usize];
     let mut local_point: Vec<u64> = vec![0u64; k as usize];
 
-    // Precompute falling_factorial(coord, degree, mask) indexed by [axis][coord][degree].
-    // axis: 0..k, coord: 0..grid_base, degree: 0..=per_var_cap.
+    // Precompute falling_factorial(coord, degree, mask) indexed by
+    // [coord][degree]. This used to carry a leading `axis` dimension, but
+    // `falling_factorial(coord, deg, mask)` does not depend on the axis -- the
+    // table was k identical copies, built k times and k times as large.
     let deg_dim = usize::from(per_var_cap) + 1;
-    let mut ff_table: Vec<u64> = vec![0u64; (k as usize) * grid_base * deg_dim];
-    for axis in 0..k as usize {
-        for coord in 0..grid_base {
-            for deg in 0..deg_dim {
-                ff_table[(axis * grid_base + coord) * deg_dim + deg] =
-                    falling_factorial(coord as u64, deg as u8, mask);
-            }
+    let mut ff_table: Vec<u64> = vec![0u64; grid_base * deg_dim];
+    for coord in 0..grid_base {
+        for deg in 0..deg_dim {
+            ff_table[coord * deg_dim + deg] = falling_factorial(coord as u64, deg as u8, mask);
         }
     }
 
@@ -366,7 +365,7 @@ fn try_solve(
             for i in 0..k as usize {
                 let coord = local_point[i] as usize;
                 let deg = basis_exps[col][i] as usize;
-                phi = phi.wrapping_mul(ff_table[(i * grid_base + coord) * deg_dim + deg]) & mask;
+                phi = phi.wrapping_mul(ff_table[coord * deg_dim + deg]) & mask;
             }
             mat[row * num_cols + col] = w_val.wrapping_mul(phi) & mask;
         }

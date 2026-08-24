@@ -224,6 +224,16 @@ impl Evaluator {
 
     /// Evaluate with a fresh internal workspace. For repeated calls on the
     /// hot path, prefer [`Evaluator::eval_with`] and pass in a reusable one.
+    ///
+    /// Audit finding P5 proposes hoisting a `Workspace` into each grid and
+    /// probe loop and calling `eval_with` throughout. That was done across
+    /// `weighted_poly_fit`, `template_decomposer` and `aux_var` and measured
+    /// reproducibly **slower**: 4.79-4.83s versus 4.64-4.67s over 61 dataset
+    /// cases, three runs each. The per-call `Workspace::default()` is two
+    /// empty `Vec`s, which costs nothing until they grow, and the growth is
+    /// amortized by the allocator; threading a long-lived workspace only adds
+    /// indirection. Reverted -- if this is revisited, measure before
+    /// committing, because the intuitive direction is the wrong one here.
     #[must_use]
     pub fn eval(&self, vals: &[u64]) -> u64 {
         let mut ws = Workspace::default();

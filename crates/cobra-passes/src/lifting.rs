@@ -91,6 +91,17 @@ pub fn collect_liftable_atoms<'a>(
         && has_var_dep(node)
         && !matches!(node.kind, Kind::Variable(_))
     {
+        // Audit finding P12 proposes folding children's hashes bottom-up here,
+        // since `expr_identity_hash` walks the whole subtree and this descent
+        // calls it at every node -- O(n^2). Not applied, because it is not a
+        // local change: the value produced here becomes `structural_hash` and
+        // is compared against `expr_identity_hash` computed independently in
+        // `join.rs` (see `replace_by_hash`'s `target_hash`) and in
+        // `fingerprint.rs`. A bottom-up fold yields different values, so all
+        // three sites have to move together. A value-preserving memo does not
+        // help either: within one descent each node is hashed exactly once, so
+        // there is nothing to reuse -- the win would only come from sharing a
+        // pointer-keyed memo across the four separate walk sites.
         let hash = expr_identity_hash(node);
         let rendered = render(node, vars, bitwidth);
         out.push(LiftCandidate {
