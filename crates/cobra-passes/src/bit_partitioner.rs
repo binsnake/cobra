@@ -88,6 +88,20 @@ fn eval_atom_at_bit(atom: &Expr, support: &[GlobalVarIdx], bit_pos: u32, bitwidt
 
 /// Group bit positions by their per-atom truth-table profile.
 #[must_use]
+/// `true` if `e` contains a non-zero right shift anywhere.
+///
+/// Per-bit evaluation asserts `bit_{b+k}(x) == bit_b(x)` for a `Variable`: that
+/// arm ignores `bit_pos` and returns the atom's own bit. This is wrong for any
+/// atom mixing bit positions, so a shifted atom gets a bogus bit profile and
+/// gets fused with a partner it does not agree with. Treat those as opaque,
+/// mirroring the shift wall in `atom_simplifier`.
+fn contains_nonzero_shift(e: &Expr) -> bool {
+    if matches!(e.kind, Kind::Shr(k) if k != 0) {
+        return true;
+    }
+    e.children.iter().any(|c| contains_nonzero_shift(c))
+}
+
 pub fn compute_partitions(ir: &SemilinearIR) -> Vec<PartitionClass> {
     if ir.atom_table.is_empty() {
         return Vec::new();
@@ -103,7 +117,7 @@ pub fn compute_partitions(ir: &SemilinearIR) -> Vec<PartitionClass> {
         .iter()
         .enumerate()
         .map(|(a, info)| {
-            if info.key.support.len() > 5 {
+            if info.key.support.len() > 5 || contains_nonzero_shift(&info.original_subtree) {
                 AtomMeta {
                     opaque: true,
                     sentinel: OPAQUE_SENTINEL_BASE | a as u64,

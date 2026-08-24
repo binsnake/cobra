@@ -60,7 +60,7 @@ pub struct ItemMetadata {
 
 // ----- Work item -----
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct WorkItem {
     pub payload: StateData,
     pub features: StateFeatures,
@@ -79,6 +79,29 @@ pub struct WorkItem {
     /// fingerprint-contributing state changes. Not serialized; not part
     /// of equality — `WorkItem` `Clone` copies the cache as-is.
     fingerprint_cache: std::cell::OnceCell<StateFingerprint>,
+}
+
+impl Clone for WorkItem {
+    fn clone(&self) -> Self {
+        Self {
+            payload: self.payload.clone(),
+            features: self.features.clone(),
+            metadata: self.metadata.clone(),
+            depth: self.depth,
+            rewrite_gen: self.rewrite_gen,
+            attempted_mask: self.attempted_mask,
+            signature_recursion_depth: self.signature_recursion_depth,
+            group_id: self.group_id,
+            evaluator_override: self.evaluator_override.clone(),
+            evaluator_override_arity: self.evaluator_override_arity,
+            history: self.history.clone(),
+            // Deliberately NOT copied: a pass-produced child carries a
+            // different payload, so inheriting the parent's memo made it
+            // report the parent's kind/payload_hash/vars_hash and get wrongly
+            // blocked by the dedup cache.
+            fingerprint_cache: std::cell::OnceCell::new(),
+        }
+    }
 }
 
 impl WorkItem {

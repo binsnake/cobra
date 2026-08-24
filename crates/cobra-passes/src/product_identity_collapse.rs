@@ -233,6 +233,15 @@ pub fn run_product_identity_collapse(
             child.rewrite_gen = item.rewrite_gen;
             child.attempted_mask = item.attempted_mask;
             child.group_id = Some(group_id);
+            // No `evaluator_override` here, unlike `operand_simplify`. That
+            // pass has the operand's own `Expr` and can compile a full-width
+            // reference for it; a product-identity factor is defined only by
+            // `sig`, a boolean signature, and has no full-width referent.
+            // Synthesising a closure that indexes `sig` would be correct on
+            // {0,1}^n and meaningless everywhere else, which is worse than
+            // none: `full_width_check_eval` would compare candidates against
+            // garbage off the boolean cube. The joins re-verify against
+            // `join.original_mul` instead.
             child.history.clone_from(&item.history);
             next.push(child);
         };

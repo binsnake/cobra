@@ -218,7 +218,10 @@ fn refine_group(group: &mut [RefineTerm], ir: &mut SemilinearIR, basis: &Expr, m
             buckets.entry(t.coeff).or_default().push(idx);
         }
     }
-    for indices in buckets.values() {
+    let mut bucket_keys: Vec<_> = buckets.keys().copied().collect();
+    bucket_keys.sort_unstable();
+    for key in bucket_keys {
+        let indices = &buckets[&key];
         if indices.len() < 2 {
             continue;
         }
@@ -306,7 +309,12 @@ pub fn refine_terms(ir: &mut SemilinearIR) {
             });
     }
 
-    let hashes: Vec<u64> = basis_groups.keys().copied().collect();
+    // Sorted: `refine_group` mints atoms via `create_atom`, which hands out
+    // `ir.atom_table.len()`, so iteration order decides AtomId assignment.
+    // std-HashMap order is per-process random, which makes the final
+    // `sort_by_key(|t| t.atom_id)` sort on a nondeterministic key.
+    let mut hashes: Vec<u64> = basis_groups.keys().copied().collect();
+    hashes.sort_unstable();
     for hash in hashes {
         let basis = basis_repr.get(&hash).expect("present").clone_tree();
         let mut group = basis_groups.remove(&hash).expect("present");
@@ -321,8 +329,10 @@ pub fn refine_terms(ir: &mut SemilinearIR) {
             new_terms.push(*t);
         }
     }
-    for entries in basis_groups.values() {
-        for e in entries {
+    let mut residual_keys: Vec<u64> = basis_groups.keys().copied().collect();
+    residual_keys.sort_unstable();
+    for key in residual_keys {
+        for e in &basis_groups[&key] {
             if e.consumed || e.coeff == 0 {
                 continue;
             }

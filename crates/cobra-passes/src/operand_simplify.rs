@@ -20,6 +20,7 @@ use crate::core::expr_rewrite::has_nonleaf_bitwise;
 use crate::core::expr_utils::has_var_dep;
 use crate::core::pass_contract::ReasonDetail;
 use crate::core::result::Result;
+use crate::core::Evaluator;
 
 use crate::orchestrator::{
     create_group, create_join, expr_identity_hash, ContinuationData, EliminationResult,
@@ -156,6 +157,13 @@ pub fn run_operand_simplify(item: &WorkItem, ctx: &mut OrchestratorContext) -> R
         child.rewrite_gen = item.rewrite_gen;
         child.attempted_mask = item.attempted_mask;
         child.group_id = Some(group_id);
+        // The child's solve target is this operand's signature, so its
+        // correctness reference must be this operand — not the whole original
+        // function. Without the override, `build_mapped_evaluator` falls
+        // through to `ctx.evaluator` and every signature pass verifies the
+        // child against the wrong thing.
+        child.evaluator_override = Some(Evaluator::from_expr(operand, ctx.bitwidth));
+        child.evaluator_override_arity = num_vars;
         child.history.clone_from(&item.history);
         next.push(child);
     };

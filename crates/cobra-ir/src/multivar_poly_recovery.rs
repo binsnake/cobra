@@ -122,7 +122,19 @@ fn recover_from_grid(
             tmp /= base;
         }
 
+        // Run the divisibility test first. `precision_bits` returns `None`
+        // exactly when `q >= bitwidth`, and for a genuine polynomial of the
+        // requested degree that forces `alpha == 0` — so a non-zero `alpha`
+        // there is a proof the function is not such a polynomial, not a
+        // monomial to skip. Discarding it unexamined swallowed the failure.
         let Some(prec_bits) = precision_bits(q, bitwidth) else {
+            if alpha != 0 {
+                return SolverResult::Blocked(reason(
+                    ReasonCategory::NoSolution,
+                    subcode::DIVISIBILITY_FAIL,
+                    "null-space monomial carries a non-zero coefficient",
+                ));
+            }
             continue;
         };
 
