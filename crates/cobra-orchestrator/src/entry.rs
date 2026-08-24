@@ -33,11 +33,13 @@ pub fn simplify_from_worklist(
     original_expr: Option<&Expr>,
 ) -> Result<SimplifyOutcome> {
     let result = run_main_loop(ctx, &mut worklist, &mut policy, registry, original_expr)?;
+    let require_lean_certificate = ctx.opts.require_lean_certificate;
     Ok(to_simplify_outcome(
         result,
         original_expr,
         ctx.bitwidth,
         &ctx.original_vars,
+        require_lean_certificate,
     ))
 }
 
@@ -49,6 +51,7 @@ pub fn to_simplify_outcome(
     original_expr: Option<&Expr>,
     bitwidth: u32,
     original_vars: &[String],
+    require_lean_certificate: bool,
 ) -> SimplifyOutcome {
     let mut outcome = SimplifyOutcome::default();
     let mut cost_rejected = false;
@@ -173,8 +176,13 @@ pub fn to_simplify_outcome(
                         });
                 let has_matching_lean_evidence =
                     has_matching_lean_certificate || has_matching_signature_certificate;
-                let changed_ast_without_proof = original_expr
-                    .is_some_and(|original| *cleaned_expr != *original)
+                // Only an explicit opt-in discards a correct rewrite for
+                // lacking a certificate. Otherwise a missing proof lowers
+                // `verified` / `proof_level` below and the simplification is
+                // still returned. Correctness is carried by full-width
+                // verification, not by certificate presence.
+                let changed_ast_without_proof = require_lean_certificate
+                    && original_expr.is_some_and(|original| *cleaned_expr != *original)
                     && !has_matching_lean_certificate;
                 if changed_ast_without_proof {
                     outcome.kind = SimplifyOutcomeKind::UnchangedUnsupported;
@@ -329,7 +337,7 @@ mod tests {
             telemetry: OrchestratorTelemetry::default(),
         };
 
-        let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into()]);
+        let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into()], true);
         assert_eq!(outcome.kind, SimplifyOutcomeKind::UnchangedUnsupported);
         assert_eq!(outcome.expr, Some(original));
         assert_eq!(outcome.sig_vector, vec![0, 21]);
@@ -365,7 +373,7 @@ mod tests {
             telemetry: OrchestratorTelemetry::default(),
         };
 
-        let outcome = to_simplify_outcome(result, Some(&expr), 64, &["x".into()]);
+        let outcome = to_simplify_outcome(result, Some(&expr), 64, &["x".into()], true);
         assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
         assert!(outcome.verified);
     }
@@ -396,7 +404,8 @@ mod tests {
         // Use a two-variable input space so `Variable(1)` is a legitimate
         // input var (not a lifted/aux leak) — this test exercises
         // certificate-mismatch handling, not the nested-lift leak guard.
-        let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into(), "y".into()]);
+        let outcome =
+            to_simplify_outcome(result, Some(&original), 64, &["x".into(), "y".into()], true);
         assert_eq!(outcome.kind, SimplifyOutcomeKind::UnchangedUnsupported);
         assert_eq!(outcome.expr, Some(original));
         assert_eq!(outcome.proof_level, ProofLevel::Unverified);
@@ -429,10 +438,40 @@ mod tests {
             telemetry: OrchestratorTelemetry::default(),
         };
 
-        let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into()]);
+        let outcome = to_simplify_outcome(result, Some(&original), 64, &["x".into()], true);
         assert_eq!(outcome.expr, Some(precleaned));
         assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
         assert!(outcome.verified);
+    }
+
+    #[test]
+    fn opting_out_of_the_certificate_gate_returns_the_uncertified_rewrite() {
+        let original = Expr::add(Expr::variable(0), Expr::variable(1));
+        let rewritten = Expr::mul(Expr::variable(0), Expr::variable(1));
+        let result = LoopResult {
+            outcome: PassOutcome::success(
+                rewritten.clone_tree(),
+                vec!["x".into(), "y".into()],
+                VerificationState::Verified,
+            ),
+            metadata: ItemMetadata::default(),
+            run_metadata: RunMetadata::default(),
+            telemetry: OrchestratorTelemetry::default(),
+        };
+        let vars = ["x".to_string(), "y".to_string()];
+
+        // Default (strict): no certificate, so the rewrite is discarded.
+        let strict = to_simplify_outcome(result.clone(), Some(&original), 64, &vars, true);
+        assert_eq!(strict.kind, SimplifyOutcomeKind::UnchangedUnsupported);
+        assert_eq!(strict.expr, Some(original.clone_tree()));
+
+        // Opted out: the rewrite is returned, and the absent proof shows up as
+        // a lowered proof level rather than as a discarded result.
+        let relaxed = to_simplify_outcome(result, Some(&original), 64, &vars, false);
+        assert_eq!(relaxed.kind, SimplifyOutcomeKind::Simplified);
+        assert_eq!(relaxed.expr, Some(rewritten));
+        assert!(!relaxed.verified);
+        assert_ne!(relaxed.proof_level, ProofLevel::LeanCertified);
     }
 
     #[test]
@@ -460,7 +499,7 @@ mod tests {
             telemetry: OrchestratorTelemetry::default(),
         };
 
-        let outcome = to_simplify_outcome(result, Some(&expr), 64, &["x".into()]);
+        let outcome = to_simplify_outcome(result, Some(&expr), 64, &["x".into()], true);
         assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
         assert!(!outcome.verified);
     }
@@ -490,7 +529,7 @@ mod tests {
             telemetry: OrchestratorTelemetry::default(),
         };
 
-        let outcome = to_simplify_outcome(result, None, 64, &["x".into()]);
+        let outcome = to_simplify_outcome(result, None, 64, &["x".into()], true);
         assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
         assert!(outcome.verified);
     }

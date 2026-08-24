@@ -120,11 +120,13 @@ pub fn simplify(
         }
     }
 
+    let require_lean_certificate = ctx.opts.require_lean_certificate;
     Ok(to_simplify_outcome(
         loop_result,
         input_expr,
         ctx.bitwidth,
         &ctx.original_vars,
+        require_lean_certificate,
     ))
 }
 

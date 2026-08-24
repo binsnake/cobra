@@ -18,6 +18,20 @@ pub struct Options {
     pub enable_bitwise_decomposition: bool,
     pub structural_flags: StructuralFlag,
     pub evaluator: Evaluator,
+    /// Discard any simplification that lacks a replayable Lean certificate
+    /// for the exact public output.
+    ///
+    /// **On by default, and it is the soundness gate.** Full-width checking is
+    /// finite probing, and finite probing is incomplete: a candidate can differ
+    /// from the original at exactly one point that no probe reaches. Two traps
+    /// in this repo's own tests do precisely that — one at a product of two
+    /// literals, one at `3 * 3 * 3` — and both pass the probe schedule.
+    ///
+    /// Turning this off accepts probe-only assurance. It raises the
+    /// simplification rate dramatically (measured 2/600 to 600/600 on the
+    /// bundled datasets) and is reasonable when inputs are not adversarial,
+    /// but it can return an expression that is wrong at an unprobed point.
+    pub require_lean_certificate: bool,
 }
 
 impl Default for Options {
@@ -29,6 +43,7 @@ impl Default for Options {
             enable_bitwise_decomposition: true,
             structural_flags: StructuralFlag::NONE,
             evaluator: Evaluator::default(),
+            require_lean_certificate: true,
         }
     }
 }

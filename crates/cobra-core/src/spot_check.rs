@@ -387,17 +387,43 @@ fn derive_probes(mut raw: Vec<u64>, mut shifts: Vec<u64>, bitwidth: u32) -> Vec<
                 derived.push((raw[i] ^ raw[j]) & mask);
                 derived.push(raw[i].wrapping_add(raw[j]) & mask);
                 derived.push(raw[i].wrapping_sub(raw[j]) & mask);
+                // Products close a real evasion: a trap constant is often
+                // written as a product of two literals, which compiles to two
+                // separate `Constant` instructions. Without this, no derived
+                // probe ever lands on the value the trap actually fires at.
+                derived.push(raw[i].wrapping_mul(raw[j]) & mask);
             }
+            derived.push(raw[i].wrapping_mul(raw[i]) & mask);
         }
     }
 
     derived.sort_unstable();
     derived.dedup();
     derived.retain(|value| *value != 0 && *value != 1);
-    if derived.len() > 128 {
-        derived.truncate(128);
-    }
+    clamp_probe_budget(&mut derived);
     derived
+}
+
+/// Number of derived probe points evaluated per check.
+const MAX_DERIVED_PROBES: usize = 128;
+
+/// Reduce the probe set to [`MAX_DERIVED_PROBES`] while keeping both ends of
+/// the range.
+///
+/// The set is sorted ascending, so a plain `truncate` keeps only the
+/// numerically smallest values and deterministically deletes every
+/// high-magnitude probe — at bitwidth 64 that is every `!c` for `c < 2^63`,
+/// plus any large literal. Splitting the budget between the low and high ends
+/// keeps complements and large constants reachable.
+fn clamp_probe_budget(derived: &mut Vec<u64>) {
+    if derived.len() <= MAX_DERIVED_PROBES {
+        return;
+    }
+    let high = MAX_DERIVED_PROBES / 2;
+    let low = MAX_DERIVED_PROBES - high;
+    let tail: Vec<u64> = derived[derived.len() - high..].to_vec();
+    derived.truncate(low);
+    derived.extend_from_slice(&tail);
 }
 
 fn collect_constants_and_shifts(
@@ -679,6 +705,40 @@ mod tests {
         let r = full_width_check_eval(&eval, 1, &candidate, 64, 256);
         assert!(!r.passed, "trap-constant candidate must be rejected");
         assert_eq!(r.failing_input, vec![0x1234]);
+    }
+
+    #[test]
+    fn product_derived_probe_catches_trap_constant() {
+        // The trap fires only at x == 0x12345 * 0x10001. Both factors appear
+        // as separate `Constant` instructions in the compiled program, so a
+        // probe set without products never lands on the differing point.
+        let target = Expr::mul(Expr::constant(0x1_2345), Expr::constant(0x1_0001));
+        let delta = Expr::xor(Expr::variable(0), target);
+        let nonzero = Expr::or(delta.clone_tree(), Expr::neg(delta));
+        let original = Expr::shr(Expr::not(nonzero), 63);
+        let eval = Evaluator::from_expr(&original, 64);
+
+        // `original` is 1 exactly at the trap point and 0 everywhere else, so
+        // the constant-0 candidate differs there and nowhere else.
+        let r = full_width_check_eval(&eval, 1, &Expr::constant(0), 64, 256);
+        assert!(!r.passed, "trap point must be probed");
+        assert_eq!(r.failing_input, vec![0x1_2345u64.wrapping_mul(0x1_0001)]);
+    }
+
+    #[test]
+    fn probe_budget_keeps_both_ends_of_the_range() {
+        let mut probes: Vec<u64> = (0..400u64).map(|i| i * 3).collect();
+        let lowest = probes[0];
+        let highest = *probes.last().expect("non-empty");
+        clamp_probe_budget(&mut probes);
+
+        assert_eq!(probes.len(), MAX_DERIVED_PROBES);
+        assert_eq!(probes[0], lowest, "low end must survive");
+        assert_eq!(
+            *probes.last().expect("non-empty"),
+            highest,
+            "high end must survive truncation"
+        );
     }
 
     #[test]
