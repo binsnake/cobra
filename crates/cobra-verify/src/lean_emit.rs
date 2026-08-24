@@ -227,6 +227,55 @@ fn emit_mctx_frame(inner: String, frame: &ContextFrame) -> String {
     }
 }
 
+/// Proof body for one mixed-chain step, after the width side condition.
+///
+/// Cast rewrites cite their named `MExpr` theorem directly, width hypotheses
+/// discharged by `decide`. Uniform rewrites on cast-free redexes cite the
+/// named uniform theorem lifted through the carry bridge
+/// (`Cobra.semEqW_of_semEq` over `evalW_ofExpr`), so the named-proof
+/// architecture holds in the mixed world too. The `evalW`-unfolding decision
+/// procedure remains only as the fallback for steps with no direct-argument
+/// template.
+fn emit_mixed_step_body(bitwidth: u32, step: &CertStep) -> String {
+    use LeanTheorem as Thm;
+
+    // Named MExpr cast theorems: hypothesis count is fixed per theorem.
+    let cast_hypotheses = match step.theorem {
+        Thm::ZextIdentityW
+        | Thm::TruncIdentityW
+        | Thm::SextIdentityW
+        | Thm::ZextZextW
+        | Thm::TruncTruncW => Some(1),
+        Thm::TruncZextW => Some(2),
+        _ => None,
+    };
+    if let Some(count) = cast_hypotheses {
+        let hyps = " (by decide)".repeat(count);
+        return format!("    \u{b7} exact {}{hyps}\n", step.theorem.lean_name());
+    }
+
+    // Uniform theorem on a cast-free redex: lift the named instance through
+    // the bridge.
+    if let Some(args) = theorem_eval_args(bitwidth, step.theorem, &step.before) {
+        return format!(
+            "    \u{b7} exact Cobra.semEqW_of_semEq (by decide)\n                     (show Cobra.Expr.SemEq {bitwidth} ({}) ({}) by\n                       intro env\n                       simpa [Cobra.Expr.eval, Cobra.allOnes, BitVec.sub_eq_add_neg] using {}{})\n",
+            emit_expr(&step.before),
+            emit_expr(&step.after),
+            theorem_name_at(step.theorem, bitwidth),
+            args,
+        );
+    }
+
+    // Fallback: unfold the mixed evaluator at concrete widths and decide.
+    concat!(
+        "    \u{b7} intro env\n",
+        "      simp [Cobra.MExpr.evalW, Cobra.MExpr.widthOf, Cobra.maskBV, ",
+        "Cobra.sextBV, Cobra.signBitBV]\n",
+        "      try bv_decide\n"
+    )
+    .to_string()
+}
+
 /// Emit a mixed-width (`MExpr`-world) step-chain certificate.
 ///
 /// Each step is plugged through `MCtx.plug_preserves_sem_eq_w`. The
@@ -270,11 +319,7 @@ pub fn emit_mixed_step_chain_certificate(name: &str, cert: &LeanCertificate) -> 
         ));
         out.push_str("    apply Cobra.MCtx.plug_preserves_sem_eq_w\n");
         out.push_str("    \u{b7} decide\n");
-        out.push_str("    \u{b7} intro env\n");
-        out.push_str(
-            "      simp [Cobra.MExpr.evalW, Cobra.MExpr.widthOf, Cobra.maskBV, Cobra.sextBV, Cobra.signBitBV]\n",
-        );
-        out.push_str("      try bv_decide\n");
+        out.push_str(&emit_mixed_step_body(cert.bitwidth, step));
     }
     out.push_str("  exact ");
     out.push_str(&sem_eq_w_chain_expr(cert.steps.len()));

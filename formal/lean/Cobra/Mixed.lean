@@ -1,4 +1,5 @@
 import Cobra.Core
+import Cobra.Cert
 
 /-! # Mixed-width expression semantics
 
@@ -361,5 +362,214 @@ theorem sound {dw : Nat} {lhs rhs : MExpr} :
   | step h _ ih => exact MExpr.SemEqW.trans h ih
 
 end ChainW
+
+/-! ## Bridge: the uniform world embeds into the mixed world
+
+`ofExpr` maps a uniform expression into `MExpr`; its image is cast-free by
+construction. `evalW_ofExpr` is the carry bridge: evaluating the image in the
+64-bit masked carrier equals zero-extending the native `BitVec dw` evaluation.
+The arithmetic cases are where the carry reasoning lives — an addition
+computed in the wide carrier and masked afterwards agrees with the addition
+computed natively at width `dw` because `2 ^ dw ∣ 2 ^ 64` collapses the double
+reduction, and negation needs `(2 ^ 64 - a) ≡ (2 ^ dw - a) [MOD 2 ^ dw]`.
+`semEqW_of_semEq` then lifts every theorem of the uniform pack into the mixed
+world, which is what lets a mixed-chain step on a cast-free redex cite the
+named theorem instead of a decision procedure. -/
+
+def ofExpr : Expr -> MExpr
+  | .const value => .const value
+  | .var idx => .var idx
+  | .add lhs rhs => .add (ofExpr lhs) (ofExpr rhs)
+  | .mul lhs rhs => .mul (ofExpr lhs) (ofExpr rhs)
+  | .band lhs rhs => .band (ofExpr lhs) (ofExpr rhs)
+  | .bor lhs rhs => .bor (ofExpr lhs) (ofExpr rhs)
+  | .bxor lhs rhs => .bxor (ofExpr lhs) (ofExpr rhs)
+  | .bnot arg => .bnot (ofExpr arg)
+  | .neg arg => .neg (ofExpr arg)
+  | .shr arg amount => .shr (ofExpr arg) amount
+
+theorem widthOf_ofExpr (dw : Nat) (e : Expr) : (ofExpr e).widthOf dw = dw := by
+  induction e <;> simp [ofExpr, MExpr.widthOf, *]
+
+theorem maskBV_toNat {dw : Nat} (h : dw ≤ 64) : (maskBV dw).toNat = 2 ^ dw - 1 := by
+  have hpow : (2 : Nat) ^ dw ≤ 2 ^ 64 := Nat.pow_le_pow_right (by omega) h
+  simp only [maskBV, Nat.min_eq_left h, BitVec.toNat_ofNat]
+  omega
+
+theorem toNat_and_maskBV {dw : Nat} (h : dw ≤ 64) (x : BitVec 64) :
+    (x &&& maskBV dw).toNat = x.toNat % 2 ^ dw := by
+  rw [BitVec.toNat_and, maskBV_toNat h, Nat.and_two_pow_sub_one_eq_mod]
+
+/-- Masking at `dw` in the carrier is exactly truncate-then-widen. -/
+theorem and_maskBV_eq_setWidth {dw : Nat} (h : dw ≤ 64) (x : BitVec 64) :
+    x &&& maskBV dw = BitVec.setWidth 64 (BitVec.setWidth dw x) := by
+  have hpow : (2 : Nat) ^ dw ≤ 2 ^ 64 := Nat.pow_le_pow_right (by omega) h
+  have hlt : x.toNat % 2 ^ dw < 2 ^ dw := Nat.mod_lt _ (Nat.two_pow_pos dw)
+  apply BitVec.eq_of_toNat_eq
+  rw [toNat_and_maskBV h, BitVec.toNat_setWidth, BitVec.toNat_setWidth]
+  exact (Nat.mod_eq_of_lt (by omega)).symm
+
+/-- Truncating a widened value back to its own width is the identity. -/
+theorem setWidth_setWidth_self {dw : Nat} (h : dw ≤ 64) (a : BitVec dw) :
+    BitVec.setWidth dw (BitVec.setWidth 64 a) = a := by
+  rw [BitVec.setWidth_setWidth (by omega), BitVec.setWidth_eq]
+
+theorem add_transport {dw : Nat} (h : dw ≤ 64) (a b : BitVec dw) :
+    (BitVec.setWidth 64 a + BitVec.setWidth 64 b) &&& maskBV dw =
+      BitVec.setWidth 64 (a + b) := by
+  rw [and_maskBV_eq_setWidth h, BitVec.setWidth_add _ _ h, setWidth_setWidth_self h,
+    setWidth_setWidth_self h]
+
+theorem mul_transport {dw : Nat} (h : dw ≤ 64) (a b : BitVec dw) :
+    (BitVec.setWidth 64 a * BitVec.setWidth 64 b) &&& maskBV dw =
+      BitVec.setWidth 64 (a * b) := by
+  rw [and_maskBV_eq_setWidth h, BitVec.setWidth_mul _ _ h, setWidth_setWidth_self h,
+    setWidth_setWidth_self h]
+
+/-- The negation carry lemma: subtracting from either modulus agrees below the
+smaller one. -/
+theorem sub_pow_mod {d bigD a : Nat} (hdvd : d ∣ bigD) (hd : 0 < d) (hD : d ≤ bigD)
+    (ha : a < d) : (bigD - a) % d = (d - a) % d := by
+  obtain ⟨k, hk⟩ := hdvd
+  subst hk
+  have hk1 : 1 ≤ k := by
+    rcases Nat.eq_zero_or_pos k with rfl | hpos
+    · simp at hD
+      omega
+    · exact hpos
+  rcases Nat.eq_zero_or_pos a with rfl | hapos
+  · simp [Nat.mul_mod_right, Nat.mod_self]
+  · have hdk : d ≤ d * k := Nat.le_mul_of_pos_right d hk1
+    have hmul : d * (k - 1) = d * k - d := by
+      rw [Nat.mul_sub, Nat.mul_one]
+    have hsplit : d * k - a = d * (k - 1) + (d - a) := by omega
+    rw [hsplit, Nat.mul_add_mod]
+
+theorem neg_transport {dw : Nat} (h : dw ≤ 64) (a : BitVec dw) :
+    (-BitVec.setWidth 64 a) &&& maskBV dw = BitVec.setWidth 64 (-a) := by
+  have hpow : (2 : Nat) ^ dw ≤ 2 ^ 64 := Nat.pow_le_pow_right (by omega) h
+  have hdvd : (2 : Nat) ^ dw ∣ 2 ^ 64 := Nat.pow_dvd_pow 2 h
+  have ha : a.toNat < 2 ^ dw := a.isLt
+  have hd : (0 : Nat) < 2 ^ dw := Nat.two_pow_pos dw
+  apply BitVec.eq_of_toNat_eq
+  have hL : ((-BitVec.setWidth 64 a) &&& maskBV dw).toNat =
+      (2 ^ dw - a.toNat) % 2 ^ dw := by
+    rw [toNat_and_maskBV h, BitVec.toNat_neg, BitVec.toNat_setWidth,
+      Nat.mod_eq_of_lt (show a.toNat < 2 ^ 64 by omega), Nat.mod_mod_of_dvd _ hdvd,
+      sub_pow_mod hdvd hd hpow ha]
+  have hR : (BitVec.setWidth 64 (-a)).toNat = (2 ^ dw - a.toNat) % 2 ^ dw := by
+    have hmlt : (2 ^ dw - a.toNat) % 2 ^ dw < 2 ^ dw := Nat.mod_lt _ hd
+    rw [BitVec.toNat_setWidth, BitVec.toNat_neg, Nat.mod_eq_of_lt (by omega)]
+  rw [hL, hR]
+
+theorem and_transport {dw : Nat} (a b : BitVec dw) :
+    (BitVec.setWidth 64 a &&& BitVec.setWidth 64 b) &&& maskBV dw =
+      BitVec.setWidth 64 (a &&& b) := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [BitVec.getLsbD_and, getLsbD_maskBV, BitVec.getLsbD_setWidth]
+  by_cases hdw : i < dw
+  · simp [hdw, hi]
+  · have hfa : a.getLsbD i = false := BitVec.getLsbD_of_ge a i (Nat.le_of_not_lt hdw)
+    have hfb : b.getLsbD i = false := BitVec.getLsbD_of_ge b i (Nat.le_of_not_lt hdw)
+    simp [hdw, hfa, hfb]
+
+theorem or_transport {dw : Nat} (a b : BitVec dw) :
+    (BitVec.setWidth 64 a ||| BitVec.setWidth 64 b) &&& maskBV dw =
+      BitVec.setWidth 64 (a ||| b) := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [BitVec.getLsbD_and, BitVec.getLsbD_or, getLsbD_maskBV, BitVec.getLsbD_setWidth]
+  by_cases hdw : i < dw
+  · simp [hdw, hi]
+  · have hfa : a.getLsbD i = false := BitVec.getLsbD_of_ge a i (Nat.le_of_not_lt hdw)
+    have hfb : b.getLsbD i = false := BitVec.getLsbD_of_ge b i (Nat.le_of_not_lt hdw)
+    simp [hdw, hfa, hfb]
+
+theorem xor_transport {dw : Nat} (a b : BitVec dw) :
+    (BitVec.setWidth 64 a ^^^ BitVec.setWidth 64 b) &&& maskBV dw =
+      BitVec.setWidth 64 (a ^^^ b) := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [BitVec.getLsbD_and, BitVec.getLsbD_xor, getLsbD_maskBV, BitVec.getLsbD_setWidth]
+  by_cases hdw : i < dw
+  · simp [hdw, hi]
+  · have hfa : a.getLsbD i = false := BitVec.getLsbD_of_ge a i (Nat.le_of_not_lt hdw)
+    have hfb : b.getLsbD i = false := BitVec.getLsbD_of_ge b i (Nat.le_of_not_lt hdw)
+    simp [hdw, hfa, hfb]
+
+theorem not_transport {dw : Nat} (a : BitVec dw) :
+    (~~~BitVec.setWidth 64 a) &&& maskBV dw = BitVec.setWidth 64 (~~~a) := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [BitVec.getLsbD_and, BitVec.getLsbD_not, getLsbD_maskBV, BitVec.getLsbD_setWidth]
+  by_cases hdw : i < dw
+  · simp [hdw, hi]
+  · simp [hdw, hi]
+
+theorem shr_transport {dw : Nat} (h : dw ≤ 64) (a : BitVec dw) (k : Nat) :
+    (BitVec.setWidth 64 a >>> k) &&& maskBV dw = BitVec.setWidth 64 (a >>> k) := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [BitVec.getLsbD_and, BitVec.getLsbD_ushiftRight, getLsbD_maskBV,
+    BitVec.getLsbD_setWidth]
+  by_cases hdw : i < dw
+  · by_cases hk : k + i < 64
+    · simp [hdw, hi, hk]
+    · have hfalse : a.getLsbD (k + i) = false :=
+        BitVec.getLsbD_of_ge a (k + i) (by omega)
+      simp [hdw, hi, hk, hfalse]
+  · have hfalse : a.getLsbD (k + i) = false :=
+      BitVec.getLsbD_of_ge a (k + i) (by omega)
+    simp [hdw, hfalse]
+
+/-- Truncate a 64-bit environment to width `dw`. -/
+def envTrunc (dw : Nat) (env : Nat -> BitVec 64) : Nat -> BitVec dw :=
+  fun idx => BitVec.setWidth dw (env idx)
+
+/-- The carry bridge: evaluating a uniform expression's image in the 64-bit
+masked carrier is the zero-extension of its native `BitVec dw` evaluation. -/
+theorem evalW_ofExpr {dw : Nat} (h : dw ≤ 64) (env : Nat -> BitVec 64) (e : Expr) :
+    MExpr.evalW dw env (ofExpr e) =
+      BitVec.setWidth 64 (Expr.eval dw (envTrunc dw env) e) := by
+  induction e with
+  | const value =>
+      have hpow : (2 : Nat) ^ dw ≤ 2 ^ 64 := Nat.pow_le_pow_right (by omega) h
+      have hdvd : (2 : Nat) ^ dw ∣ 2 ^ 64 := Nat.pow_dvd_pow 2 h
+      have hlt : value % 2 ^ dw < 2 ^ dw := Nat.mod_lt _ (Nat.two_pow_pos dw)
+      simp only [ofExpr, MExpr.evalW, Expr.eval]
+      apply BitVec.eq_of_toNat_eq
+      have hL : (BitVec.ofNat 64 value &&& maskBV dw).toNat = value % 2 ^ dw := by
+        rw [toNat_and_maskBV h, BitVec.toNat_ofNat, Nat.mod_mod_of_dvd _ hdvd]
+      have hR : (BitVec.setWidth 64 (BitVec.ofNat dw value)).toNat = value % 2 ^ dw := by
+        rw [BitVec.toNat_setWidth, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+      rw [hL, hR]
+  | var idx =>
+      simpa [ofExpr, MExpr.evalW, Expr.eval, envTrunc] using
+        and_maskBV_eq_setWidth h (env idx)
+  | add lhs rhs ihl ihr =>
+      simp [ofExpr, MExpr.evalW, Expr.eval, widthOf_ofExpr, ihl, ihr, add_transport h]
+  | mul lhs rhs ihl ihr =>
+      simp [ofExpr, MExpr.evalW, Expr.eval, widthOf_ofExpr, ihl, ihr, mul_transport h]
+  | band lhs rhs ihl ihr =>
+      simp [ofExpr, MExpr.evalW, Expr.eval, widthOf_ofExpr, ihl, ihr, and_transport]
+  | bor lhs rhs ihl ihr =>
+      simp [ofExpr, MExpr.evalW, Expr.eval, widthOf_ofExpr, ihl, ihr, or_transport]
+  | bxor lhs rhs ihl ihr =>
+      simp [ofExpr, MExpr.evalW, Expr.eval, widthOf_ofExpr, ihl, ihr, xor_transport]
+  | bnot arg ih =>
+      simp [ofExpr, MExpr.evalW, Expr.eval, widthOf_ofExpr, ih, not_transport]
+  | neg arg ih =>
+      simp [ofExpr, MExpr.evalW, Expr.eval, widthOf_ofExpr, ih, neg_transport h]
+  | shr arg amount ih =>
+      simp [ofExpr, MExpr.evalW, Expr.eval, widthOf_ofExpr, ih, shr_transport h]
+
+/-- Lift a uniform-pack equivalence into the mixed world. This is what lets a
+mixed-chain step on a cast-free redex cite the named uniform theorem. -/
+theorem semEqW_of_semEq {dw : Nat} (h : dw ≤ 64) {a b : Expr}
+    (hab : Expr.SemEq dw a b) :
+    MExpr.SemEqW dw (ofExpr a) (ofExpr b) := by
+  intro env
+  rw [evalW_ofExpr h, evalW_ofExpr h, hab (envTrunc dw env)]
 
 end Cobra

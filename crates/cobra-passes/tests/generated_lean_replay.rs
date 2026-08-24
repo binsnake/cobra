@@ -428,6 +428,25 @@ fn mixed_width_certificates_replay_in_lean() {
             source.contains("Cobra.MExpr.SemEqW"),
             "{name}: mixed certificates must be stated in the MExpr world"
         );
+        // Every step here is either a named cast theorem or a named uniform
+        // theorem lifted through the carry bridge -- the decision-procedure
+        // fallback must not be needed.
+        assert!(
+            !source.contains("bv_decide"),
+            "{name}: mixed steps must cite named theorems, not bv_decide"
+        );
+        let cited = if LeanTheorem::RECOGNIZED_MIXED_REWRITE.contains(&theorem) || bitwidth == 64 {
+            theorem.lean_name().to_string()
+        } else {
+            theorem
+                .width_parametric_lean_name()
+                .expect("off-64 uniform steps cite the width-generic pack")
+                .to_string()
+        };
+        assert!(
+            source.contains(&cited),
+            "{name}: the named theorem {cited} must be cited in the proof body"
+        );
         replay_lean(name, &source);
     }
 }

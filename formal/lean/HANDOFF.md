@@ -74,12 +74,19 @@ mixed claims as `SemEqW` with per-step `plug_preserves_sem_eq_w`, discharging
 the width side condition by `decide` and the local rewrite by unfolding
 `evalW` at concrete widths into `bv_decide`.
 
-Known limitation: mixed chain steps are replayed by decision procedure rather
-than by citing the named theorem term directly (the named theorem is still
-recorded per step and re-checked structurally in-process). Lifting the
-width-generic uniform pack into the `evalW` world via a proved
-uniform-embedding bridge would restore the named-proof architecture for
-cast-free redexes; that bridge does not exist yet.
+The carry bridge (`ofExpr`, `evalW_ofExpr`, `semEqW_of_semEq`) closes the
+earlier decision-procedure limitation. `evalW_ofExpr` proves by structural
+induction that evaluating a uniform expression's image in the 64-bit masked
+carrier equals zero-extending its native `BitVec dw` evaluation — the
+arithmetic cases carry the real content: add/mul via the `setWidth`
+homomorphisms plus `2 ^ dw ∣ 2 ^ 64` collapsing the double reduction, and
+negation via `sub_pow_mod` (`(2^64 - a) ≡ (2^dw - a) [MOD 2^dw]`). With
+`semEqW_of_semEq`, a mixed-chain step on a cast-free redex cites the named
+uniform theorem lifted through the bridge, and cast steps cite the named
+`MExpr` theorems with `decide`-discharged width hypotheses. Generated mixed
+certificates contain no `bv_decide`; the decision-procedure body remains only
+as an emitter fallback for steps with no direct-argument template, and the
+replay tests assert it is not exercised.
 
 ## Current Known Gap
 
