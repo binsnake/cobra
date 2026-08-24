@@ -6,7 +6,7 @@
 use crate::core::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr, sext, trunc, zext};
 use crate::core::expr::{Expr, Kind};
 use crate::core::result::{err, CobraError, Result};
-use crate::core::width::{validate_widths, width_of};
+use crate::core::width::validate_widths;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -55,32 +55,38 @@ pub struct CompiledExpr {
 /// Compile an `Expr` tree into flat bytecode.
 ///
 /// exactly so the emitted instruction sequence is identical.
-/// Map a node to its emit-time `(opcode, operand)`. Casts/`Concat` pack their
-/// per-node widths into `operand`; everything else matches the C++ encoding.
-fn emit_op(node: &Expr, bitwidth: u32) -> (Opcode, u64) {
+/// Map a node to its emit-time `(opcode, operand)`, plus the node's own result
+/// width for the caller's width stack.
+///
+/// `child_widths` holds the already-emitted children's widths, left to right.
+/// This used to call `width_of(node, ..)` per node, and `width_of` recurses
+/// down the leftmost spine, making `compile` O(nodes x spine) instead of
+/// O(nodes). Children are always emitted before their parent, so their widths
+/// are known by the time the parent is emitted.
+fn emit_op(node: &Expr, bitwidth: u32, child_widths: &[u32]) -> (Opcode, u64, u32) {
+    let first = child_widths.first().copied().unwrap_or(bitwidth);
     match &node.kind {
-        Kind::Constant(v) => (Opcode::Constant, *v),
-        Kind::Variable(i) => (Opcode::Variable, u64::from(*i)),
-        Kind::Shr(k) => (Opcode::Shr, pack_widths(*k, width_of(node, &[], bitwidth))),
-        Kind::Not => (Opcode::Not, u64::from(width_of(node, &[], bitwidth))),
-        Kind::Neg => (Opcode::Neg, u64::from(width_of(node, &[], bitwidth))),
-        Kind::Add => (Opcode::Add, u64::from(width_of(node, &[], bitwidth))),
-        Kind::Mul => (Opcode::Mul, u64::from(width_of(node, &[], bitwidth))),
-        Kind::And => (Opcode::And, u64::from(width_of(node, &[], bitwidth))),
-        Kind::Or => (Opcode::Or, u64::from(width_of(node, &[], bitwidth))),
-        Kind::Xor => (Opcode::Xor, u64::from(width_of(node, &[], bitwidth))),
-        Kind::ZExt(w) => (Opcode::ZExt, u64::from(*w)),
-        Kind::Trunc(w) => (Opcode::Trunc, u64::from(*w)),
+        Kind::Constant(v) => (Opcode::Constant, *v, bitwidth),
+        Kind::Variable(i) => (Opcode::Variable, u64::from(*i), bitwidth),
+        Kind::Shr(k) => (Opcode::Shr, pack_widths(*k, first), first),
+        Kind::Not => (Opcode::Not, u64::from(first), first),
+        Kind::Neg => (Opcode::Neg, u64::from(first), first),
+        Kind::Add => (Opcode::Add, u64::from(first), first),
+        Kind::Mul => (Opcode::Mul, u64::from(first), first),
+        Kind::And => (Opcode::And, u64::from(first), first),
+        Kind::Or => (Opcode::Or, u64::from(first), first),
+        Kind::Xor => (Opcode::Xor, u64::from(first), first),
+        Kind::ZExt(w) => (Opcode::ZExt, u64::from(*w), *w),
+        Kind::Trunc(w) => (Opcode::Trunc, u64::from(*w), *w),
         Kind::SExt(w) => {
             // Pack the child's source width (low 32) and target (high 32).
-            let from = width_of(&node.children[0], &[], bitwidth);
-            (Opcode::SExt, pack_widths(from, *w))
+            (Opcode::SExt, pack_widths(first, *w), *w)
         }
         Kind::Concat => {
             // Pack the low child's width (low 32) and the output (high 32).
-            let low_w = width_of(&node.children[1], &[], bitwidth);
-            let out_w = width_of(node, &[], bitwidth);
-            (Opcode::Concat, pack_widths(low_w, out_w))
+            let low_w = child_widths.get(1).copied().unwrap_or(bitwidth);
+            let out_w = first.saturating_add(low_w);
+            (Opcode::Concat, pack_widths(low_w, out_w), out_w)
         }
     }
 }
@@ -143,6 +149,7 @@ pub fn compile(expr: &Expr, bitwidth: u32) -> CompiledExpr {
         program: Vec::with_capacity(64),
     };
 
+    let mut width_stack: Vec<u32> = Vec::with_capacity(64);
     let mut frames: Vec<Frame<'_>> = Vec::with_capacity(64);
     frames.push(Frame {
         node: expr,
@@ -153,14 +160,23 @@ pub fn compile(expr: &Expr, bitwidth: u32) -> CompiledExpr {
         let node = frame.node;
 
         if frame.emit {
-            // Re-enter: we've already walked the children. Emit the op.
-            let (op, operand) = emit_op(node, bitwidth);
+            // Re-enter: we've already walked the children. Emit the op, taking
+            // the children's widths off the stack rather than re-deriving them.
+            let arity = node.children.len();
+            let split = width_stack.len().saturating_sub(arity);
+            let (op, operand, node_width) = {
+                let child_widths = &width_stack[split..];
+                emit_op(node, bitwidth, child_widths)
+            };
+            width_stack.truncate(split);
+            width_stack.push(node_width);
             compiled.program.push(EvalInstr { op, operand });
             continue;
         }
 
         match &node.kind {
             Kind::Constant(v) => {
+                width_stack.push(bitwidth);
                 compiled.program.push(EvalInstr {
                     op: Opcode::Constant,
                     operand: *v & mask,
@@ -168,6 +184,7 @@ pub fn compile(expr: &Expr, bitwidth: u32) -> CompiledExpr {
             }
             Kind::Variable(i) => {
                 compiled.arity = compiled.arity.max(*i + 1);
+                width_stack.push(bitwidth);
                 compiled.program.push(EvalInstr {
                     op: Opcode::Variable,
                     operand: u64::from(*i),

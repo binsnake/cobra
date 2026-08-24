@@ -933,21 +933,34 @@ pub fn try_simplify_pattern_subtree(expr: &Expr, bitwidth: u32) -> Option<Arc<Ex
         return None;
     }
 
-    let mut dense_expr = expr.clone_tree();
-    if let Some(&max_idx) = support.last() {
-        let mut dense_map = vec![0u32; (max_idx as usize) + 1];
-        for (i, &v) in support.iter().enumerate() {
-            dense_map[v as usize] = i as u32;
+    // The support is already dense when it is exactly 0..num_vars, which is
+    // the common case; remapping is then the identity and the deep copy is
+    // pure waste. `clone_tree` here ran on every probed subtree, and
+    // `simplify_pattern_subtrees` calls this at every node post-order.
+    let already_dense = support.iter().enumerate().all(|(i, &v)| v as usize == i);
+    let remapped_owned: Option<Arc<Expr>> = if already_dense {
+        None
+    } else {
+        let mut remapped = expr.clone_tree();
+        if let Some(&max_idx) = support.last() {
+            let mut dense_map = vec![0u32; (max_idx as usize) + 1];
+            for (i, &v) in support.iter().enumerate() {
+                dense_map[v as usize] = i as u32;
+            }
+            remap_var_indices(Arc::make_mut(&mut remapped), &dense_map);
         }
-        remap_var_indices(Arc::make_mut(&mut dense_expr), &dense_map);
-    }
+        Some(remapped)
+    };
+    // Borrow the input when no remap was needed; only the remapping arm owns.
+    let dense_expr: &Expr = remapped_owned.as_deref().unwrap_or(expr);
 
-    let sig = evaluate_boolean_signature(&dense_expr, num_vars, bitwidth);
+    let sig = evaluate_boolean_signature(dense_expr, num_vars, bitwidth);
+    // One evaluator for both phases: it was built twice on the same tree.
+    let eval = Evaluator::from_expr(dense_expr, bitwidth);
 
     // Phase 1: direct pattern-table match.
     if let Some(mut candidate) = match_pattern(&sig, num_vars, bitwidth) {
         if is_better(&compute_cost(&candidate).cost, &baseline_cost) {
-            let eval = Evaluator::from_expr(&dense_expr, bitwidth);
             let check =
                 full_width_check_eval(&eval, num_vars, &candidate, bitwidth, DEFAULT_NUM_SAMPLES);
             if check.passed {
@@ -961,7 +974,6 @@ pub fn try_simplify_pattern_subtree(expr: &Expr, bitwidth: u32) -> Option<Arc<Ex
 
     // Phase 2: two-var pattern-sum combinator (covers `(x & y) + (x | y)`).
     if num_vars == 2 {
-        let eval = Evaluator::from_expr(&dense_expr, bitwidth);
         let combo = try_simplify_two_var_pattern_sum(&sig, bitwidth, baseline_cost, |cand| {
             full_width_check_eval(&eval, 2, cand, bitwidth, DEFAULT_NUM_SAMPLES).passed
         });
