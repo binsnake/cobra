@@ -180,6 +180,15 @@ fn rebuild_terms_from_groups(
     ir.terms.sort_by_key(|t| t.atom_id);
 }
 
+/// Drop `idx` from the bucket it was registered under, after its mask changed.
+/// Leaving it registered lets a later iteration select it as a partner on a
+/// mask it no longer has.
+fn deregister_mask(mask_index: &mut HashMap<u64, Vec<usize>>, old_mask: u64, idx: usize) {
+    if let Some(bucket) = mask_index.get_mut(&old_mask) {
+        bucket.retain(|&k| k != idx);
+    }
+}
+
 /// Apply XOR-pair recovery and mask-elimination rewrites.
 #[allow(clippy::too_many_lines, clippy::similar_names)]
 pub fn recover_structure(ir: &mut SemilinearIR) {
@@ -264,6 +273,16 @@ pub fn recover_structure(ir: &mut SemilinearIR) {
             let (a_coeff, a_mask) = (entries[i].coeff, entries[i].mask);
             let (b_coeff, b_mask) = (entries[j].coeff, entries[j].mask);
 
+            // `mask_index` is built once per basis group and both rewrite
+            // branches widen an entry's mask in place, so a candidate may have
+            // been mutated since it was indexed. Re-check the pairing on the
+            // live masks; without this the mask-elimination identity is applied
+            // twice to the same entry and the partner coefficient is subtracted
+            // a second time.
+            if (a_mask | b_mask) & modmask != modmask || (a_mask & b_mask) != 0 {
+                continue;
+            }
+
             if a_coeff.wrapping_add(b_coeff) & modmask == 0 {
                 // XOR recovery — choose the mask with fewer set bits as
                 // the XOR constant so the added constant shrinks.
@@ -278,10 +297,14 @@ pub fn recover_structure(ir: &mut SemilinearIR) {
                     create_atom_indexed(ir, &mut atom_hash_index, xor_expr, OperatorFamily::Xor);
                 let entries = basis_groups.get_mut(&hash).expect("present");
                 let (src_idx, dst_idx) = if src_is_a { (i, j) } else { (j, i) };
+                let old_src_mask = entries[src_idx].mask;
+                let old_dst_mask = entries[dst_idx].mask;
                 entries[src_idx].coeff = dst_coeff;
                 entries[src_idx].atom_id = xor_id;
                 entries[src_idx].mask = modmask;
                 entries[dst_idx].consumed = true;
+                deregister_mask(&mut mask_index, old_src_mask, src_idx);
+                deregister_mask(&mut mask_index, old_dst_mask, dst_idx);
                 ir.constant = ir.constant.wrapping_add(src_coeff.wrapping_mul(src_mask)) & modmask;
                 any_changed = true;
                 continue;
@@ -292,8 +315,10 @@ pub fn recover_structure(ir: &mut SemilinearIR) {
                 let bare = find_or_create_bare_atom(ir, &mut atom_hash_index, &basis);
                 let entries = basis_groups.get_mut(&hash).expect("present");
                 entries[i].coeff = diff;
+                let old_j_mask = entries[j].mask;
                 entries[j].atom_id = bare;
                 entries[j].mask = modmask;
+                deregister_mask(&mut mask_index, old_j_mask, j);
                 any_changed = true;
             }
         }

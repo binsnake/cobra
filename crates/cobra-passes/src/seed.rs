@@ -98,10 +98,16 @@ pub fn seed_with_ast(
 
     let cls = classified.features.classification;
 
-    // Copy the classification to the original seed as well.
-    seed.features.classification = cls;
-    if let StateData::FoldedAst(ast) = &mut seed.payload {
-        ast.classification = cls;
+    // Only safe when the classified target *is* the seed. Lowering rewrites
+    // `~E` to `Add(Neg(E), C)`, removing every `Not`, so the lowered and
+    // un-lowered trees genuinely classify differently and the lowered verdict
+    // must not be stamped onto the retained Original. The fired branch below
+    // classifies the seed from its own payload instead.
+    if !lowering_fired {
+        seed.features.classification = cls;
+        if let StateData::FoldedAst(ast) = &mut seed.payload {
+            ast.classification = cls;
+        }
     }
 
     // Helper: when `simplify_pattern_subtrees` rewrote the input, stamp
@@ -119,9 +125,27 @@ pub fn seed_with_ast(
     if lowering_fired {
         let mut classified = classified;
         stamp_seed_rewrite(&mut classified);
-        stamp_seed_rewrite(&mut seed);
         worklist.push(classified);
-        worklist.push(seed);
+
+        // Classify the retained Original from its own payload, then apply the
+        // same Semilinear guard the no-lowering branch applies. Without the
+        // guard the Original pops first (the worklist orders on provenance),
+        // burns an expansion and is discarded; worse, a lowered-Semilinear
+        // verdict routed the un-lowered payload into SemilinearNormalize.
+        let seed_cr = run_classify_ast(&seed, ctx)?;
+        let mut seed_item = seed_cr
+            .next
+            .into_iter()
+            .next()
+            .expect("ClassifyAst emits exactly one item");
+        let seed_cls = seed_item.features.classification;
+        if matches!(
+            seed_cls,
+            Some(c) if c.semantic == crate::core::classification::SemanticClass::Semilinear
+        ) {
+            stamp_seed_rewrite(&mut seed_item);
+            worklist.push(seed_item);
+        }
     } else {
         // Lowering was a no-op — promote the classified item to Lowered
         // so the scheduler treats it identically to the fired case.
@@ -228,15 +252,21 @@ mod tests {
 
     #[test]
     fn seed_with_not_over_arith_triggers_lowering() {
-        // "~(x + 1)" — Not-over-arith fires → ctx.lowering_fired = true,
-        // two items queued (lowered + original).
+        // "~(x + 1)" — Not-over-arith fires, so ctx.lowering_fired = true.
+        //
+        // Only the lowered item is queued. The retained Original is now
+        // classified from its own un-lowered payload and kept only when that
+        // classifies Semilinear, matching the no-lowering branch. This tree
+        // does not, and previously it was queued anyway under the *lowered*
+        // tree's classification: it pops first (the worklist orders on
+        // provenance), burns an expansion, and is discarded.
         let expr = Expr::not(Expr::add(Expr::variable(0), Expr::constant(1)));
         let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into()], 8);
         let mut worklist = Worklist::new();
         seed_with_ast(&expr, &mut ctx, &mut worklist).unwrap();
 
         assert!(ctx.lowering_fired);
-        assert_eq!(worklist.len(), 2);
+        assert_eq!(worklist.len(), 1);
     }
 
     #[test]

@@ -68,8 +68,10 @@ fn seeding_pure_arith_with_not_triggers_lowering_flag() {
     let mut worklist = Worklist::new();
     seed_with_ast(&parsed.expr, &mut ctx, &mut worklist).unwrap();
     assert!(ctx.lowering_fired);
-    // Two items queued: the lowered one and the original.
-    assert_eq!(worklist.len(), 2);
+    // Only the lowered item is queued. The retained Original is classified
+    // from its own un-lowered payload and kept only when that classifies
+    // Semilinear; this tree does not.
+    assert_eq!(worklist.len(), 1);
 }
 
 #[test]
