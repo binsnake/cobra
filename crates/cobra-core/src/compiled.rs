@@ -5,7 +5,8 @@
 
 use crate::core::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr, sext, trunc, zext};
 use crate::core::expr::{Expr, Kind};
-use crate::core::width::width_of;
+use crate::core::result::{err, CobraError, Result};
+use crate::core::width::{validate_widths, width_of};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -81,6 +82,48 @@ fn emit_op(node: &Expr, bitwidth: u32) -> (Opcode, u64) {
             let out_w = width_of(node, &[], bitwidth);
             (Opcode::Concat, pack_widths(low_w, out_w))
         }
+    }
+}
+
+/// Compile after validating that every node has a representable width.
+///
+/// Prefer this over [`compile`] for any tree that did not come from the
+/// pipeline's own validated path. [`width_of`] reports an invalid width as 0,
+/// and `bitmask(0) == 0` makes every masked operation produce 0 — a compiled
+/// program that silently evaluates to zero everywhere, and therefore compares
+/// equal to `Expr::constant(0)` at every probe point.
+pub fn try_compile(expr: &Expr, bitwidth: u32) -> Result<CompiledExpr> {
+    validate_widths(expr, &[], bitwidth)?;
+    let compiled = compile(expr, bitwidth);
+    if compiled.program.iter().any(instruction_width_is_invalid) {
+        return Err(err(
+            CobraError::InvalidArgument,
+            "compiled program contains a zero-width instruction".to_string(),
+        ));
+    }
+    Ok(compiled)
+}
+
+/// `true` if this instruction carries a width payload of 0, which would mask
+/// its result to zero.
+fn instruction_width_is_invalid(instr: &EvalInstr) -> bool {
+    match instr.op {
+        // Same-width ops and the two single-width casts carry the result
+        // width directly in `operand`.
+        Opcode::Not
+        | Opcode::Neg
+        | Opcode::Add
+        | Opcode::Mul
+        | Opcode::And
+        | Opcode::Or
+        | Opcode::Xor
+        | Opcode::ZExt
+        | Opcode::Trunc => instr.operand == 0,
+        // These pack the relevant width into the high half.
+        Opcode::Shr | Opcode::Concat => instr.operand >> 32 == 0,
+        // `SExt` packs source width low, target width high; both must be set.
+        Opcode::SExt => instr.operand >> 32 == 0 || instr.operand.trailing_zeros() >= 32,
+        Opcode::Constant | Opcode::Variable => false,
     }
 }
 

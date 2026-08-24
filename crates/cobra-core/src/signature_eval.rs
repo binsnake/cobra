@@ -3,11 +3,11 @@
 //! The recursive form does one bottom-up tree walk producing a length-`2^n`
 //! vector per node — far cheaper than `2^n` separate tree evaluations.
 
-use crate::core::arith::{bitmask, sext, trunc, zext};
+use crate::core::arith::bitmask;
 use crate::core::evaluator::{Evaluator, Workspace};
-use crate::core::expr::{Expr, Kind};
+use crate::core::expr::Expr;
 use crate::core::result::{err, CobraError, Result};
-use crate::core::width::width_of;
+use crate::core::width::checked_width_of;
 
 pub const MAX_SIGNATURE_VARS: u32 = 20;
 pub const MAX_SIGNATURE_BYTES: usize = 8 * 1024 * 1024;
@@ -47,9 +47,17 @@ pub fn try_evaluate_boolean_signature(
     num_vars: u32,
     bitwidth: u32,
 ) -> Result<Vec<u64>> {
-    let len = checked_signature_len(num_vars)?;
-    let mut pool: Vec<Vec<u64>> = Vec::new();
-    Ok(eval_sig_into(expr, len, bitwidth, &mut pool))
+    checked_signature_len(num_vars)?;
+    // Route through the compiled evaluator, which is the reference semantics.
+    // The tree walker this replaced threaded the run-global `bitwidth` into
+    // every same-width operator while its cast arms used node-local widths, so
+    // the two disagreed on any tree containing a cast.
+    //
+    // Mask at the expression's own result width, not the run-global one: a
+    // `Concat` of two 8-bit children is a 16-bit value even at bitwidth 8.
+    let result_w = checked_width_of(expr, &[], bitwidth)?;
+    let eval = Evaluator::from_expr(expr, bitwidth);
+    signature_masked_at(&eval, num_vars, result_w)
 }
 
 /// Evaluate `expr` at every assignment in `{0, 1}^num_vars`. Variable
@@ -77,10 +85,21 @@ pub fn try_evaluate_boolean_signature_from_evaluator(
     num_vars: u32,
     bitwidth: u32,
 ) -> Result<Vec<u64>> {
+    signature_masked_at(eval, num_vars, bitwidth)
+}
+
+/// Shared body: evaluate over `{0,1}^num_vars`, masking each result to
+/// `mask_width` bits.
+fn signature_masked_at(eval: &Evaluator, num_vars: u32, mask_width: u32) -> Result<Vec<u64>> {
     let len = checked_signature_len(num_vars)?;
-    let mask = bitmask(bitwidth);
+    let mask = bitmask(mask_width);
     let mut sig = vec![0u64; len];
-    let mut point = vec![0u64; num_vars as usize];
+    // Size the point to cover any variable index above `num_vars`. A lifted or
+    // ghost variable reads as 0 at every point, matching the tree walker this
+    // replaced, where `(i >> k) & 1` was 0 for every `k >= num_vars`. Only the
+    // low `num_vars` slots are ever flipped below.
+    let point_width = (num_vars as usize).max(eval.input_arity() as usize);
+    let mut point = vec![0u64; point_width];
     let mut workspace = Workspace::default();
     for (i, slot) in sig.iter_mut().enumerate().take(len) {
         // Incrementally maintain `point` so it matches the standard binary
@@ -102,155 +121,6 @@ pub fn try_evaluate_boolean_signature_from_evaluator(
         *slot = raw & mask;
     }
     Ok(sig)
-}
-
-/// Take a `len`-sized scratch buffer from the pool, or allocate one. Pooled
-/// buffers are always `len`-sized (the recursion runs at a single `len`), and
-/// every leaf arm overwrites all entries, so no re-initialisation is needed.
-#[inline]
-fn take_buf(pool: &mut Vec<Vec<u64>>, len: usize) -> Vec<u64> {
-    pool.pop().unwrap_or_else(|| vec![0u64; len])
-}
-
-fn eval_sig_into(expr: &Expr, len: usize, bitwidth: u32, pool: &mut Vec<Vec<u64>>) -> Vec<u64> {
-    let mask = bitmask(bitwidth);
-    match &expr.kind {
-        Kind::Constant(v) => {
-            let val = *v & mask;
-            let mut buf = take_buf(pool, len);
-            buf.iter_mut().for_each(|x| *x = val);
-            buf
-        }
-        Kind::Variable(idx) => {
-            let k = *idx as usize;
-            let mut buf = take_buf(pool, len);
-            for (i, x) in buf.iter_mut().enumerate() {
-                *x = ((i >> k) & 1) as u64;
-            }
-            buf
-        }
-        Kind::Not => {
-            let mut child = eval_sig_into(&expr.children[0], len, bitwidth, pool);
-            for v in &mut child {
-                *v = !*v & mask;
-            }
-            child
-        }
-        Kind::Neg => {
-            let mut child = eval_sig_into(&expr.children[0], len, bitwidth, pool);
-            for v in &mut child {
-                *v = 0u64.wrapping_sub(*v) & mask;
-            }
-            child
-        }
-        Kind::Shr(k) => {
-            let mut child = eval_sig_into(&expr.children[0], len, bitwidth, pool);
-            let k = *k;
-            if k >= 64 {
-                child.fill(0);
-            } else {
-                for v in &mut child {
-                    *v = (*v >> k) & mask;
-                }
-            }
-            child
-        }
-        Kind::Add => {
-            let mut left = eval_sig_into(&expr.children[0], len, bitwidth, pool);
-            let right = eval_sig_into(&expr.children[1], len, bitwidth, pool);
-            for (l, r) in left.iter_mut().zip(right.iter()) {
-                *l = l.wrapping_add(*r) & mask;
-            }
-            pool.push(right);
-            left
-        }
-        Kind::Mul => {
-            let mut left = eval_sig_into(&expr.children[0], len, bitwidth, pool);
-            let right = eval_sig_into(&expr.children[1], len, bitwidth, pool);
-            for (l, r) in left.iter_mut().zip(right.iter()) {
-                *l = l.wrapping_mul(*r) & mask;
-            }
-            pool.push(right);
-            left
-        }
-        Kind::And => {
-            let mut left = eval_sig_into(&expr.children[0], len, bitwidth, pool);
-            let right = eval_sig_into(&expr.children[1], len, bitwidth, pool);
-            for (l, r) in left.iter_mut().zip(right.iter()) {
-                *l &= *r;
-            }
-            pool.push(right);
-            left
-        }
-        Kind::Or => {
-            let mut left = eval_sig_into(&expr.children[0], len, bitwidth, pool);
-            let right = eval_sig_into(&expr.children[1], len, bitwidth, pool);
-            for (l, r) in left.iter_mut().zip(right.iter()) {
-                *l = (*l | *r) & mask;
-            }
-            pool.push(right);
-            left
-        }
-        Kind::Xor => {
-            let mut left = eval_sig_into(&expr.children[0], len, bitwidth, pool);
-            let right = eval_sig_into(&expr.children[1], len, bitwidth, pool);
-            for (l, r) in left.iter_mut().zip(right.iter()) {
-                *l = (*l ^ *r) & mask;
-            }
-            pool.push(right);
-            left
-        }
-        Kind::ZExt(_) | Kind::SExt(_) | Kind::Trunc(_) | Kind::Concat => {
-            eval_sig_cast_into(expr, len, bitwidth, pool)
-        }
-    }
-}
-
-/// Signature arms for the width-changing nodes (casts and `Concat`). Split out
-/// of [`eval_sig_recursive`] to keep that hot dispatch small.
-fn eval_sig_cast_into(
-    expr: &Expr,
-    len: usize,
-    bitwidth: u32,
-    pool: &mut Vec<Vec<u64>>,
-) -> Vec<u64> {
-    match &expr.kind {
-        Kind::ZExt(w) => {
-            let mut child = eval_sig_into(&expr.children[0], len, bitwidth, pool);
-            for v in &mut child {
-                *v = zext(*v, *w);
-            }
-            child
-        }
-        Kind::SExt(w) => {
-            let from = width_of(&expr.children[0], &[], bitwidth);
-            let mut child = eval_sig_into(&expr.children[0], len, bitwidth, pool);
-            for v in &mut child {
-                *v = sext(*v, from, *w);
-            }
-            child
-        }
-        Kind::Trunc(w) => {
-            let mut child = eval_sig_into(&expr.children[0], len, bitwidth, pool);
-            for v in &mut child {
-                *v = trunc(*v, *w);
-            }
-            child
-        }
-        // Concat (the only remaining width-changing kind here).
-        _ => {
-            let low_w = width_of(&expr.children[1], &[], bitwidth);
-            let out_mask = bitmask(width_of(expr, &[], bitwidth));
-            let low_mask = bitmask(low_w);
-            let mut high = eval_sig_into(&expr.children[0], len, bitwidth, pool);
-            let low = eval_sig_into(&expr.children[1], len, bitwidth, pool);
-            for (h, l) in high.iter_mut().zip(low.iter()) {
-                *h = (h.wrapping_shl(low_w) | (*l & low_mask)) & out_mask;
-            }
-            pool.push(low);
-            high
-        }
-    }
 }
 
 #[cfg(test)]

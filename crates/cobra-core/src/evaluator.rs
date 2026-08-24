@@ -102,6 +102,18 @@ impl Evaluator {
         }
     }
 
+    /// Fallible counterpart to [`Evaluator::from_expr`].
+    ///
+    /// Rejects trees whose widths do not validate, which would otherwise
+    /// compile to a program that evaluates to zero everywhere.
+    pub fn try_from_expr(expr: &Expr, bitwidth: u32) -> crate::core::result::Result<Self> {
+        let compiled = crate::core::compiled::try_compile(expr, bitwidth)?;
+        Ok(Self::from_compiled(
+            std::sync::Arc::new(compiled),
+            TraceKind::default(),
+        ))
+    }
+
     #[must_use]
     pub fn from_expr(expr: &Expr, bitwidth: u32) -> Self {
         Self::from_compiled(Arc::new(compile(expr, bitwidth)), TraceKind::None)

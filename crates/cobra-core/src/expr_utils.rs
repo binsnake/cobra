@@ -1,9 +1,8 @@
 //! that other crates need without the heavier AST-rewrite helpers
 //! (those belong in `cobra-ir` / `cobra-passes`).
 
-use crate::core::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr, sext, trunc, zext};
+use crate::core::compiled::{compile, eval as eval_compiled};
 use crate::core::expr::{Expr, Kind};
-use crate::core::width::width_of;
 
 /// Returns true if `expr` contains no `Variable` leaf.
 #[must_use]
@@ -16,56 +15,19 @@ pub fn is_constant_subtree(expr: &Expr) -> bool {
 }
 
 /// Evaluate a constant-only `Expr` subtree at the given `bitwidth`.
-/// `EvalConstantExpr`'s `std::unreachable()`).
+///
+/// Thin wrapper over the compiled evaluator so constant folding uses the same
+/// width model as evaluation. Panics on a `Variable`, matching the upstream
+/// `EvalConstantExpr`'s `std::unreachable()`.
 #[must_use]
 pub fn eval_constant(expr: &Expr, bitwidth: u32) -> u64 {
-    let mask = bitmask(bitwidth);
-    match &expr.kind {
-        Kind::Constant(v) => *v & mask,
-        Kind::Variable(_) => panic!("eval_constant: variable in constant-only subtree"),
-        Kind::Not => mod_not(eval_constant(&expr.children[0], bitwidth), bitwidth),
-        Kind::Neg => mod_neg(eval_constant(&expr.children[0], bitwidth), bitwidth),
-        Kind::And => {
-            eval_constant(&expr.children[0], bitwidth) & eval_constant(&expr.children[1], bitwidth)
-        }
-        Kind::Or => {
-            eval_constant(&expr.children[0], bitwidth) | eval_constant(&expr.children[1], bitwidth)
-        }
-        Kind::Xor => {
-            eval_constant(&expr.children[0], bitwidth) ^ eval_constant(&expr.children[1], bitwidth)
-        }
-        Kind::Add => mod_add(
-            eval_constant(&expr.children[0], bitwidth),
-            eval_constant(&expr.children[1], bitwidth),
-            bitwidth,
-        ),
-        Kind::Mul => mod_mul(
-            eval_constant(&expr.children[0], bitwidth),
-            eval_constant(&expr.children[1], bitwidth),
-            bitwidth,
-        ),
-        Kind::Shr(k) => mod_shr(
-            eval_constant(&expr.children[0], bitwidth),
-            u64::from(*k),
-            bitwidth,
-        ),
-        // Casts produce a `w`-wide value from a child evaluated at the context
-        // width. The child's source width drives sign-extension.
-        Kind::ZExt(w) => zext(eval_constant(&expr.children[0], bitwidth), *w),
-        Kind::SExt(w) => {
-            let from = width_of(&expr.children[0], &[], bitwidth);
-            sext(eval_constant(&expr.children[0], bitwidth), from, *w)
-        }
-        Kind::Trunc(w) => trunc(eval_constant(&expr.children[0], bitwidth), *w),
-        // Concat: high child shifted left by the low child's width, OR'd with
-        // the low child masked to its own width.
-        Kind::Concat => {
-            let low_w = width_of(&expr.children[1], &[], bitwidth);
-            let high = eval_constant(&expr.children[0], bitwidth);
-            let low = eval_constant(&expr.children[1], bitwidth) & bitmask(low_w);
-            (high.wrapping_shl(low_w) | low) & bitmask(width_of(expr, &[], bitwidth))
-        }
-    }
+    assert!(
+        is_constant_subtree(expr),
+        "eval_constant: variable in constant-only subtree"
+    );
+    let prog = compile(expr, bitwidth);
+    let mut stack = Vec::with_capacity(prog.stack_size);
+    eval_compiled(&prog, &[], &mut stack)
 }
 
 #[must_use]

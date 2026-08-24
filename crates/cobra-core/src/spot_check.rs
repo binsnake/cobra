@@ -4,13 +4,12 @@
 //! expression-derived constants, two-variable constant combinations, and a
 //! deterministic random sample.
 
-use crate::core::arith::{bitmask, mod_add, mod_mul, mod_neg, mod_not, mod_shr, sext, trunc, zext};
-use crate::core::compiled::{compile, eval as eval_compiled, CompiledExpr};
+use crate::core::arith::bitmask;
+use crate::core::compiled::{compile, eval as eval_compiled, try_compile, CompiledExpr};
 use crate::core::evaluator::{Evaluator, Workspace};
 use crate::core::expr::{Expr, Kind};
 use crate::core::expr_utils::remap_var_indices;
 use crate::core::signature_eval::{checked_signature_len, try_evaluate_boolean_signature};
-use crate::core::width::width_of;
 
 /// inputs that produced a disagreement (when `passed == false`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -73,8 +72,16 @@ pub fn full_width_check(
     bitwidth: u32,
     num_samples: u32,
 ) -> CheckResult {
-    let original_prog = compile(original, bitwidth);
-    let simplified_prog = compile(simplified, bitwidth);
+    // Fail closed on a tree whose widths do not validate. `width_of` reports
+    // an invalid width as 0 and `bitmask(0) == 0`, so such a program evaluates
+    // to zero everywhere and would compare equal to a constant-0 candidate at
+    // every probe point.
+    let (Ok(original_prog), Ok(simplified_prog)) = (
+        try_compile(original, bitwidth),
+        try_compile(simplified, bitwidth),
+    ) else {
+        return CheckResult::default();
+    };
     let simplified_num_vars = if var_map.is_empty() {
         original_num_vars
     } else {
@@ -138,7 +145,9 @@ pub fn full_width_check_eval(
     num_samples: u32,
 ) -> CheckResult {
     let mask = bitmask(bitwidth);
-    let simplified_prog = compile(simplified, bitwidth);
+    let Ok(simplified_prog) = try_compile(simplified, bitwidth) else {
+        return CheckResult::default();
+    };
 
     // Reject expressions wider than the caller's variable space — matches
     // the C++ arity guard.
@@ -199,57 +208,19 @@ pub fn full_width_check_eval(
 }
 
 /// Evaluate an expression at the provided variable values.
+///
+/// Thin wrapper over the compiled evaluator, which is the reference semantics.
+/// This previously threaded the run-global `bitwidth` into every same-width
+/// operator while its cast arms used node-local widths — two width models in
+/// one function, disagreeing on any tree containing a cast.
+///
+/// Returns 0 for a tree whose widths do not validate; use
+/// [`crate::core::compiled::try_compile`] to detect that case.
 #[must_use]
 pub fn eval_expr(expr: &Expr, var_values: &[u64], bitwidth: u32) -> u64 {
-    let mask = bitmask(bitwidth);
-    match &expr.kind {
-        Kind::Constant(v) => *v & mask,
-        Kind::Variable(index) => var_values[*index as usize] & mask,
-        Kind::Add => mod_add(
-            eval_expr(&expr.children[0], var_values, bitwidth),
-            eval_expr(&expr.children[1], var_values, bitwidth),
-            bitwidth,
-        ),
-        Kind::Mul => mod_mul(
-            eval_expr(&expr.children[0], var_values, bitwidth),
-            eval_expr(&expr.children[1], var_values, bitwidth),
-            bitwidth,
-        ),
-        Kind::And => {
-            (eval_expr(&expr.children[0], var_values, bitwidth)
-                & eval_expr(&expr.children[1], var_values, bitwidth))
-                & mask
-        }
-        Kind::Or => {
-            (eval_expr(&expr.children[0], var_values, bitwidth)
-                | eval_expr(&expr.children[1], var_values, bitwidth))
-                & mask
-        }
-        Kind::Xor => {
-            (eval_expr(&expr.children[0], var_values, bitwidth)
-                ^ eval_expr(&expr.children[1], var_values, bitwidth))
-                & mask
-        }
-        Kind::Not => mod_not(eval_expr(&expr.children[0], var_values, bitwidth), bitwidth),
-        Kind::Neg => mod_neg(eval_expr(&expr.children[0], var_values, bitwidth), bitwidth),
-        Kind::Shr(amount) => mod_shr(
-            eval_expr(&expr.children[0], var_values, bitwidth),
-            u64::from(*amount),
-            bitwidth,
-        ),
-        Kind::ZExt(w) => zext(eval_expr(&expr.children[0], var_values, bitwidth), *w),
-        Kind::SExt(w) => {
-            let from = width_of(&expr.children[0], &[], bitwidth);
-            sext(eval_expr(&expr.children[0], var_values, bitwidth), from, *w)
-        }
-        Kind::Trunc(w) => trunc(eval_expr(&expr.children[0], var_values, bitwidth), *w),
-        Kind::Concat => {
-            let low_w = width_of(&expr.children[1], &[], bitwidth);
-            let high = eval_expr(&expr.children[0], var_values, bitwidth);
-            let low = eval_expr(&expr.children[1], var_values, bitwidth) & bitmask(low_w);
-            (high.wrapping_shl(low_w) | low) & bitmask(width_of(expr, &[], bitwidth))
-        }
-    }
+    let prog = compile(expr, bitwidth);
+    let mut stack = Vec::with_capacity(prog.stack_size);
+    eval_compiled(&prog, var_values, &mut stack)
 }
 
 fn for_each_full_width_probe(
@@ -600,6 +571,7 @@ fn seed_for(num_vars: u32, bitwidth: u32, num_samples: u32, expr_salt: u64) -> u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::width::validate_widths;
 
     #[test]
     fn equivalent_expressions_pass() {
@@ -742,12 +714,90 @@ mod tests {
     }
 
     #[test]
+    fn invalid_width_tree_fails_closed_instead_of_evaluating_to_zero() {
+        // At bitwidth 64 a Concat over bare 64-bit variables cannot be
+        // represented, so `width_of` reports 0 and the compiled program masks
+        // everything to zero. Left unchecked it compares equal to constant 0
+        // at every probe point.
+        let invalid = Expr::add(
+            Expr::mul(
+                Expr::concat(Expr::variable(0), Expr::variable(1)),
+                Expr::variable(2),
+            ),
+            Expr::variable(2),
+        );
+        assert!(crate::core::compiled::try_compile(&invalid, 64).is_err());
+        assert!(Evaluator::try_from_expr(&invalid, 64).is_err());
+
+        let r = full_width_check(&invalid, 3, &Expr::constant(0), &[], 64, 64);
+        assert!(!r.passed, "an unrepresentable tree must not verify as zero");
+    }
+
+    #[test]
     fn eval_expr_matches_modular_semantics() {
         let expr = Expr::add(
             Expr::not(Expr::variable(0)),
             Expr::shr(Expr::constant(0xF0), 4),
         );
         assert_eq!(eval_expr(&expr, &[0x0F], 8), 0xFF);
+    }
+
+    #[test]
+    fn eval_expr_agrees_with_compiled_over_mixed_width_corpus() {
+        // The three tree-walking evaluators used to thread the run-global
+        // bitwidth into same-width operators while their cast arms used
+        // node-local widths. Any tree mixing a cast with arithmetic exposed
+        // the disagreement, so pin the two models together.
+        use crate::core::compiled::{compile, eval as eval_compiled};
+
+        let leaves = [
+            Expr::variable(0),
+            Expr::variable(1),
+            Expr::constant(0xFF),
+            Expr::trunc(Expr::variable(0), 8),
+            Expr::zext(Expr::trunc(Expr::variable(0), 8), 32),
+            Expr::sext(Expr::trunc(Expr::variable(1), 8), 32),
+        ];
+
+        let mut checked = 0u32;
+        for (i, a) in leaves.iter().enumerate() {
+            for (j, b) in leaves.iter().enumerate() {
+                // Same-width binaries need both sides at one width, so pair a
+                // leaf only with itself-width partners plus the unary arms.
+                let candidates = vec![
+                    Expr::not(a.clone_tree()),
+                    Expr::neg(a.clone_tree()),
+                    Expr::shr(a.clone_tree(), 3),
+                ];
+                let mut trees = candidates;
+                if i == j {
+                    trees.push(Expr::add(a.clone_tree(), b.clone_tree()));
+                    trees.push(Expr::mul(a.clone_tree(), b.clone_tree()));
+                    trees.push(Expr::xor(a.clone_tree(), b.clone_tree()));
+                    trees.push(Expr::and(a.clone_tree(), b.clone_tree()));
+                }
+                for tree in trees {
+                    if validate_widths(&tree, &[], 64).is_err() {
+                        continue;
+                    }
+                    for seed in 0u64..8 {
+                        let point = [
+                            seed.wrapping_mul(0x9E37_79B9_7F4A_7C15),
+                            seed.wrapping_mul(0xD6E8_FEB8_6659_FD93),
+                        ];
+                        let prog = compile(&tree, 64);
+                        let mut stack = Vec::with_capacity(prog.stack_size);
+                        assert_eq!(
+                            eval_expr(&tree, &point, 64),
+                            eval_compiled(&prog, &point, &mut stack),
+                            "walker and compiled evaluator disagree on {tree:?} at {point:?}"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert!(checked > 200, "corpus should be non-trivial, got {checked}");
     }
 
     #[test]
