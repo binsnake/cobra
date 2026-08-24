@@ -11,7 +11,7 @@ use crate::core::width::is_uniform_width;
 use std::sync::Arc;
 
 use crate::verify::lean_match::{
-    add_with_neg_operands, and_or_sum_operands, expr_eq, is_all_ones, is_and_not_of,
+    add_with_neg_operands, and_or_sum_operands, expr_eq, is_all_ones_at, is_and_not_of,
     is_const_value, is_not_of, is_one, is_zero, not_or_add_self_add_one_operands,
     not_or_minus_not_operands, same_or_and_operands, scaled_and_or_sum_operands, unordered_pair_eq,
     xor_and_absorb_operands, xor_via_or_not_operands,
@@ -218,6 +218,69 @@ impl LeanTheorem {
         Self::BnotEqNegAddAllOnes64,
         Self::ShrZero64,
     ];
+
+    /// Name of this theorem's width-generic counterpart in the Lean pack, if
+    /// it has one.
+    ///
+    /// The `_64` pack is stated over `BitVec 64`, so a certificate citing it is
+    /// replayable only at that width -- which made every width in 1..=63
+    /// unsimplifiable once the public gate began requiring a certificate. The
+    /// pure bitwise and ring identities hold at every width and have `_w`
+    /// counterparts; the arithmetic MBA identities do not, because their proofs
+    /// need carry reasoning `bv_decide` cannot discharge without a concrete
+    /// width.
+    #[must_use]
+    pub const fn width_parametric_lean_name(self) -> Option<&'static str> {
+        match self {
+            Self::AddZero64 => Some("Cobra.add_zero_w"),
+            Self::ZeroAdd64 => Some("Cobra.zero_add_w"),
+            Self::MulZero64 => Some("Cobra.mul_zero_w"),
+            Self::ZeroMul64 => Some("Cobra.zero_mul_w"),
+            Self::MulOne64 => Some("Cobra.mul_one_w"),
+            Self::OneMul64 => Some("Cobra.one_mul_w"),
+            Self::NegNeg64 => Some("Cobra.neg_neg_w"),
+            Self::NotNot64 => Some("Cobra.not_not_w"),
+            Self::AndSelf64 => Some("Cobra.and_self_w"),
+            Self::OrSelf64 => Some("Cobra.or_self_w"),
+            Self::XorSelf64 => Some("Cobra.xor_self_w"),
+            Self::XorZero64 => Some("Cobra.xor_zero_w"),
+            Self::ZeroXor64 => Some("Cobra.zero_xor_w"),
+            Self::AndZero64 => Some("Cobra.and_zero_w"),
+            Self::ZeroAnd64 => Some("Cobra.zero_and_w"),
+            Self::OrZero64 => Some("Cobra.or_zero_w"),
+            Self::ZeroOr64 => Some("Cobra.zero_or_w"),
+            Self::ShrZero64 => Some("Cobra.shr_zero_w"),
+            Self::AndAllOnes64 => Some("Cobra.and_all_ones_w"),
+            Self::AllOnesAnd64 => Some("Cobra.all_ones_and_w"),
+            Self::OrAllOnes64 => Some("Cobra.or_all_ones_w"),
+            Self::AllOnesOr64 => Some("Cobra.all_ones_or_w"),
+            Self::AndNotSelf64 => Some("Cobra.and_not_self_w"),
+            Self::NotAndSelf64 => Some("Cobra.not_and_self_w"),
+            Self::OrNotSelf64 => Some("Cobra.or_not_self_w"),
+            Self::NotOrSelf64 => Some("Cobra.not_or_self_w"),
+            Self::XorNotSelf64 => Some("Cobra.xor_not_self_w"),
+            Self::NotXorSelf64 => Some("Cobra.not_xor_self_w"),
+            Self::AndOrAbsorb64 => Some("Cobra.and_or_absorb_w"),
+            Self::AndOrAbsorbRight64 => Some("Cobra.and_or_absorb_right_w"),
+            Self::OrAndAbsorb64 => Some("Cobra.or_and_absorb_w"),
+            Self::OrAndAbsorbRight64 => Some("Cobra.or_and_absorb_right_w"),
+            Self::AndOrAbsorbComm64 => Some("Cobra.and_or_absorb_comm_w"),
+            Self::AndOrAbsorbCommRight64 => Some("Cobra.and_or_absorb_comm_right_w"),
+            Self::OrAndAbsorbComm64 => Some("Cobra.or_and_absorb_comm_w"),
+            Self::OrAndAbsorbCommRight64 => Some("Cobra.or_and_absorb_comm_right_w"),
+            Self::DemorganNotAnd64 => Some("Cobra.demorgan_not_and_w"),
+            Self::DemorganOrNotNot64 => Some("Cobra.demorgan_or_not_not_w"),
+            Self::DemorganNotOr64 => Some("Cobra.demorgan_not_or_w"),
+            Self::DemorganNotAndNotNot64 => Some("Cobra.demorgan_and_not_not_w"),
+            _ => None,
+        }
+    }
+
+    /// `true` when this theorem can be cited at any bitwidth.
+    #[must_use]
+    pub const fn is_width_parametric(self) -> bool {
+        self.width_parametric_lean_name().is_some()
+    }
 
     #[must_use]
     pub const fn lean_name(self) -> &'static str {
@@ -437,6 +500,18 @@ pub fn context_from_path(root: &Expr, path: &ExprPath) -> Option<(ExprContext, A
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTheorem> {
+    identify_rewrite_theorem_at(64, before, after)
+}
+
+/// Width-aware form of [`identify_rewrite_theorem_64`]. Only the all-ones
+/// constant depends on the width; every other shape is width-agnostic.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn identify_rewrite_theorem_at(
+    bitwidth: u32,
+    before: &Expr,
+    after: &Expr,
+) -> Option<LeanTheorem> {
     use LeanTheorem as Thm;
 
     match &before.kind {
@@ -542,10 +617,10 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
             if is_zero(lhs) && is_zero(after) {
                 return Some(Thm::ZeroAnd64);
             }
-            if is_all_ones(rhs) && expr_eq(lhs, after) {
+            if is_all_ones_at(rhs, bitwidth) && expr_eq(lhs, after) {
                 return Some(Thm::AndAllOnes64);
             }
-            if is_all_ones(lhs) && expr_eq(rhs, after) {
+            if is_all_ones_at(lhs, bitwidth) && expr_eq(rhs, after) {
                 return Some(Thm::AllOnesAnd64);
             }
         }
@@ -555,10 +630,10 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
             if expr_eq(lhs, rhs) && expr_eq(lhs, after) {
                 return Some(Thm::OrSelf64);
             }
-            if is_not_of(rhs, lhs) && is_all_ones(after) {
+            if is_not_of(rhs, lhs) && is_all_ones_at(after, bitwidth) {
                 return Some(Thm::OrNotSelf64);
             }
-            if is_not_of(lhs, rhs) && is_all_ones(after) {
+            if is_not_of(lhs, rhs) && is_all_ones_at(after, bitwidth) {
                 return Some(Thm::NotOrSelf64);
             }
             if expr_eq(lhs, after) && rhs.kind == Kind::And && rhs.children.len() == 2 {
@@ -588,10 +663,10 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
                     return Some(Thm::DemorganOrNotNot64);
                 }
             }
-            if is_all_ones(rhs) && is_all_ones(after) {
+            if is_all_ones_at(rhs, bitwidth) && is_all_ones_at(after, bitwidth) {
                 return Some(Thm::OrAllOnes64);
             }
-            if is_all_ones(lhs) && is_all_ones(after) {
+            if is_all_ones_at(lhs, bitwidth) && is_all_ones_at(after, bitwidth) {
                 return Some(Thm::AllOnesOr64);
             }
         }
@@ -599,10 +674,10 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
             {
                 let lhs = &before.children[0];
                 let rhs = &before.children[1];
-                if is_not_of(rhs, lhs) && is_all_ones(after) {
+                if is_not_of(rhs, lhs) && is_all_ones_at(after, bitwidth) {
                     return Some(Thm::XorNotSelf64);
                 }
-                if is_not_of(lhs, rhs) && is_all_ones(after) {
+                if is_not_of(lhs, rhs) && is_all_ones_at(after, bitwidth) {
                     return Some(Thm::NotXorSelf64);
                 }
             }
@@ -656,7 +731,7 @@ pub fn identify_rewrite_theorem_64(before: &Expr, after: &Expr) -> Option<LeanTh
                     }
                 }
             }
-            if is_neg_add_all_ones_of(after, child) {
+            if is_neg_add_all_ones_of(after, child, bitwidth) {
                 return Some(Thm::BnotEqNegAddAllOnes64);
             }
         }
@@ -823,13 +898,14 @@ fn is_not_of_and(expr: &Expr, lhs: &Expr, rhs: &Expr) -> bool {
         && is_and_of(&expr.children[0], lhs, rhs)
 }
 
-fn is_neg_add_all_ones_of(expr: &Expr, inner: &Expr) -> bool {
+fn is_neg_add_all_ones_of(expr: &Expr, inner: &Expr, bitwidth: u32) -> bool {
     if !matches!(expr.kind, Kind::Add) || expr.children.len() != 2 {
         return false;
     }
     let lhs = &expr.children[0];
     let rhs = &expr.children[1];
-    (is_neg_of(lhs, inner) && is_all_ones(rhs)) || (is_neg_of(rhs, inner) && is_all_ones(lhs))
+    (is_neg_of(lhs, inner) && is_all_ones_at(rhs, bitwidth))
+        || (is_neg_of(rhs, inner) && is_all_ones_at(lhs, bitwidth))
 }
 
 fn is_neg_of(expr: &Expr, inner: &Expr) -> bool {
@@ -853,6 +929,13 @@ pub struct LeanCertificate {
     pub original: Arc<Expr>,
     pub simplified: Arc<Expr>,
     pub steps: Vec<CertStep>,
+}
+
+/// Widths a certificate may be issued at. The `_64` pack covers 64, and the
+/// width-generic pack covers everything in 1..=64; anything outside the
+/// evaluator's supported range is rejected outright.
+const fn is_valid_certificate_bitwidth(bitwidth: u32) -> bool {
+    bitwidth >= 1 && bitwidth <= 64
 }
 
 impl LeanCertificate {
@@ -905,19 +988,22 @@ impl LeanCertificate {
         path: ExprPath,
         after: Arc<Expr>,
     ) -> Option<Self> {
-        // The Lean theorem pack is 64-bit only; reject any other width.
-        if bitwidth != 64 {
+        if !is_valid_certificate_bitwidth(bitwidth) {
             return None;
         }
-        // Soundness wall: the pack has no width-parametric theorems, so any
-        // cast/Concat (a non-uniform-width node) must not yield a certificate.
-        // With an empty `var_widths`, every variable defaults to width 64 to
-        // match the gate above.
-        if !is_uniform_width(&original, &[], 64) || !is_uniform_width(&after, &[], 64) {
+        // Soundness wall: a cast or `Concat` makes the tree non-uniform in
+        // width, and no theorem in either pack covers that, so it must not
+        // yield a certificate. With an empty `var_widths` every variable
+        // defaults to `bitwidth`.
+        if !is_uniform_width(&original, &[], bitwidth) || !is_uniform_width(&after, &[], bitwidth) {
             return None;
         }
         let (context, before) = context_from_path(&original, &path)?;
-        let theorem = identify_rewrite_theorem_64(&before, &after)?;
+        let theorem = identify_rewrite_theorem_at(bitwidth, &before, &after)?;
+        // Off 64, only a theorem with a width-generic counterpart is citable.
+        if bitwidth != 64 && !theorem.is_width_parametric() {
+            return None;
+        }
         let simplified = context.plug(after.clone_tree());
         let mut cert = Self::new(bitwidth, original, simplified);
         cert.steps.push(CertStep {
@@ -937,8 +1023,7 @@ impl LeanCertificate {
         original: Arc<Expr>,
         simplified: Arc<Expr>,
     ) -> Option<Self> {
-        // The Lean theorem pack is 64-bit only; reject any other width.
-        if bitwidth != 64 {
+        if !is_valid_certificate_bitwidth(bitwidth) {
             return None;
         }
         // Soundness wall: never emit a certificate for a mixed-width tree
@@ -1032,16 +1117,23 @@ impl LeanCertificate {
         if self.steps.is_empty() {
             return *original == *simplified;
         }
-        if bitwidth != 64
-            || !is_uniform_width(original, &[], 64)
-            || !is_uniform_width(simplified, &[], 64)
+        if !is_valid_certificate_bitwidth(bitwidth)
+            || !is_uniform_width(original, &[], bitwidth)
+            || !is_uniform_width(simplified, &[], bitwidth)
         {
             return false;
         }
 
         let mut current = self.original.clone_tree();
         for step in &self.steps {
-            if identify_rewrite_theorem_64(&step.before, &step.after) != Some(step.theorem)
+            // Off 64, every step must cite a theorem with a width-generic
+            // counterpart -- otherwise the chain is not replayable at this
+            // width even though each step is individually recognized.
+            if bitwidth != 64 && !step.theorem.is_width_parametric() {
+                return false;
+            }
+            if identify_rewrite_theorem_at(bitwidth, &step.before, &step.after)
+                != Some(step.theorem)
                 || *step.context.plug(step.before.clone_tree()) != *current
             {
                 return false;

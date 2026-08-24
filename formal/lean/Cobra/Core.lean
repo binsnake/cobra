@@ -207,6 +207,197 @@ theorem all_ones_or_64 (x : BitVec 64) :
   simp [allOnes]
   bv_decide
 
+/-! ## Width-parametric pack
+
+    The theorems below are the width-generic counterparts of the `_64` pack.
+    Everything here is a pure bitwise or ring identity, so it holds at every
+    width and the certificate machinery can cite it at any bitwidth. The
+    arithmetic MBA identities (`xor_eq_add_sub_two_mul_and_64` and its family)
+    are deliberately absent: those need carry reasoning that `bv_decide` cannot
+    discharge without a concrete width. -/
+
+theorem add_zero_w {w : Nat} (x : BitVec w) : x + 0#w = x := by
+  simp
+
+theorem zero_add_w {w : Nat} (x : BitVec w) : 0#w + x = x := by
+  simp
+
+theorem mul_zero_w {w : Nat} (x : BitVec w) : x * 0#w = 0#w := by
+  simp
+
+theorem zero_mul_w {w : Nat} (x : BitVec w) : 0#w * x = 0#w := by
+  simp
+
+theorem mul_one_w {w : Nat} (x : BitVec w) : x * 1#w = x := by
+  simp
+
+theorem one_mul_w {w : Nat} (x : BitVec w) : 1#w * x = x := by
+  simp
+
+theorem neg_neg_w {w : Nat} (x : BitVec w) : -(-x) = x := by
+  simp
+
+theorem not_not_w {w : Nat} (x : BitVec w) : ~~~(~~~x) = x := by
+  simp
+
+theorem and_self_w {w : Nat} (x : BitVec w) : x &&& x = x := by
+  simp
+
+theorem or_self_w {w : Nat} (x : BitVec w) : x ||| x = x := by
+  simp
+
+theorem xor_self_w {w : Nat} (x : BitVec w) : x ^^^ x = 0#w := by
+  simp
+
+theorem xor_zero_w {w : Nat} (x : BitVec w) : x ^^^ 0#w = x := by
+  simp
+
+theorem zero_xor_w {w : Nat} (x : BitVec w) : 0#w ^^^ x = x := by
+  simp
+
+theorem and_zero_w {w : Nat} (x : BitVec w) : x &&& 0#w = 0#w := by
+  simp
+
+theorem zero_and_w {w : Nat} (x : BitVec w) : 0#w &&& x = 0#w := by
+  simp
+
+theorem or_zero_w {w : Nat} (x : BitVec w) : x ||| 0#w = x := by
+  simp
+
+theorem zero_or_w {w : Nat} (x : BitVec w) : 0#w ||| x = x := by
+  simp
+
+theorem shr_zero_w {w : Nat} (x : BitVec w) : x >>> 0 = x := by
+  simp
+
+theorem and_all_ones_w {w : Nat} (x : BitVec w) : x &&& allOnes w = x := by
+  simp [allOnes]
+
+theorem all_ones_and_w {w : Nat} (x : BitVec w) : allOnes w &&& x = x := by
+  simp [allOnes]
+
+theorem or_all_ones_w {w : Nat} (x : BitVec w) : x ||| allOnes w = allOnes w := by
+  simp [allOnes]
+
+theorem all_ones_or_w {w : Nat} (x : BitVec w) : allOnes w ||| x = allOnes w := by
+  simp [allOnes]
+
+/-! ### Complement laws, width-generic -/
+
+theorem and_not_self_w {w : Nat} (x : BitVec w) : x &&& (~~~x) = 0#w := by
+  simp
+
+theorem not_and_self_w {w : Nat} (x : BitVec w) : (~~~x) &&& x = 0#w := by
+  simp
+
+theorem or_not_self_w {w : Nat} (x : BitVec w) : x ||| (~~~x) = allOnes w := by
+  simp [allOnes]
+
+theorem not_or_self_w {w : Nat} (x : BitVec w) : (~~~x) ||| x = allOnes w := by
+  simp [allOnes]
+
+theorem xor_not_self_w {w : Nat} (x : BitVec w) : x ^^^ (~~~x) = allOnes w := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp [allOnes]
+  intro h
+  cases hx : x.getLsbD i <;> simp [h, hx]
+
+theorem not_xor_self_w {w : Nat} (x : BitVec w) : (~~~x) ^^^ x = allOnes w := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp [allOnes]
+  intro h
+  cases hx : x.getLsbD i <;> simp [h, hx]
+
+/-! ### Absorption laws, width-generic -/
+
+theorem and_or_absorb_w {w : Nat} (x y : BitVec w) : x &&& (x ||| y) = x := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp
+  intro _ h
+  simp [h]
+
+theorem and_or_absorb_right_w {w : Nat} (x y : BitVec w) : x &&& (y ||| x) = x := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp
+  intro _ h
+  simp [h]
+
+theorem or_and_absorb_w {w : Nat} (x y : BitVec w) : x ||| (x &&& y) = x := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp
+  intro _ h _
+  exact h
+
+theorem or_and_absorb_right_w {w : Nat} (x y : BitVec w) : x ||| (y &&& x) = x := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp
+
+theorem and_or_absorb_comm_w {w : Nat} (x y : BitVec w) : (x ||| y) &&& x = x := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp
+  intro _ h
+  simp [h]
+
+theorem and_or_absorb_comm_right_w {w : Nat} (x y : BitVec w) : (y ||| x) &&& x = x := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp
+  intro _ h
+  simp [h]
+
+theorem or_and_absorb_comm_w {w : Nat} (x y : BitVec w) : (x &&& y) ||| x = x := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp
+  intro _ h _
+  exact h
+
+theorem or_and_absorb_comm_right_w {w : Nat} (x y : BitVec w) : (y &&& x) ||| x = x := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp
+
+/-! ### De Morgan, width-generic -/
+
+theorem demorgan_not_and_w {w : Nat} (x y : BitVec w) :
+    ~~~(x &&& y) = (~~~x) ||| (~~~y) := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp
+  intro h
+  simp [h]
+
+theorem demorgan_or_not_not_w {w : Nat} (x y : BitVec w) :
+    (~~~x) ||| (~~~y) = ~~~(x &&& y) := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp
+  intro h
+  simp [h]
+
+theorem demorgan_not_or_w {w : Nat} (x y : BitVec w) :
+    ~~~(x ||| y) = (~~~x) &&& (~~~y) := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp
+  intro h
+  simp [h]
+
+theorem demorgan_and_not_not_w {w : Nat} (x y : BitVec w) :
+    (~~~x) &&& (~~~y) = ~~~(x ||| y) := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp
+  intro h
+  simp [h]
+
 /-! ### Complement laws -/
 
 theorem and_not_self_64 (x : BitVec 64) :

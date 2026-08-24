@@ -22,6 +22,21 @@ use crate::verify::lean_match::{
 pub const MAX_SIGNATURE_CERT_ROWS: usize = 4096;
 
 #[must_use]
+/// Name to cite for `theorem` at `bitwidth`.
+///
+/// At 64 the `_64` pack applies. Off 64 only the width-generic pack does, so
+/// cite the `_w` counterpart -- citing the `_64` name at another width emits a
+/// certificate that fails to replay, which is worse than emitting none.
+fn theorem_name_at(theorem: LeanTheorem, bitwidth: u32) -> &'static str {
+    if bitwidth == 64 {
+        theorem.lean_name()
+    } else {
+        theorem
+            .width_parametric_lean_name()
+            .unwrap_or_else(|| theorem.lean_name())
+    }
+}
+
 pub fn emit_expr(expr: &Expr) -> String {
     match &expr.kind {
         Kind::Constant(value) => format!("Cobra.Expr.const {value}"),
@@ -78,7 +93,7 @@ pub fn emit_bv_decide_certificate(name: &str, cert: &LeanCertificate) -> String 
     for (index, step) in cert.steps.iter().enumerate() {
         out.push_str(&format!(
             "  -- step {index}: theorem={}, context_frames={}\n",
-            step.theorem.lean_name(),
+            theorem_name_at(step.theorem, cert.bitwidth),
             step.context.frames.len()
         ));
     }
@@ -117,7 +132,7 @@ pub fn emit_step_chain_certificate(name: &str, cert: &LeanCertificate) -> Option
         ));
         out.push_str(&format!(
             "    -- step theorem: {}\n",
-            step.theorem.lean_name()
+            theorem_name_at(step.theorem, cert.bitwidth)
         ));
         out.push_str("    apply Cobra.Ctx.plug_preserves_sem_eq\n");
         if let Some(proof) = emit_direct_rewrite_step_proof(cert.bitwidth, step) {
@@ -139,7 +154,7 @@ fn emit_direct_rewrite_step_proof(bitwidth: u32, step: &CertStep) -> Option<Stri
     let args = theorem_eval_args(bitwidth, step.theorem, &step.before)?;
     Some(format!(
         "    intro env\n    simpa [Cobra.Expr.eval, Cobra.allOnes, BitVec.sub_eq_add_neg] using {}{}\n",
-        step.theorem.lean_name(),
+        theorem_name_at(step.theorem, bitwidth),
         args
     ))
 }

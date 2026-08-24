@@ -48,12 +48,14 @@ pub(crate) fn is_one(expr: &Expr) -> bool {
     is_const_value(expr, 1)
 }
 
-/// All-ones constant. Correct as the `~0` mask only at width 64; the Lean
-/// certificate entry points already gate to 64-bit + uniform-width, so this is
-/// never reached off-64.
+/// All-ones at `bitwidth`, not just at 64.
+///
+/// The hard-coded `u64::MAX` form meant `x | ~x -> -1` was recognized only at
+/// bitwidth 64: at 8 the all-ones constant is `0xFF`, so the match failed and
+/// no certificate was issued.
 #[must_use]
-pub(crate) fn is_all_ones(expr: &Expr) -> bool {
-    matches!(expr.kind, Kind::Constant(u64::MAX))
+pub(crate) fn is_all_ones_at(expr: &Expr, bitwidth: u32) -> bool {
+    matches!(expr.kind, Kind::Constant(v) if v == crate::core::arith::bitmask(bitwidth))
 }
 
 #[must_use]

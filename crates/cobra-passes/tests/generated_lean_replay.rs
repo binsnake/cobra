@@ -380,7 +380,13 @@ fn replay_direct_rewrite_theorem(name: &str, cert: &LeanCertificate, theorem: Le
         cert.bitwidth,
         cobra::verify::emit_expr(&cert.original),
         cobra::verify::emit_expr(&cert.simplified),
-        theorem.lean_name(),
+        if cert.bitwidth == 64 {
+            theorem.lean_name()
+        } else {
+            theorem
+                .width_parametric_lean_name()
+                .expect("off-64 certificates only cite width-generic theorems")
+        },
         args,
     );
     replay_lean(&format!("{name}_direct_theorem"), &source);
@@ -966,6 +972,67 @@ fn local_rewrite_theorem_matrix_replays_in_lean() {
         ),
     ] {
         replay_local_rewrite_seen(&mut seen, name, before, after, theorem);
+    }
+
+    // Every width-generic theorem must also replay at a non-64 width. This is
+    // the audit's M3 case: before the `_w` pack existed, no certificate could
+    // be produced at any width in 1..=63, so the public gate made every such
+    // input unsimplifiable.
+    for bw in [8u32, 16, 32] {
+        let x = Expr::variable(0);
+        let y = Expr::variable(1);
+        let cases: [(
+            &str,
+            std::sync::Arc<Expr>,
+            std::sync::Arc<Expr>,
+            LeanTheorem,
+        ); 5] = [
+            (
+                "w_and_not_self",
+                Expr::and(x.clone_tree(), Expr::not(x.clone_tree())),
+                Expr::constant(0),
+                LeanTheorem::AndNotSelf64,
+            ),
+            (
+                "w_and_or_absorb",
+                Expr::and(x.clone_tree(), Expr::or(x.clone_tree(), y.clone_tree())),
+                x.clone_tree(),
+                LeanTheorem::AndOrAbsorb64,
+            ),
+            (
+                "w_xor_self",
+                Expr::xor(x.clone_tree(), x.clone_tree()),
+                Expr::constant(0),
+                LeanTheorem::XorSelf64,
+            ),
+            (
+                "w_demorgan_not_and",
+                Expr::not(Expr::and(x.clone_tree(), y.clone_tree())),
+                Expr::or(Expr::not(x.clone_tree()), Expr::not(y.clone_tree())),
+                LeanTheorem::DemorganNotAnd64,
+            ),
+            (
+                "w_add_zero",
+                Expr::add(x.clone_tree(), Expr::constant(0)),
+                x.clone_tree(),
+                LeanTheorem::AddZero64,
+            ),
+        ];
+        for (label, before, after, theorem) in cases {
+            let cert = LeanCertificate::try_single_rewrite_between_64(
+                bw,
+                before.clone_tree(),
+                after.clone_tree(),
+            )
+            .unwrap_or_else(|| {
+                panic!("{label}: no certificate at bitwidth {bw} -- the width-generic pack should cover it")
+            });
+            assert!(
+                cert.replays_between(bw, &before, &after),
+                "{label}: certificate must validate at bitwidth {bw}"
+            );
+            replay_direct_rewrite_theorem(&format!("{label}_bw{bw}"), &cert, theorem);
+        }
     }
 
     let expected: HashSet<_> = LeanTheorem::RECOGNIZED_REWRITE_64.iter().copied().collect();
