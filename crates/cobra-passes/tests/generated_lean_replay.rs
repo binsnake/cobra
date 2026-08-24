@@ -1385,7 +1385,11 @@ fn replay_normalized_candidate_signature_case(
         lean_signature_certificate: None,
     };
 
-    let normalized = cobra::passes::candidate_normalize::normalize_candidate_record(record, 64);
+    let normalized = cobra::passes::candidate_normalize::normalize_candidate_record(
+        record,
+        64,
+        &mut std::collections::HashMap::default(),
+    );
     assert!(
         cobra::core::expr_cost::is_better(&normalized.cost, &original_cost),
         "{name}: normalization should produce fresh candidate evidence"

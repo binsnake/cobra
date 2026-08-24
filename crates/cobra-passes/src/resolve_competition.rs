@@ -208,6 +208,7 @@ fn submit_and_release_parent(
 ) -> Vec<WorkItem> {
     submit_normalized_candidate(
         &mut ctx.competition_groups,
+        &mut ctx.normalize_cache,
         parent_group_id,
         record,
         ctx.bitwidth,
@@ -733,6 +734,7 @@ fn resolve_residual_recombine(
         };
         submit_normalized_candidate(
             &mut ctx.competition_groups,
+            &mut ctx.normalize_cache,
             parent_gid,
             record,
             ctx.bitwidth,
@@ -913,6 +915,7 @@ fn resolve_lifted_substitute(
         };
         submit_normalized_candidate(
             &mut ctx.competition_groups,
+            &mut ctx.normalize_cache,
             parent_gid,
             record,
             ctx.bitwidth,

@@ -55,6 +55,14 @@ pub struct RunMetadata {
 
 /// Memo keyed by `(structural hash, num_vars, bitwidth)`. The expression is
 /// stored beside the signature so a hash collision resolves to a miss.
+/// Memo keyed by `(structural hash, bitwidth)`; the pre-normalization
+/// expression is stored beside the result so a hash collision resolves to a
+/// miss.
+pub type NormalizeCache = std::collections::HashMap<
+    (u64, u32),
+    (Arc<crate::core::expr::Expr>, Arc<crate::core::expr::Expr>),
+>;
+
 pub type BooleanSigCache =
     std::collections::HashMap<(u64, u32, u32), (Arc<crate::core::expr::Expr>, Vec<u64>)>;
 
@@ -86,6 +94,12 @@ pub struct OrchestratorContext {
     /// expression is stored alongside so a hash collision resolves to a miss
     /// rather than to the wrong signature.
     pub boolean_sig_cache: BooleanSigCache,
+    /// Memo for `normalize_late_candidate_expr`, keyed by structural hash
+    /// plus bitwidth, expression stored beside so a collision misses. Several
+    /// solver passes submit the same candidate within one run, and the
+    /// normalization (pattern-subtree walk plus atom identities) is the
+    /// dominant per-candidate cost on small inputs.
+    pub normalize_cache: NormalizeCache,
 }
 
 impl OrchestratorContext {
@@ -107,6 +121,7 @@ impl OrchestratorContext {
             join_states: JoinMap::with_hasher(determinism_seeds_ahash()),
             next_join_id: 0,
             boolean_sig_cache: BooleanSigCache::default(),
+            normalize_cache: NormalizeCache::default(),
         }
     }
 }

@@ -180,7 +180,7 @@ fn seed_rewrite_certificate(
     bitwidth: u32,
     pattern_cert: Option<LeanCertificate>,
 ) -> Option<LeanCertificate> {
-    if original == rewritten || bitwidth != 64 {
+    if original == rewritten {
         return None;
     }
 

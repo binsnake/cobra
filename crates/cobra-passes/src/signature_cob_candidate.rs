@@ -115,6 +115,7 @@ pub fn run_signature_cob_candidate(
 
     submit_normalized_candidate(
         &mut ctx.competition_groups,
+        &mut ctx.normalize_cache,
         group_id,
         CandidateRecord {
             expr,

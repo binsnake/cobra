@@ -25,22 +25,25 @@ struct DegreeInfo {
 /// Returns an error if `bitwidth` is out of range, or if the 2-adic
 /// divisibility check fails for any variable (meaning that variable's
 /// slice is not a genuine polynomial at the requested degree cap).
-pub fn recover_singleton_powers(
-    eval: &Evaluator,
-    num_vars: u32,
-    bitwidth: u32,
-) -> Result<SingletonPowerResult> {
-    if !(2..=64).contains(&bitwidth) {
-        return Err(err(
-            CobraError::NoReduction,
-            format!("recover_singleton_powers: bitwidth must be 2..64, got {bitwidth}"),
-        ));
+/// Per-bitwidth degree table, cached across calls.
+///
+/// The table depends only on the bitwidth: two-adic valuations of `k!`, the
+/// odd parts' modular inverses, and the per-degree precision bands. Building
+/// it costs `O(degree_cap^2)` odd-part multiplications plus one Newton
+/// inversion per degree (~67 of each at bitwidth 64), which dominated this
+/// pass's cost when many expressions were evaluated in quick succession. At
+/// most 63 widths exist, so the leak is bounded.
+fn cached_degree_info(bitwidth: u32, max_degree: u32) -> &'static [DegreeInfo] {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+
+    static CACHE: OnceLock<Mutex<HashMap<u32, &'static [DegreeInfo]>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().expect("degree-info cache poisoned");
+    if let Some(&slice) = guard.get(&bitwidth) {
+        return slice;
     }
-
-    let max_degree = degree_cap(bitwidth);
-    let mask = bitmask(bitwidth);
-
-    let info: Vec<DegreeInfo> = (0..max_degree)
+    let built: Vec<DegreeInfo> = (0..max_degree)
         .map(|k| {
             if k == 0 {
                 DegreeInfo {
@@ -60,6 +63,26 @@ pub fn recover_singleton_powers(
             }
         })
         .collect();
+    let leaked: &'static [DegreeInfo] = Box::leak(built.into_boxed_slice());
+    guard.insert(bitwidth, leaked);
+    leaked
+}
+
+pub fn recover_singleton_powers(
+    eval: &Evaluator,
+    num_vars: u32,
+    bitwidth: u32,
+) -> Result<SingletonPowerResult> {
+    if !(2..=64).contains(&bitwidth) {
+        return Err(err(
+            CobraError::NoReduction,
+            format!("recover_singleton_powers: bitwidth must be 2..64, got {bitwidth}"),
+        ));
+    }
+
+    let max_degree = degree_cap(bitwidth);
+    let mask = bitmask(bitwidth);
+    let info = cached_degree_info(bitwidth, max_degree);
 
     let mut result = SingletonPowerResult {
         num_vars,

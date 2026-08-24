@@ -149,6 +149,7 @@ pub fn run_signature_bitwise_decompose(
             };
             submit_normalized_candidate(
                 &mut ctx.competition_groups,
+                &mut ctx.normalize_cache,
                 parent_group_id,
                 CandidateRecord {
                     expr: composed,

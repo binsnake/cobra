@@ -279,9 +279,6 @@ pub fn simplify_atom_certified(
     bitwidth: u32,
 ) -> (Arc<Expr>, Option<LeanCertificate>) {
     let expected = simplify_atom(atom.clone_tree(), bitwidth);
-    if bitwidth != 64 {
-        return (expected, None);
-    }
 
     let original = atom.clone_tree();
     let mut current = atom;

@@ -1206,6 +1206,13 @@ impl LeanCertificate {
         if !is_valid_certificate_bitwidth(bitwidth) {
             return None;
         }
+        // Identity fast path: equal endpoints certify with an empty chain
+        // (`replays_between` accepts empty steps exactly when the endpoints
+        // are equal). Beyond the throughput win, this also certifies
+        // identities that the single-rewrite search cannot express.
+        if *original == *simplified {
+            return Some(Self::new(bitwidth, original, simplified));
+        }
 
         fn go(
             bitwidth: u32,

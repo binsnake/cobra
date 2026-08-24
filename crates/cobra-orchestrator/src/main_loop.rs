@@ -231,11 +231,13 @@ pub fn run_main_loop(
         };
         telemetry.passes_attempted.push(pass_id);
 
+        let pass_started = std::time::Instant::now();
         let pr = (desc.run)(&item, ctx)?;
         if std::env::var_os("COBRA_TRACE_PASSES").is_some() {
             eprintln!(
-                "[trace] pass={:?} decision={:?} state_after={:?} reason={:?}",
+                "[trace] pass={:?} us={} decision={:?} state_after={:?} reason={:?}",
                 pass_id,
+                pass_started.elapsed().as_nanos() / 1000,
                 pr.decision,
                 pr.next.first().map(|w| w.payload.kind()),
                 pr.reason.top.message,

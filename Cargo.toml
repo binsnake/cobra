@@ -69,6 +69,14 @@ path = "crates/cobra-passes/tests/upstream_simplifier.rs"
 name = "datasets"
 path = "crates/cobra-testkit/tests/datasets.rs"
 
+[[test]]
+name = "batch_throughput"
+path = "crates/cobra-testkit/tests/batch_throughput.rs"
+
+[[test]]
+name = "phasebench"
+path = "crates/cobra-testkit/tests/phasebench.rs"
+
 [features]
 default = ["simd"]
 # Enable the portable-SIMD (`wide`) gate-kernel backend.

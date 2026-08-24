@@ -122,10 +122,6 @@ fn xor_lowering_certificate(
     simplified: Arc<Expr>,
     bitwidth: u32,
 ) -> Option<LeanCertificate> {
-    if bitwidth != 64 {
-        return None;
-    }
-
     let mut current = original;
     let mut chain: Option<LeanCertificate> = None;
     for _ in 0..64 {
@@ -133,7 +129,8 @@ fn xor_lowering_certificate(
             return chain;
         }
         let (path, after) = find_first_xor_lowering_rewrite(&current)?;
-        let step = LeanCertificate::try_single_rewrite_64(64, current.clone_tree(), path, after)?;
+        let step =
+            LeanCertificate::try_single_rewrite_64(bitwidth, current.clone_tree(), path, after)?;
         current = step.simplified.clone_tree();
         chain = match chain {
             Some(prev) => prev.merge_step_chain(step),

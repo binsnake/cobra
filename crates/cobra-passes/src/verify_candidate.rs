@@ -11,6 +11,7 @@ use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame, VerificationState,
 };
 use crate::core::result::Result;
+use crate::core::spot_check::CheckResult;
 use std::sync::Arc;
 
 use crate::orchestrator::{
@@ -21,6 +22,7 @@ use crate::orchestrator::{
 use crate::passes::spot_check::verify_in_original_space;
 
 #[allow(clippy::unnecessary_wraps)]
+#[allow(clippy::too_many_lines)]
 pub fn run_verify_candidate(item: &WorkItem, ctx: &mut OrchestratorContext) -> Result<PassResult> {
     let StateData::Candidate(cand) = &item.payload else {
         return Ok(PassResult {
@@ -61,13 +63,30 @@ pub fn run_verify_candidate(item: &WorkItem, ctx: &mut OrchestratorContext) -> R
         });
     };
 
-    let check = verify_in_original_space(
-        eval,
-        &ctx.original_vars,
-        &cand.real_vars,
-        &cand.expr,
-        ctx.bitwidth,
-    );
+    // Identity fast path: a candidate that IS the original (same tree, same
+    // variable space) is equivalent to it by reflexivity; the probe schedule
+    // and its allocations are pure overhead. Frequent in batch use, where
+    // already-minimal inputs re-derive themselves.
+    let is_identity = cand.real_vars == ctx.original_vars
+        && ctx
+            .original_expr
+            .as_ref()
+            .is_some_and(|original| **original == *cand.expr);
+
+    let check = if is_identity {
+        CheckResult {
+            passed: true,
+            failing_input: Vec::new(),
+        }
+    } else {
+        verify_in_original_space(
+            eval,
+            &ctx.original_vars,
+            &cand.real_vars,
+            &cand.expr,
+            ctx.bitwidth,
+        )
+    };
 
     if check.passed {
         let certificate = remapped_endpoint_certificate(ctx, &cand.expr, &cand.real_vars);

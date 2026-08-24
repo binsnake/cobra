@@ -117,6 +117,7 @@ pub fn run_signature_multivar_poly_recovery(
 
     submit_normalized_candidate(
         &mut ctx.competition_groups,
+        &mut ctx.normalize_cache,
         group_id,
         CandidateRecord {
             expr,

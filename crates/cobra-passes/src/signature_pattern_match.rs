@@ -93,6 +93,7 @@ pub fn run_signature_pattern_match(
     if let Some(gid) = item.group_id {
         submit_normalized_candidate(
             &mut ctx.competition_groups,
+            &mut ctx.normalize_cache,
             gid,
             CandidateRecord {
                 expr: matched,

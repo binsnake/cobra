@@ -1400,9 +1400,6 @@ pub fn simplify_pattern_subtrees_certified(
     let mut log: Vec<(ExprPath, Arc<Expr>)> = Vec::new();
     let expected =
         simplify_pattern_subtrees_logged(expr.clone_tree(), bitwidth, &mut Vec::new(), &mut log);
-    if bitwidth != 64 {
-        return (expected, None);
-    }
 
     let mut current = expr;
     let mut chain: Option<LeanCertificate> = None;

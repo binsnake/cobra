@@ -476,6 +476,11 @@ mod tests {
 
     #[test]
     fn signature_certificate_does_not_upgrade_public_proof_level() {
+        // The produced expression must differ from the original and admit no
+        // endpoint certificate: an identity pair would now be certified by
+        // the empty-chain fast path, which is a genuine endpoint certificate
+        // and not the signature-certificate upgrade this test pins down.
+        let original = Expr::add(Expr::variable(0), Expr::variable(1));
         let expr = Expr::variable(0);
         let mut metadata = ItemMetadata {
             verification: VerificationState::Verified,
@@ -491,7 +496,7 @@ mod tests {
         let result = LoopResult {
             outcome: PassOutcome::success(
                 expr.clone_tree(),
-                vec!["x".into()],
+                vec!["x".into(), "y".into()],
                 VerificationState::Verified,
             ),
             metadata,
@@ -499,7 +504,13 @@ mod tests {
             telemetry: OrchestratorTelemetry::default(),
         };
 
-        let outcome = to_simplify_outcome(result, Some(&expr), 64, &["x".into()], true);
+        let outcome = to_simplify_outcome(
+            result,
+            Some(&original),
+            64,
+            &["x".into(), "y".into()],
+            false,
+        );
         assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
         assert!(!outcome.verified);
     }

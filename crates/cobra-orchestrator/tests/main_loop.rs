@@ -59,7 +59,12 @@ fn verified_candidate_without_public_certificate_returned_but_not_publicly_verif
 }
 
 #[test]
-fn verified_original_space_candidate_without_endpoint_certificate_is_not_publicly_verified() {
+fn verified_original_space_identity_candidate_is_lean_certified() {
+    // A verified candidate identical to the original is certified by the
+    // empty-chain identity fast path, so the outcome is publicly verified.
+    // (The scenario this test used to pin -- an original-space identity with
+    // no obtainable certificate -- no longer exists; the uncertified case is
+    // covered by the reduced-space sibling below.)
     let original = Expr::add(Expr::variable(0), Expr::variable(1));
     let mut ctx = OrchestratorContext::new(Options::default(), vec!["x".into(), "y".into()], 64);
     ctx.original_expr = Some(original.clone_tree());
@@ -76,8 +81,8 @@ fn verified_original_space_candidate_without_endpoint_certificate_is_not_publicl
     .unwrap();
 
     assert_eq!(outcome.kind, SimplifyOutcomeKind::Simplified);
-    assert!(!outcome.verified);
-    assert_eq!(outcome.proof_level, ProofLevel::SpotChecked);
+    assert!(outcome.verified);
+    assert_eq!(outcome.proof_level, ProofLevel::LeanCertified);
 }
 
 #[test]

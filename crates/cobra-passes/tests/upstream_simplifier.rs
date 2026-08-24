@@ -556,7 +556,10 @@ fn dynamic_mask_rejects_shr_optimization_but_still_verifies() {
     // there is no longer a differing candidate for the gate to reject, so the
     // trivially-unchanged result takes the other branch.
     assert_eq!(out.expr.as_deref(), Some(masked.as_ref()));
-    assert!(!out.verified);
+    // An output identical to the input now carries the empty-chain identity
+    // certificate, so it is publicly verified -- reflexivity is the one
+    // equivalence that needs no probing.
+    assert!(out.verified);
 
     let eval = Evaluator::from_expr(&masked, 64);
     let check = full_width_check_eval(

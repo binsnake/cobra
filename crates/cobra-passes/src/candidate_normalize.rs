@@ -4,6 +4,8 @@ use crate::core::evaluate_boolean_signature;
 use crate::core::expr::Expr;
 use crate::core::expr_cost::compute_cost;
 use crate::core::pass_contract::VerificationState;
+use crate::orchestrator::context::NormalizeCache;
+use crate::orchestrator::expr_identity_hash;
 use crate::orchestrator::{
     submit_candidate, CandidateRecord, GroupId, GroupMap, LeanCertificate, LeanSignatureCertificate,
 };
@@ -25,9 +27,23 @@ pub fn merge_certificate(
 }
 
 #[must_use]
-pub fn normalize_candidate_record(mut record: CandidateRecord, bitwidth: u32) -> CandidateRecord {
+pub fn normalize_candidate_record(
+    mut record: CandidateRecord,
+    bitwidth: u32,
+    cache: &mut NormalizeCache,
+) -> CandidateRecord {
     let before = record.expr.clone_tree();
-    record.expr = normalize_late_candidate_expr(record.expr, bitwidth);
+    let key = (expr_identity_hash(&record.expr), bitwidth);
+    record.expr = match cache.get(&key) {
+        Some((cached_input, normalized)) if **cached_input == *record.expr => {
+            normalized.clone_tree()
+        }
+        _ => {
+            let normalized = normalize_late_candidate_expr(record.expr.clone_tree(), bitwidth);
+            cache.insert(key, (before.clone_tree(), normalized.clone_tree()));
+            normalized
+        }
+    };
     if *record.expr != *before {
         record.verification = VerificationState::Unverified;
         record.needs_original_space_verification = true;
@@ -45,11 +61,12 @@ pub fn normalize_candidate_record(mut record: CandidateRecord, bitwidth: u32) ->
 
 pub fn submit_normalized_candidate(
     groups: &mut GroupMap,
+    cache: &mut NormalizeCache,
     group_id: GroupId,
     record: CandidateRecord,
     bitwidth: u32,
 ) -> bool {
-    let record = normalize_candidate_record(record, bitwidth);
+    let record = normalize_candidate_record(record, bitwidth, cache);
     if record.verification == VerificationState::Verified
         && record.lean_signature_certificate.is_none()
     {
@@ -106,7 +123,7 @@ mod tests {
             lean_signature_certificate: None,
         };
 
-        let normalized = normalize_candidate_record(record, 64);
+        let normalized = normalize_candidate_record(record, 64, &mut NormalizeCache::default());
         assert_eq!(normalized.verification, VerificationState::Unverified);
         assert!(normalized.needs_original_space_verification);
         assert!(normalized.lean_certificate.is_none());
@@ -118,6 +135,7 @@ mod tests {
         groups.insert(0, crate::orchestrator::CompetitionGroup::default());
         let submitted = submit_normalized_candidate(
             &mut groups,
+            &mut NormalizeCache::default(),
             0,
             CandidateRecord {
                 expr: Expr::variable(0),
@@ -143,6 +161,7 @@ mod tests {
         groups.insert(0, crate::orchestrator::CompetitionGroup::default());
         let submitted = submit_normalized_candidate(
             &mut groups,
+            &mut NormalizeCache::default(),
             0,
             CandidateRecord {
                 expr: Expr::variable(0),

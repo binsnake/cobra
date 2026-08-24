@@ -102,10 +102,6 @@ fn lower_not_over_arith_certified(
     expr: &Expr,
     bitwidth: u32,
 ) -> (Arc<Expr>, Option<LeanCertificate>) {
-    if bitwidth != 64 {
-        return (lower_not_over_arith(expr.clone_tree(), bitwidth), None);
-    }
-
     let mut current = expr.clone_tree();
     let mut chain: Option<LeanCertificate> = None;
 
