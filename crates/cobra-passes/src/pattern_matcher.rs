@@ -729,6 +729,7 @@ pub fn try_simplify_two_var_pattern_sum(
 
     let mut best: Option<Arc<Expr>> = None;
     let mut best_cost = baseline_cost;
+    let mut ranked: Vec<(ExprCost, Arc<Expr>)> = Vec::new();
 
     for i in 0..basis.len() {
         for j in (i + 1)..basis.len() {
@@ -778,13 +779,35 @@ pub fn try_simplify_two_var_pattern_sum(
                     if !is_better(&candidate_cost, &best_cost) {
                         continue;
                     }
-                    if !verify(&candidate) {
-                        continue;
-                    }
-                    best = Some(candidate);
+                    // Rank by cost inside the nest and verify afterwards. The
+                    // caller's `verify` builds an Evaluator over the entire
+                    // subtree and runs a full-width check, and only `best` is
+                    // ever returned -- so every candidate immediately
+                    // superseded by a cheaper one paid for a verification
+                    // nobody used.
                     best_cost = candidate_cost;
+                    ranked.push((candidate_cost, candidate));
                 }
             }
+        }
+    }
+
+    // Verify cheapest-first, taking the first that holds. Falling back to the
+    // next-best preserves the old semantics: a candidate that fails
+    // verification must not shadow a costlier one that passes.
+    ranked.sort_by(|a, b| {
+        if is_better(&a.0, &b.0) {
+            std::cmp::Ordering::Less
+        } else if is_better(&b.0, &a.0) {
+            std::cmp::Ordering::Greater
+        } else {
+            std::cmp::Ordering::Equal
+        }
+    });
+    for (_, candidate) in ranked {
+        if verify(&candidate) {
+            best = Some(candidate);
+            break;
         }
     }
 

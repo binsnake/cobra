@@ -787,6 +787,27 @@ fn layer4(
                     }
                 }
 
+                // Audit finding P1 proposes grouping `bi` by probe-0 value so
+                // this bucket scan runs once per distinct value, or building a
+                // second index keyed for the And/Or case. Both were built and
+                // measured on the audit's own benchmark (gamba/neureduce line
+                // 30, 5 vars) and neither pays:
+                //
+                //   * grouping: 4977 lookups, 4977 misses -- a 0% hit rate,
+                //     because probe-0 values are effectively unique per atom,
+                //     so the memo never fires and only adds map overhead
+                //     (12.1s -> 13.2s over 35 cases).
+                //   * a keyed index: the predicate is `key & b0 == t0` for And
+                //     and `b0 | key == t0` for Or -- masked-equality queries,
+                //     not point lookups, so a map keyed on `key` cannot answer
+                //     them. The exact necessary conditions (`t0 & !b0 == 0`,
+                //     `b0 & !t0 == 0`) were added as an O(1) pre-filter and
+                //     skipped 0 of 4977 scans.
+                //
+                // Left as-is deliberately. Making this faster needs a
+                // structure that answers subset/superset queries (a trie over
+                // key bits, say), which is a larger change than the finding
+                // describes.
                 for &g2 in &[Gate::And, Gate::Or] {
                     for bi in 0..pn {
                         if !compatible(&pool[bi].vals, &lifted, g2) {
