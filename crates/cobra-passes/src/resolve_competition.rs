@@ -588,6 +588,7 @@ fn resolve_product_collapse(
         return pr;
     }
 
+    let mut transferred = false;
     if let (Some(x_w), Some(y_w)) = (&join.x_winner, &join.y_winner) {
         let candidate = Expr::mul(x_w.expr.clone_tree(), y_w.expr.clone_tree());
         let bw = join.bitwidth;
@@ -600,9 +601,25 @@ fn resolve_product_collapse(
                 if let Some(candidate) =
                     emit_join_candidate_product(&join, item, candidate, x_w.source_pass)
                 {
+                    // The candidate carries `parent_group_id`, so it takes
+                    // ownership of this join's handle.
+                    transferred = true;
                     pr.decision = PassDecision::SolvedCandidate;
                     pr.next.push(candidate);
                 }
+            }
+        }
+    }
+
+    // Release-or-transfer, on every terminal exit. The four failure paths --
+    // winner missing, check failed, cost not better, and the certificate `?`
+    // inside emit_join_candidate_product -- all leave `pr.next` empty, and
+    // without this the parent group sits at a non-zero handle count forever
+    // with its accumulated candidates unreachable.
+    if !transferred {
+        if let Some(gid) = join.parent_group_id {
+            if let Some(resolved) = release_handle(&mut ctx.competition_groups, gid) {
+                pr.next.push(resolved);
             }
         }
     }

@@ -14,6 +14,7 @@ use crate::core::expr::{Expr, Kind};
 use crate::core::expr_cost::compute_cost;
 use crate::core::pass_contract::ReasonDetail;
 use crate::core::result::Result;
+use crate::orchestrator::competition::{acquire_handle, release_handle};
 
 use crate::orchestrator::{
     create_group, create_join, expr_identity_hash, AstSolveContext, ContinuationData,
@@ -173,6 +174,7 @@ pub fn run_product_identity_collapse(
     let has_solve_ctx = solve_ctx.is_some();
 
     let mut next: Vec<WorkItem> = Vec::new();
+    let mut joins_created = 0usize;
     let indices: Vec<u32> = (0..num_vars).collect();
     for assign in assignments {
         let join = ProductJoinState {
@@ -200,6 +202,16 @@ pub fn run_product_identity_collapse(
             &mut ctx.next_join_id,
             JoinState::Product(Box::new(join)),
         );
+        // Every join will eventually release-or-transfer one parent handle in
+        // `resolve_product_collapse`, so each needs its own. The validity
+        // predicate is symmetric in l/r and ASSIGNMENTS pairs every entry with
+        // its mirror, so this count is never 1 in practice; without the
+        // acquire the second join hits `debug_assert!(open_handles > 0)` and
+        // emits a duplicate CompetitionResolved.
+        if let Some(gid) = item.group_id {
+            acquire_handle(&mut ctx.competition_groups, gid);
+        }
+        joins_created += 1;
 
         let mut emit_factor = |sig: Vec<u64>, role: FactorRole, ctx: &mut OrchestratorContext| {
             let group_id = create_group(&mut ctx.competition_groups, &mut ctx.next_group_id, None);
@@ -248,6 +260,16 @@ pub fn run_product_identity_collapse(
 
         emit_factor(assign.sig_x, FactorRole::X, ctx);
         emit_factor(assign.sig_y, FactorRole::Y, ctx);
+    }
+
+    // This pass returns ConsumeCurrent, so the handle the current item held is
+    // going away. The per-join handles acquired above replace it. Guarded on
+    // having created at least one join, so the release can never take the
+    // count to zero here.
+    if joins_created > 0 {
+        if let Some(gid) = item.group_id {
+            let _ = release_handle(&mut ctx.competition_groups, gid);
+        }
     }
 
     let _ = AstSolveContext::default;

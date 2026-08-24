@@ -16,6 +16,7 @@ use crate::core::expr_cost::compute_cost;
 use crate::core::pass_contract::{ReasonDetail, SolverResult};
 use crate::core::result::Result;
 use crate::core::simplify_outcome::Options;
+use crate::orchestrator::competition::acquire_handle;
 use std::sync::Arc;
 
 use crate::orchestrator::{
@@ -182,6 +183,11 @@ pub fn run_extractor(
                         }
                     } else {
                         let mut next = item.clone();
+                        if let Some(gid) = next.group_id {
+                            // Same double-ownership as the CoreCandidate site
+                            // below: cloned item plus RetainCurrent.
+                            acquire_handle(&mut ctx.competition_groups, gid);
+                        }
                         next.payload = StateData::Candidate(Box::new(CandidatePayload {
                             expr: core.expr,
                             real_vars: active_vars.clone(),
@@ -231,10 +237,18 @@ pub fn run_extractor(
                 target,
             };
 
+            // The clone inherits `item.group_id`, and the disposition is
+            // RetainCurrent, so two live items own one competition handle.
+            // Acquire a second so the count matches the number of owners;
+            // otherwise the group resolves early and later, cheaper
+            // candidates are dropped by `submit_candidate`.
             let mut next = item.clone();
             next.payload = StateData::CoreCandidate(Box::new(payload));
             next.metadata.lean_certificate = None;
             next.metadata.lean_signature_certificate = None;
+            if let Some(gid) = next.group_id {
+                acquire_handle(&mut ctx.competition_groups, gid);
+            }
 
             Ok(PassResult {
                 decision: PassDecision::Advance,

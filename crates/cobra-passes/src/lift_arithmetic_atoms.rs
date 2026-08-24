@@ -9,6 +9,7 @@ use crate::core::pass_contract::{
     ReasonCategory, ReasonCode, ReasonDetail, ReasonDomain, ReasonFrame,
 };
 use crate::core::result::Result;
+use crate::orchestrator::competition::acquire_handle;
 
 use crate::orchestrator::{
     AstSolveContext, ItemDisposition, LiftedSkeletonPayload, LiftedValueKind, OrchestratorContext,
@@ -123,6 +124,10 @@ pub fn run_lift_arithmetic_atoms(
     // Carry the source item's competition group so a nested lift chains back
     // to it (see `prepare_lifted_outer_solve` / `resolve_lifted_substitute`).
     skel_item.group_id = item.group_id;
+    // Two live owners of one handle: this item plus the retained current one.
+    if let Some(gid) = skel_item.group_id {
+        acquire_handle(&mut ctx.competition_groups, gid);
+    }
     skel_item.history.clone_from(&item.history);
 
     Ok(PassResult {
