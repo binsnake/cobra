@@ -330,6 +330,15 @@ struct InnerCompositions {
     mul_probe0_buckets: HashMap<u64, Vec<usize>>,
 }
 
+/// Ceiling on the inner-composition table.
+///
+/// The table is `O(ALL_GATES * pool^2 / 2)` and was unbounded, so its size
+/// grows quadratically in the atom pool with no backstop -- and every layer-4
+/// bucket scan walks it. Capping trades a slightly smaller search space for a
+/// bound on both memory and the scan cost. Sized well above what the bundled
+/// datasets reach, so it only engages on pathological pools.
+const MAX_INNER_COMPOSITIONS: usize = 1 << 18;
+
 fn build_inner_compositions(pool: &[Atom], vmap: &ValMap, mask: u64) -> InnerCompositions {
     let mut inner = InnerCompositions::default();
     let pn = pool.len();
@@ -348,6 +357,9 @@ fn build_inner_compositions(pool: &[Atom], vmap: &ValMap, mask: u64) -> InnerCom
                     continue;
                 }
                 let slot = inner.comps.len();
+                if slot >= MAX_INNER_COMPOSITIONS {
+                    return inner;
+                }
                 inner.index.insert(&v, slot);
                 inner
                     .mul_probe0_buckets
@@ -881,6 +893,22 @@ fn layer4(
                         }
                         continue;
                     }
+                    // Audit finding P7 proposes re-bucketing by reduced residue
+                    // so this fallback disappears. Measured first: the solver
+                    // takes the fast bucket path 3,466,265 times and falls back
+                    // here 575 times, but each fallback walks the whole
+                    // ~102k-entry table -- 58.7M iterations. That sounds
+                    // decisive and is not: `mul_matches` short-circuits at
+                    // probe 0 after one multiply, so skipping the fallback
+                    // entirely (losing its search coverage) moves the wall
+                    // clock only 8.49s -> 8.14s, a 3.6% ceiling.
+                    //
+                    // Left as-is. The design for that 3.6%, if wanted: the
+                    // solution set is a residue class mod 2^reduced_bits, and
+                    // residue classes are contiguous if the table is sorted by
+                    // bit-reversed probe-0 value -- so one binary search
+                    // replaces the scan, without the 64 separate indices a
+                    // naive per-modulus bucketing would need.
                     for ii in 0..inn {
                         if !mul_matches(&pool[bi].vals, &inner[ii].vals, &lifted, mask, 0) {
                             continue;
