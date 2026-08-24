@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use crate::core::compiled::{compile, eval, CompiledExpr};
+use crate::core::compiled::{compile, eval, CompiledExpr, Opcode};
 use crate::core::expr::Expr;
 
 /// actual tracing integration is added in `cobra-analysis` / the `tracing`
@@ -180,6 +180,34 @@ impl Evaluator {
             None => acc = mix64(acc, 0),
         }
         acc
+    }
+
+    /// Append every constant and shift amount embedded in the evaluated
+    /// program to the caller's buffers.
+    ///
+    /// Spot-check probe sets are built from the constants an expression
+    /// mentions, which is how adversarial "trap" values reach the gate. The
+    /// original is often available only as an `Evaluator`, so its constants
+    /// have to be recovered from the compiled program rather than an `Expr`
+    /// tree; see `cobra-core::spot_check::full_width_check_eval`.
+    ///
+    /// Closure-backed evaluators have an opaque body and contribute nothing.
+    pub fn collect_constants_and_shifts(
+        &self,
+        constants: &mut Vec<u64>,
+        shift_amounts: &mut Vec<u64>,
+    ) {
+        let Some(EvalBody::Compiled(c)) = &self.body else {
+            return;
+        };
+        for instr in &c.program {
+            match instr.op {
+                Opcode::Constant => constants.push(instr.operand),
+                // `Shr` packs the shift amount into the low 32 bits.
+                Opcode::Shr => shift_amounts.push(instr.operand & 0xFFFF_FFFF),
+                _ => {}
+            }
+        }
     }
 
     /// Evaluate with a fresh internal workspace. For repeated calls on the

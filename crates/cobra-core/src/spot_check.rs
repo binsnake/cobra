@@ -149,7 +149,15 @@ pub fn full_width_check_eval(
         return CheckResult::default();
     }
 
-    let expr_constants = build_expr_derived_probes(None, Some(simplified), bitwidth);
+    // Probe the constants of BOTH sides. The original is an `Evaluator`
+    // rather than an `Expr`, so its constants come out of the compiled
+    // program; omitting them let a candidate that differs from the original
+    // only at an original-only trap constant pass this gate unchallenged.
+    let mut raw = Vec::new();
+    let mut shifts = Vec::new();
+    eval_original.collect_constants_and_shifts(&mut raw, &mut shifts);
+    collect_constants_and_shifts(simplified, &mut raw, &mut shifts);
+    let expr_constants = derive_probes(raw, shifts, bitwidth);
     let mut simplified_stack: Vec<u64> = Vec::with_capacity(simplified_prog.stack_size);
     let mut original_workspace = Workspace::default();
 
@@ -336,7 +344,6 @@ fn build_expr_derived_probes(
     expr_b: Option<&Expr>,
     bitwidth: u32,
 ) -> Vec<u64> {
-    let mask = bitmask(bitwidth);
     let mut raw = Vec::new();
     let mut shifts = Vec::new();
     if let Some(expr) = expr_a {
@@ -345,7 +352,12 @@ fn build_expr_derived_probes(
     if let Some(expr) = expr_b {
         collect_constants_and_shifts(expr, &mut raw, &mut shifts);
     }
+    derive_probes(raw, shifts, bitwidth)
+}
 
+/// Expand collected constants and shift amounts into the probe set.
+fn derive_probes(mut raw: Vec<u64>, mut shifts: Vec<u64>, bitwidth: u32) -> Vec<u64> {
+    let mask = bitmask(bitwidth);
     for value in &mut raw {
         *value &= mask;
     }
@@ -650,6 +662,22 @@ mod tests {
         );
         let r = full_width_check_eval(&eval, 1, &simplified, 16, 0);
         assert!(!r.passed);
+        assert_eq!(r.failing_input, vec![0x1234]);
+    }
+
+    #[test]
+    fn original_only_constant_probe_catches_trap_candidate() {
+        // `((x ^ 0x1234) | -(x ^ 0x1234)) >> 63` is 1 everywhere except at
+        // x == 0x1234, where it is 0. The trap constant lives only in the
+        // ORIGINAL, so a probe set derived from the candidate alone never
+        // reaches it and the candidate `1` slips through the gate.
+        let trap = Expr::xor(Expr::variable(0), Expr::constant(0x1234));
+        let original = Expr::shr(Expr::or(trap.clone(), Expr::neg(trap)), 63);
+        let eval = Evaluator::from_expr(&original, 64);
+        let candidate = Expr::constant(1);
+
+        let r = full_width_check_eval(&eval, 1, &candidate, 64, 256);
+        assert!(!r.passed, "trap-constant candidate must be rejected");
         assert_eq!(r.failing_input, vec![0x1234]);
     }
 

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2026-08-24
 
+### Fixed
+
+- `full_width_check_eval` now derives its probe points from the original's
+  constants as well as the candidate's. It previously passed `None` for the
+  original, so a candidate differing from the original only at a constant that
+  appears solely in the original was accepted. Three rewrite sites use this
+  check as their only acceptance gate. The original's constants are recovered
+  from its compiled program via the new
+  `Evaluator::collect_constants_and_shifts`.
+
 ### Changed
 
 - `clap` is now an optional dependency behind the new `cli` feature, which is
