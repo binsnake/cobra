@@ -24,6 +24,7 @@
     clippy::too_many_lines
 )]
 
+use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -100,16 +101,29 @@ fn gate_expr(g: Gate, a: Arc<Expr>, b: Arc<Expr>) -> Arc<Expr> {
 // ProbeVals — fixed-width 16-probe sample of an expression.
 // ---------------------------------------------------------------
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, PartialEq, Eq)]
 struct ProbeVals([u64; N_PROBES]);
 
 impl ProbeVals {
+    /// Hash of the full probe vector.
+    ///
+    /// The previous fold combined `v * (K + i)` across the lanes with xor.
+    /// Those
+    /// multipliers are XOR-linearly dependent — `m5 ^ m9 ^ m11 ^ m15 == 0` —
+    /// so the all-ones vector and the all-zeros vector both fingerprinted to
+    /// 0, and the all-ones atom was absent from every pool. A sequential
+    /// FNV-style mix with an avalanche step is order-dependent and carries no
+    /// such algebraic identity.
     fn fingerprint(&self) -> u64 {
-        let mut h: u64 = 0;
-        for (i, &v) in self.0.iter().enumerate() {
-            h ^= v.wrapping_mul(0x9E37_79B9_7F4A_7C15u64.wrapping_add(i as u64));
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for &v in &self.0 {
+            h ^= v;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            h ^= h >> 29;
         }
-        h
+        h ^= h >> 32;
+        h = h.wrapping_mul(0xff51_afd7_ed55_8ccd);
+        h ^ (h >> 32)
     }
 
     fn apply_gate(&self, other: &Self, g: Gate, mask: u64) -> Self {
@@ -226,22 +240,32 @@ struct Atom {
     cost: ExprCost,
 }
 
+/// Probe-vector index. Keeps the key beside each slot so a fingerprint
+/// collision resolves to a miss rather than to the wrong atom.
 #[derive(Default)]
 struct ValMap {
-    map: HashMap<u64, u32>,
+    map: HashMap<u64, SmallVec<[(ProbeVals, u32); 1]>>,
 }
 
 impl ValMap {
     fn insert(&mut self, key: &ProbeVals, value: usize) {
-        self.map.entry(key.fingerprint()).or_insert(value as u32);
+        let bucket = self.map.entry(key.fingerprint()).or_default();
+        if bucket.iter().any(|(k, _)| k == key) {
+            return;
+        }
+        bucket.push((*key, value as u32));
     }
 
     fn find(&self, key: &ProbeVals) -> Option<usize> {
-        self.map.get(&key.fingerprint()).map(|&v| v as usize)
+        self.map
+            .get(&key.fingerprint())?
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|&(_, v)| v as usize)
     }
 
     fn contains(&self, key: &ProbeVals) -> bool {
-        self.map.contains_key(&key.fingerprint())
+        self.find(key).is_some()
     }
 }
 
@@ -251,6 +275,9 @@ fn push(pool: &mut Vec<Atom>, idx: &mut ValMap, e: Arc<Expr>, vals: ProbeVals) {
         if is_better(&new_cost, &pool[slot].cost) {
             pool[slot].expr = e;
             pool[slot].cost = new_cost;
+            // Keep `vals` consistent with the expression it describes; the
+            // winner's probe vector is the one this slot is indexed under.
+            pool[slot].vals = vals;
         }
         return;
     }
@@ -1139,6 +1166,43 @@ pub fn try_template_decomposition(
         "no template match found",
         subcode::NO_MATCH,
     ))
+}
+
+#[cfg(test)]
+mod valmap_tests {
+    use super::{ProbeVals, ValMap, N_PROBES};
+
+    #[test]
+    fn all_ones_and_all_zeros_do_not_collide() {
+        let zeros = ProbeVals([0u64; N_PROBES]);
+        let ones = ProbeVals([u64::MAX; N_PROBES]);
+        assert_ne!(
+            zeros.fingerprint(),
+            ones.fingerprint(),
+            "the all-ones atom must not share a slot with constant 0"
+        );
+
+        let mut idx = ValMap::default();
+        idx.insert(&zeros, 0);
+        idx.insert(&ones, 1);
+        assert_eq!(idx.find(&zeros), Some(0));
+        assert_eq!(idx.find(&ones), Some(1));
+    }
+
+    #[test]
+    fn distinct_probe_vectors_keep_distinct_slots() {
+        let mut idx = ValMap::default();
+        for i in 0..64u64 {
+            let mut v = [0u64; N_PROBES];
+            v[(i as usize) % N_PROBES] = i.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            idx.insert(&ProbeVals(v), i as usize);
+        }
+        for i in 0..64u64 {
+            let mut v = [0u64; N_PROBES];
+            v[(i as usize) % N_PROBES] = i.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            assert_eq!(idx.find(&ProbeVals(v)), Some(i as usize));
+        }
+    }
 }
 
 #[cfg(test)]

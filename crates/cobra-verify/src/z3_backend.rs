@@ -79,6 +79,19 @@ fn make_var_asts<'c>(
 }
 
 /// `BuildZ3Expr`.
+/// Resize `bv` to exactly `w` bits: zero-extend when widening, keep the low
+/// `w` bits when narrowing. Mirrors `arith::zext`, which is `v & bitmask(w)`.
+fn resize_bv<'c>(bv: &BV<'c>, w: u32) -> BV<'c> {
+    let cw = bv.get_size();
+    if w > cw {
+        bv.zero_ext(w - cw)
+    } else if w < cw {
+        bv.extract(w.saturating_sub(1), 0)
+    } else {
+        bv.clone()
+    }
+}
+
 fn build_bv<'c>(ctx: &'c Context, expr: &Expr, var_asts: &[BV<'c>], bitwidth: u32) -> BV<'c> {
     match &expr.kind {
         Kind::Constant(v) => BV::from_u64(ctx, *v, bitwidth),
@@ -118,18 +131,29 @@ fn build_bv<'c>(ctx: &'c Context, expr: &Expr, var_asts: &[BV<'c>], bitwidth: u3
         // Width-changing nodes. The child's BV already carries its own width
         // (variables via `var_widths`, casts/Concat via their own result width),
         // so we read it back with `get_size()` rather than assuming `bitwidth`.
+        // Casts lower against the node's declared result width. `saturating_sub`
+        // silently made a narrowing cast the identity — `zero_ext(0)` keeps the
+        // child's width and drops no bits — so Z3 modelled a wider value than
+        // the evaluator computes, and proved non-equivalent pairs equivalent.
+        // `validate_widths` now rejects narrowing extensions, but lower
+        // defensively so a direct backend caller cannot reintroduce the gap.
         Kind::ZExt(w) => {
             let child = build_bv(ctx, &expr.children[0], var_asts, bitwidth);
-            child.zero_ext(w.saturating_sub(child.get_size()))
+            resize_bv(&child, *w)
         }
         Kind::SExt(w) => {
             let child = build_bv(ctx, &expr.children[0], var_asts, bitwidth);
-            child.sign_ext(w.saturating_sub(child.get_size()))
+            let cw = child.get_size();
+            if *w >= cw {
+                child.sign_ext(*w - cw)
+            } else {
+                // `arith::sext` documents narrowing as truncation.
+                child.extract(w.saturating_sub(1), 0)
+            }
         }
         Kind::Trunc(w) => {
             let child = build_bv(ctx, &expr.children[0], var_asts, bitwidth);
-            // Keep the low `w` bits: extract bits [w-1 .. 0].
-            child.extract(w.saturating_sub(1), 0)
+            resize_bv(&child, *w)
         }
         Kind::Concat => {
             // child[0] is the high part, child[1] the low part (per spec).

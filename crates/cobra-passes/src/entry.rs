@@ -605,11 +605,26 @@ mod tests {
 
     #[test]
     fn mixed_width_zext_is_handled_soundly() {
-        // zext(v0, 32) is non-uniform: the pipeline must wall it off and
-        // never panic (the bit_partitioner tripwire) nor miscompile.
-        let expr = Expr::zext(Expr::variable(0), 32);
+        // Non-uniform but well-formed: narrow to 8 bits, then widen to 32.
+        // The pipeline must wall it off and never panic (the bit_partitioner
+        // tripwire) nor miscompile.
+        let expr = Expr::zext(Expr::trunc(Expr::variable(0), 8), 32);
         let vars = vec!["a".to_string()];
         assert_simplify_preserves_semantics(&expr, &vars, 64);
+    }
+
+    #[test]
+    fn narrowing_cast_is_rejected_at_public_boundary() {
+        // `zext(v0, 32)` over a 64-bit variable is a narrowing extension: the
+        // evaluator masks it down while the name says widen, and the two
+        // disagree once it reaches a solver. Reject it as malformed IR.
+        let vars = vec!["a".to_string()];
+        let narrowing_zext = Expr::zext(Expr::variable(0), 32);
+        assert!(simplify_expr(&narrowing_zext, &vars, Options::default()).is_err());
+
+        // The dual: a truncation wider than its child.
+        let widening_trunc = Expr::trunc(Expr::zext(Expr::variable(0), 64), 64);
+        assert!(simplify_expr(&widening_trunc, &vars, Options::default()).is_ok());
     }
 
     #[test]

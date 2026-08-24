@@ -101,8 +101,30 @@ pub fn validate_widths(expr: &Expr, var_widths: &[u32], default_w: u32) -> Resul
                 ));
             }
         }
-        // Concat children may differ; casts are well-formed for any payload;
-        // same-width unary ops and leaves impose no cross-operand constraint.
+        // Casts must relate their payload to the child's width. `arith::zext`
+        // is `v & bitmask(to)` and `arith::sext` documents narrowing as
+        // truncation, so a `ZExt` narrower than its child is silently a
+        // `Trunc` — and lowers to a different thing again in the Z3 backend.
+        Kind::ZExt(w) | Kind::SExt(w) => {
+            let cw = checked_width_of(&expr.children[0], var_widths, default_w)?;
+            if *w < cw {
+                return Err(err(
+                    CobraError::InvalidArgument,
+                    format!("narrowing extension: {w}-bit target over a {cw}-bit child"),
+                ));
+            }
+        }
+        Kind::Trunc(w) => {
+            let cw = checked_width_of(&expr.children[0], var_widths, default_w)?;
+            if *w > cw {
+                return Err(err(
+                    CobraError::InvalidArgument,
+                    format!("widening truncation: {w}-bit target over a {cw}-bit child"),
+                ));
+            }
+        }
+        // Concat children may differ; same-width unary ops and leaves impose
+        // no cross-operand constraint.
         _ => {}
     }
     Ok(())

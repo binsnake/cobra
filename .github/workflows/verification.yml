@@ -66,6 +66,12 @@ jobs:
       - name: Check all targets
         run: cargo check --all-targets --features cli --locked
 
+      - name: Install Z3 development headers
+        run: sudo apt-get install -y libz3-dev
+
+      - name: Check the Z3 verifier backend
+        run: cargo check --features z3 --all-targets --locked
+
       - name: Check release metadata
         run: python tools/release.py check
 
