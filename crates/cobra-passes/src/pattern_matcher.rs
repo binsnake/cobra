@@ -1235,21 +1235,46 @@ fn try_recover_inclusion_exclusion(expr: &Expr, bitwidth: u32) -> Option<Arc<Exp
 /// Bottom-up recursive application of [`try_simplify_pattern_subtree`].
 /// retry at each newly-formed parent until a fixed point.
 #[must_use]
-pub fn simplify_pattern_subtrees(mut expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
+pub fn simplify_pattern_subtrees(expr: Arc<Expr>, bitwidth: u32) -> Arc<Expr> {
+    simplify_pattern_subtrees_logged(expr, bitwidth, &mut Vec::new(), &mut Vec::new())
+}
+
+/// Normalize as [`simplify_pattern_subtrees`], recording each rewrite as
+/// `(path from the root, replacement subtree)` in application order.
+///
+/// The certified wrapper used to recover this sequence by re-scanning the
+/// whole tree from the root once per rewrite, which is a complete post-order
+/// traversal invoking `try_simplify_pattern_subtree` at every node --
+/// duplicating the work this function has already done.
+fn simplify_pattern_subtrees_logged(
+    mut expr: Arc<Expr>,
+    bitwidth: u32,
+    path: &mut Vec<u8>,
+    log: &mut Vec<(ExprPath, Arc<Expr>)>,
+) -> Arc<Expr> {
     {
         let node = Arc::make_mut(&mut expr);
         let children: Vec<Arc<Expr>> = node.children.drain(..).collect();
-        for child in children {
-            node.children
-                .push(simplify_pattern_subtrees(child, bitwidth));
+        for (idx, child) in children.into_iter().enumerate() {
+            let pushed = u8::try_from(idx).ok();
+            if let Some(i) = pushed {
+                path.push(i);
+            }
+            let simplified = simplify_pattern_subtrees_logged(child, bitwidth, path, log);
+            if pushed.is_some() {
+                path.pop();
+            }
+            node.children.push(simplified);
         }
     }
 
     if let Some(rewritten) = try_simplify_pattern_subtree(&expr, bitwidth) {
-        return simplify_pattern_subtrees(rewritten, bitwidth);
+        log.push((ExprPath(path.clone()), rewritten.clone_tree()));
+        return simplify_pattern_subtrees_logged(rewritten, bitwidth, path, log);
     }
     if let Some(recovered) = try_recover_inclusion_exclusion(&expr, bitwidth) {
-        return simplify_pattern_subtrees(recovered, bitwidth);
+        log.push((ExprPath(path.clone()), recovered.clone_tree()));
+        return simplify_pattern_subtrees_logged(recovered, bitwidth, path, log);
     }
     expr
 }
@@ -1337,21 +1362,19 @@ pub fn simplify_pattern_subtrees_certified(
     expr: Arc<Expr>,
     bitwidth: u32,
 ) -> (Arc<Expr>, Option<LeanCertificate>) {
-    let expected = simplify_pattern_subtrees(expr.clone_tree(), bitwidth);
+    let mut log: Vec<(ExprPath, Arc<Expr>)> = Vec::new();
+    let expected =
+        simplify_pattern_subtrees_logged(expr.clone_tree(), bitwidth, &mut Vec::new(), &mut log);
     if bitwidth != 64 {
         return (expected, None);
     }
 
     let mut current = expr;
     let mut chain: Option<LeanCertificate> = None;
-    for _ in 0..128 {
+    for (path, after) in log {
         if *current == *expected {
             return (current, chain);
         }
-
-        let Some((path, after)) = find_first_pattern_rewrite_site(&current, bitwidth) else {
-            break;
-        };
         let Some(step) =
             LeanCertificate::try_single_rewrite_64(bitwidth, current.clone_tree(), path, after)
         else {
@@ -1366,28 +1389,6 @@ pub fn simplify_pattern_subtrees_certified(
     } else {
         (expected, None)
     }
-}
-
-fn find_first_pattern_rewrite_site(root: &Expr, bitwidth: u32) -> Option<(ExprPath, Arc<Expr>)> {
-    find_first_pattern_rewrite_site_at(root, bitwidth, &mut Vec::new())
-}
-
-fn find_first_pattern_rewrite_site_at(
-    root: &Expr,
-    bitwidth: u32,
-    path: &mut Vec<u8>,
-) -> Option<(ExprPath, Arc<Expr>)> {
-    for (idx, child) in root.children.iter().enumerate() {
-        let child_idx = u8::try_from(idx).ok()?;
-        path.push(child_idx);
-        if let Some(site) = find_first_pattern_rewrite_site_at(child, bitwidth, path) {
-            path.pop();
-            return Some(site);
-        }
-        path.pop();
-    }
-
-    try_simplify_pattern_subtree(root, bitwidth).map(|after| (ExprPath(path.clone()), after))
 }
 
 fn match_applied_coefficient(expr: &Expr, coeff: u64, bitwidth: u32) -> Option<&Expr> {

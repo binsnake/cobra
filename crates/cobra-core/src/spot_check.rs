@@ -234,7 +234,11 @@ fn for_each_full_width_probe(
     let mask = bitmask(bitwidth);
     let mut inputs = vec![0u64; num_vars as usize];
 
-    for val in adversarial_values(bitwidth) {
+    // Loop-invariant: depends only on `bitwidth`, but was rebuilt once per
+    // variable by the second loop.
+    let adversarial = adversarial_values(bitwidth);
+
+    for &val in &adversarial {
         inputs.fill(val);
         if !probe_fn(&inputs) {
             return Some(inputs.clone());
@@ -242,7 +246,7 @@ fn for_each_full_width_probe(
     }
 
     for v in 0..num_vars as usize {
-        for val in adversarial_values(bitwidth) {
+        for &val in &adversarial {
             inputs.fill(0);
             inputs[v] = val;
             if !probe_fn(&inputs) {

@@ -25,6 +25,17 @@ fn is_identity_map(idx_map: &[u32], arity: u32) -> bool {
 /// via a scatter closure — guaranteeing the resulting evaluator pads
 /// the input buffer to the source's arity regardless of whether the
 /// underlying body is compiled or a closure.
+///
+/// This allocates a wide buffer per evaluated point and reports
+/// `has_compiled() == false`, so consumers take their allocating branches too;
+/// `Evaluator::remap` would avoid both. Substituting it is NOT a drop-in and
+/// was tried: the closure reports `input_arity == 0` ("unknown"), which makes
+/// spot-check skip its arity guard, while a remapped compiled body reports a
+/// real arity and changes that guard's behaviour. Two upstream tests
+/// (`dirac_signature_with_evaluator_does_not_emit_verified_zero` and the
+/// product-residual public-verification case) fail on the swap. Anyone
+/// revisiting this for the allocation win has to reconcile the arity-guard
+/// semantics first.
 fn remap_via_closure(base: &Evaluator, idx_map: &[u32], source_arity: u32) -> Evaluator {
     let base = base.clone();
     let idx_map: Vec<u32> = idx_map.to_vec();

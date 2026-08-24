@@ -18,6 +18,12 @@ pub struct OrchestratorPolicy {
     pub max_expansions: u32,
     pub max_rewrite_gen: u32,
     pub max_candidates: u32,
+    /// Wall-clock ceiling for one `Simplify` run.
+    ///
+    /// `max_expansions` alone does not bound latency: two lifting passes
+    /// multiply it by 1.5x each time they fire, so a caller's budget can
+    /// inflate several-fold mid-run. This is the backstop.
+    pub max_wall_clock: std::time::Duration,
 }
 
 impl Default for OrchestratorPolicy {
@@ -26,6 +32,7 @@ impl Default for OrchestratorPolicy {
             max_expansions: 1024,
             max_rewrite_gen: 3,
             max_candidates: 8,
+            max_wall_clock: std::time::Duration::from_secs(60),
         }
     }
 }

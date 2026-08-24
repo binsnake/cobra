@@ -92,7 +92,15 @@ pub fn run_main_loop(
 
     let pass_index = build_pass_index(registry);
 
+    // Snapshot the caller's budget so the lift-driven bump below cannot grow
+    // without bound, and start the wall clock.
+    let expansion_ceiling = policy.max_expansions.saturating_mul(4);
+    let deadline = std::time::Instant::now() + policy.max_wall_clock;
+
     while !worklist.is_empty() && expansions < policy.max_expansions {
+        if std::time::Instant::now() >= deadline {
+            break;
+        }
         let mut item = worklist.pop().expect("non-empty worklist");
         expansions = expansions.saturating_add(1);
         telemetry.total_expansions = expansions;
@@ -246,6 +254,7 @@ pub fn run_main_loop(
             worklist,
             ctx,
             policy,
+            expansion_ceiling,
             &mut best_unsupported,
             current_was_best_snapshot,
         );
@@ -334,22 +343,29 @@ fn maybe_update_best_rewrite(
     // Remap into the original var space when a sub-problem produced
     // this AST. If the mapping can't be built, skip — we can't verify
     // against the original evaluator in a foreign namespace.
-    let (expr, real_vars) = if let Some(sc) = ast.solve_ctx.as_ref() {
+    // `remapped` marks the one arm that changes the tree; the other two hand
+    // back `ast.expr` unchanged, so `raw_cost` above already describes them
+    // and recomputing it is pure duplicate work (`compute_cost` is unmemoized).
+    let (expr, real_vars, remapped) = if let Some(sc) = ast.solve_ctx.as_ref() {
         if sc.vars == ctx.original_vars {
-            (ast.expr.clone_tree(), ctx.original_vars.clone())
+            (ast.expr.clone_tree(), ctx.original_vars.clone(), false)
         } else {
             let Some(idx_map) = try_build_var_support(&ctx.original_vars, &sc.vars) else {
                 return;
             };
-            let mut remapped = ast.expr.clone_tree();
-            remap_var_indices(Arc::make_mut(&mut remapped), &idx_map);
-            (remapped, ctx.original_vars.clone())
+            let mut remapped_expr = ast.expr.clone_tree();
+            remap_var_indices(Arc::make_mut(&mut remapped_expr), &idx_map);
+            (remapped_expr, ctx.original_vars.clone(), true)
         }
     } else {
-        (ast.expr.clone_tree(), ctx.original_vars.clone())
+        (ast.expr.clone_tree(), ctx.original_vars.clone(), false)
     };
 
-    let cost = compute_cost(&expr).cost;
+    let cost = if remapped {
+        compute_cost(&expr).cost
+    } else {
+        raw_cost
+    };
     if let Some(current) = best.as_ref() {
         if !is_better(&cost, &current.cost) {
             return;
@@ -440,6 +456,7 @@ fn handle_pass_result(
     worklist: &mut Worklist,
     ctx: &mut OrchestratorContext,
     policy: &mut OrchestratorPolicy,
+    expansion_ceiling: u32,
     best_unsupported: &mut Option<UnsupportedCandidate>,
     current_was_best_snapshot: bool,
 ) {
@@ -452,9 +469,14 @@ fn handle_pass_result(
                 PassId::LiftRepeatedSubexpressions | PassId::LiftArithmeticAtoms,
             ) && !pr.next.is_empty()
             {
+                // 1.5x per lift, but never past 4x the caller's original
+                // budget. An embedder setting max_expansions to bound
+                // worst-case latency previously did not get that bound: five
+                // bumps turned 1024 into 7776.
                 policy.max_expansions = policy
                     .max_expansions
-                    .saturating_add(policy.max_expansions / 2);
+                    .saturating_add(policy.max_expansions / 2)
+                    .min(expansion_ceiling);
             }
             for mut next in pr.next {
                 next.depth = item.depth.saturating_add(1);
