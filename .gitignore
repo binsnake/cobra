@@ -10,6 +10,7 @@ __pycache__/
 # committed, and checked against the root lock by tools/check_locks.py.
 python/dist/
 python/.venv/
+python/uv.lock
 *.egg-info/
 .pytest_cache/
 .mypy_cache/

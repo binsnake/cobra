@@ -12,7 +12,6 @@ to a different version.
 from __future__ import annotations
 
 import sys
-import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,12 +21,44 @@ LOCKS = {
 }
 
 
+PACKAGE_HEADER = "[[package]]"
+
+
+class ReleaseFormatError(RuntimeError):
+    """A lock file did not look the way this script expects."""
+
+
+def quoted_value(line: str) -> str:
+    return line.split("=", 1)[1].strip().strip('"')
+
+
 def versions(path: Path) -> dict[str, set[str]]:
-    with path.open("rb") as handle:
-        data = tomllib.load(handle)
+    """Read the name and version of every package in a lock file.
+
+    Parsed line by line rather than with `tomllib`, which only joined the
+    standard library in 3.11. This script runs under whichever interpreter is
+    being tested, and the matrix includes 3.10.
+    """
     resolved: dict[str, set[str]] = {}
-    for package in data.get("package", []):
-        resolved.setdefault(package["name"], set()).add(package["version"])
+    name: str | None = None
+    in_package = False
+
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line == PACKAGE_HEADER:
+            in_package, name = True, None
+        elif line.startswith("["):
+            in_package, name = False, None
+        elif in_package and line.startswith("name = "):
+            name = quoted_value(line)
+        elif in_package and name is not None and line.startswith("version = "):
+            resolved.setdefault(name, set()).add(quoted_value(line))
+            name = None
+
+    if not resolved:
+        raise ReleaseFormatError(
+            f"found no packages in {path}; has the lock file format changed?"
+        )
     return resolved
 
 
@@ -37,8 +68,12 @@ def main() -> int:
         print(f"lock file not found: {', '.join(missing)}", file=sys.stderr)
         return 1
 
-    root = versions(LOCKS["root"])
-    python = versions(LOCKS["python"])
+    try:
+        root = versions(LOCKS["root"])
+        python = versions(LOCKS["python"])
+    except ReleaseFormatError as error:
+        print(error, file=sys.stderr)
+        return 1
 
     mismatches = sorted(
         (name, root[name], python[name])
