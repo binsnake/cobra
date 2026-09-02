@@ -14,23 +14,45 @@ concurrency:
 permissions:
   contents: read
 
-defaults:
-  run:
-    working-directory: python
-
 jobs:
+  runner:
+    name: Select runners
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      linux: ${{ steps.pick.outputs.linux }}
+      test_matrix: ${{ steps.pick.outputs.test_matrix }}
+
+    steps:
+      # A pull request from a fork carries an attacker-controlled workflow
+      # file, so it must never reach self-hosted hardware. Those runs go to
+      # GitHub-hosted runners instead, which keeps fork coverage complete
+      # without exposing the box.
+      - name: Choose where the Linux jobs run
+        id: pick
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT" = "pull_request" ] && [ "$HEAD_REPO" != "$THIS_REPO" ]; then
+            linux='"ubuntu-latest"'
+            echo "fork pull request: Linux jobs run on GitHub-hosted runners"
+          else
+            linux='["self-hosted","linux","x64","rustbox"]'
+            echo "trusted event: Linux jobs run on rustbox"
+          fi
+          echo "linux=$linux" >> "$GITHUB_OUTPUT"
+          printf 'test_matrix={"include":[{"name":"linux","os":%s,"python":"3.10"},{"name":"linux","os":%s,"python":"3.13"},{"name":"windows","os":"windows-latest","python":"3.10"},{"name":"windows","os":"windows-latest","python":"3.13"},{"name":"macos","os":"macos-14","python":"3.10"},{"name":"macos","os":"macos-14","python":"3.13"}]}\n' \
+            "$linux" "$linux" >> "$GITHUB_OUTPUT"
+
   test:
-    name: Test (${{ matrix.os }}, Python ${{ matrix.python }})
+    name: Test (${{ matrix.name }}, Python ${{ matrix.python }})
+    needs: runner
     strategy:
       fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-14
-        python:
-          - "3.10"
-          - "3.13"
+      matrix: ${{ fromJSON(needs.runner.outputs.test_matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
 
@@ -47,44 +69,51 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: Create the environment
+        working-directory: python
         run: uv venv --python ${{ matrix.python }}
 
       - name: Install the development tools
+        working-directory: python
         run: uv pip install "maturin>=1.15,<2" "pytest>=8" "mypy>=1.14" "numpy>=1.24"
 
       - name: Check formatting
+        working-directory: python
         run: cargo fmt -- --check
 
       - name: Lint
+        working-directory: python
         run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: Check that both lock files agree
-        working-directory: .
         run: python tools/check_locks.py
 
       - name: Build the extension
+        working-directory: python
         run: uv run maturin develop --release --locked
 
       # The parity suite compares this binding's output against the CLI, which
       # is the check that keeps the two rendering paths from drifting.
       - name: Build cobra-cli for the parity suite
-        working-directory: .
         run: cargo build --bin cobra-cli --features cli --release --locked
 
       - name: Run the tests
+        working-directory: python
         run: uv run pytest
 
       - name: Type-check
+        working-directory: python
         run: uv run mypy
 
       - name: Check the stubs against the compiled module
+        working-directory: python
         run: >-
           uv run python -m mypy.stubtest cobra_mba._native
           --ignore-disjoint-bases --ignore-positional-only
 
   sdist:
     name: Source distribution
-    runs-on: ubuntu-latest
+    needs: runner
+    runs-on: ${{ fromJSON(needs.runner.outputs.linux) }}
     timeout-minutes: 40
 
     steps:
@@ -100,6 +129,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build the source distribution
+        working-directory: python
         run: |
           uv venv
           uv pip install "maturin>=1.15,<2"
@@ -109,12 +139,13 @@ jobs:
       # has to carry the Rust sources with it. Installing from it in a clean
       # directory is the only thing that proves it does.
       - name: Install from the source distribution
-        working-directory: /tmp
         run: |
+          workdir=$(mktemp -d)
+          cd "$workdir"
           uv venv fresh
-          VIRTUAL_ENV=/tmp/fresh uv pip install \
+          VIRTUAL_ENV="$workdir/fresh" uv pip install \
             "$GITHUB_WORKSPACE"/python/dist/cobra_mba-*.tar.gz
-          /tmp/fresh/bin/python -c "
+          "$workdir/fresh/bin/python" -c "
           import cobra_mba
           assert str(cobra_mba.simplify('(x ^ y) + 2 * (x & y)')) == 'x + y'
           print('source distribution installs and runs:', cobra_mba.__version__)
