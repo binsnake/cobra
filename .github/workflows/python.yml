@@ -1,0 +1,121 @@
+name: Python bindings
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+concurrency:
+  group: python-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: python
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-14
+        python:
+          - "3.10"
+          - "3.13"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Create the environment
+        run: uv venv --python ${{ matrix.python }}
+
+      - name: Install the development tools
+        run: uv pip install "maturin>=1.15,<2" "pytest>=8" "mypy>=1.14" "numpy>=1.24"
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Check that both lock files agree
+        working-directory: .
+        run: python tools/check_locks.py
+
+      - name: Build the extension
+        run: uv run maturin develop --release --locked
+
+      # The parity suite compares this binding's output against the CLI, which
+      # is the check that keeps the two rendering paths from drifting.
+      - name: Build cobra-cli for the parity suite
+        working-directory: .
+        run: cargo build --bin cobra-cli --features cli --release --locked
+
+      - name: Run the tests
+        run: uv run pytest
+
+      - name: Type-check
+        run: uv run mypy
+
+      - name: Check the stubs against the compiled module
+        run: >-
+          uv run python -m mypy.stubtest cobra_mba._native
+          --ignore-disjoint-bases --ignore-positional-only
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the source distribution
+        run: |
+          uv venv
+          uv pip install "maturin>=1.15,<2"
+          uv run maturin sdist --out dist
+
+      # The binding depends on the library by path, so the source distribution
+      # has to carry the Rust sources with it. Installing from it in a clean
+      # directory is the only thing that proves it does.
+      - name: Install from the source distribution
+        working-directory: /tmp
+        run: |
+          uv venv fresh
+          VIRTUAL_ENV=/tmp/fresh uv pip install \
+            "$GITHUB_WORKSPACE"/python/dist/cobra_mba-*.tar.gz
+          /tmp/fresh/bin/python -c "
+          import cobra_mba
+          assert str(cobra_mba.simplify('(x ^ y) + 2 * (x & y)')) == 'x + y'
+          print('source distribution installs and runs:', cobra_mba.__version__)
+          "

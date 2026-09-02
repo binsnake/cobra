@@ -13,7 +13,8 @@ The project provides:
 
 - one `cobra-mba` Cargo package, imported as `cobra`;
 - the `cobra-cli` and `cobra-sweep` command-line programs from that package;
-- static and dynamic Rust library outputs for fast consumer rebuilds.
+- static and dynamic Rust library outputs for fast consumer rebuilds;
+- a `cobra-mba` Python package built on PyO3, in [`python/`](python/).
 
 The minimum supported Rust version is 1.88.
 
@@ -25,7 +26,7 @@ crate name:
 
 ```toml
 [dependencies]
-cobra = { package = "cobra-mba", version = "0.3" }
+cobra = { package = "cobra-mba", version = "0.4" }
 ```
 
 The command-line programs live in the same package but sit behind the `cli`
@@ -104,6 +105,38 @@ See the
 [parity and performance report](docs/parity-and-performance-2026-07-17.md)
 for exact commits, validation policy, results, and exclusions.
 
+## Python
+
+The bindings live in [`python/`](python/) as a separate Cargo package that is
+not published to crates.io. They expose the parser, the expression tree, the
+simplifier, and its diagnostics:
+
+```python
+import cobra_mba
+
+result = cobra_mba.simplify("(x ^ y) + 2 * (x & y)")
+print(result)                 # x + y
+print(result.proof_level)     # ProofLevel.LEAN_CERTIFIED
+```
+
+```powershell
+pip install cobra-mba
+```
+
+`simplify_many` runs a corpus across every core, and `Expr.evaluate_many`
+evaluates one expression at many points in a single call. Every call releases
+the interpreter lock and runs the pipeline on a worker thread with the same
+64 MiB stack the CLI uses. The rendered output is checked
+against `cobra-cli` byte for byte by the binding's parity suite, and both go
+through the same `outcome_expr_in_original_space` helper.
+
+To work on them, see [`python/README.md`](python/README.md):
+
+```powershell
+just py-dev
+just py-test
+```
+
 ## Command line
 
 Install or run the CLI:
@@ -160,7 +193,11 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --features cli -- -D warnings
 cargo test --features cli
 cargo --config .cargo/dynamic.toml run --bin cobra-cli --features cli -- --mba "x"
+python tools/check_locks.py
 ```
+
+The Python bindings are a separate Cargo package, so the commands above do not
+reach them. `just py-ci` runs their formatting, lint, type, and test checks.
 
 `--features cli` is what puts `cobra-cli` and `cobra-sweep` in scope; without it
 those binaries and their unit tests are not compiled.
@@ -178,9 +215,10 @@ rg -n "\b(sorry|admit)\b" formal/lean -g "*.lean" crates -g "*.rs"
 Do not run generated Lean replay and standalone `lake build` concurrently.
 Clean `formal/lean/.lake` afterward if avoiding local artifact churn.
 
-Release maintainers should follow [RELEASING.md](RELEASING.md). Tagged releases
-publish the single Cargo package and attach checksummed static CLI archives to
-GitHub.
+Tagged releases publish the single Cargo package to crates.io, publish the
+Python wheels and source distribution to PyPI, and attach checksummed static
+CLI archives to the GitHub release. The maintainer runbook for that is not
+part of this repository.
 
 ## License and attribution
 

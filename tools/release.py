@@ -62,6 +62,22 @@ def package_version() -> str:
     return package["version"]
 
 
+def python_binding_version() -> str:
+    with (ROOT / "python" / "Cargo.toml").open("rb") as manifest:
+        package = tomllib.load(manifest)["package"]
+    return package["version"]
+
+
+def check_python_binding(version: str) -> None:
+    """One tag releases both the crate and the wheels, so the two must agree."""
+    binding = python_binding_version()
+    if binding != version:
+        raise ReleaseError(
+            f"python/Cargo.toml is version {binding!r}, expected {version!r} "
+            "to match the root package"
+        )
+
+
 def check_tag(tag: str, version: str) -> None:
     match = SEMVER_TAG.fullmatch(tag)
     if match is None:
@@ -109,6 +125,8 @@ def validate(tag: str | None, require_clean: bool) -> str:
     if re.search(version_heading, changelog, re.MULTILINE) is None:
         raise ReleaseError(f"CHANGELOG.md has no section for {version}")
 
+    check_python_binding(version)
+
     if tag is not None:
         check_tag(tag, version)
     if require_clean:
@@ -116,6 +134,7 @@ def validate(tag: str | None, require_clean: bool) -> str:
 
     print(f"release metadata is consistent for {PACKAGE_NAME} {version}")
     print("publish set: cobra-mba (one package)")
+    print(f"python bindings: cobra-mba {version} (wheels and sdist, not crates.io)")
     return version
 
 

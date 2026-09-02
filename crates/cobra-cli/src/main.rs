@@ -13,8 +13,8 @@ use clap::Parser;
 #[cfg(feature = "z3")]
 use cobra::verify::{Verifier, VerifyOpts, VerifyOutcome, Z3Verifier};
 use cobra::{
-    build_var_support, is_valid_bitwidth, parse_to_ast, remap_var_indices, render, simplify_expr,
-    Expr, Options, SimplifyOutcomeKind,
+    is_valid_bitwidth, outcome_expr_in_original_space, parse_to_ast, render, simplify_expr, Expr,
+    Options, SimplifyOutcomeKind,
 };
 
 const CLI_STACK_SIZE: usize = 64 * 1024 * 1024;
@@ -91,12 +91,8 @@ fn run(args: &Args) -> Result<i32, String> {
 
     match outcome.kind {
         SimplifyOutcomeKind::Simplified => {
-            let raw = outcome.expr.as_ref().expect("Simplified must carry expr");
-            let mut expr_owned = raw.clone();
-            if !outcome.real_vars.is_empty() && outcome.real_vars.len() < parsed.vars.len() {
-                let idx_map = build_var_support(&parsed.vars, &outcome.real_vars);
-                remap_var_indices(std::sync::Arc::make_mut(&mut expr_owned), &idx_map);
-            }
+            let expr_owned = outcome_expr_in_original_space(&outcome, &parsed.vars)
+                .expect("Simplified must carry expr");
             let expr = &expr_owned;
             let rendered = render(expr, &parsed.vars, args.bitwidth);
             let status = if outcome.verified {

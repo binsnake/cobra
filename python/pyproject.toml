@@ -1,0 +1,53 @@
+[build-system]
+requires = ["maturin>=1.15,<2"]
+build-backend = "maturin"
+
+[project]
+name = "cobra-mba"
+description = "CoBRA mixed Boolean-arithmetic simplifier"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "The CoBRA contributors" }]
+keywords = ["bitvector", "mba", "simplifier", "deobfuscation", "reverse-engineering"]
+dynamic = ["version"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Security",
+    "Topic :: Software Development :: Disassemblers",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Repository = "https://github.com/binsnake/cobra"
+Changelog = "https://github.com/binsnake/cobra/blob/main/CHANGELOG.md"
+Documentation = "https://docs.rs/cobra-mba"
+
+[tool.maturin]
+module-name = "cobra_mba._native"
+python-source = "."
+features = ["pyo3/extension-module"]
+
+[dependency-groups]
+dev = [
+    "maturin>=1.15,<2",
+    "pytest>=8",
+    "mypy>=1.14",
+    # Only used to check the array interop recipe; those tests skip without it.
+    "numpy>=1.24",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["cobra_mba", "tests"]

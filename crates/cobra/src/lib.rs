@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! cobra = { package = "cobra-mba", version = "0.1" }
+//! cobra = { package = "cobra-mba", version = "0.4" }
 //! ```
 //!
 //! ```rust
@@ -54,6 +54,29 @@ pub mod simplify {
         Diagnostic, Options, ProofLevel, SimplifyOutcome, SimplifyOutcomeKind, SimplifyTelemetry,
     };
     pub use crate::passes::{simplify, simplify_expr, MAX_INPUT_VARS};
+}
+
+/// Map a finished outcome's expression back into the caller's variable
+/// namespace.
+///
+/// A result that dropped variables is indexed against
+/// [`SimplifyOutcome::real_vars`], not the table the caller passed in, so
+/// rendering it against the caller's table without this step prints the wrong
+/// names. Returns `None` when the outcome carries no expression.
+#[must_use]
+pub fn outcome_expr_in_original_space(
+    outcome: &SimplifyOutcome,
+    original_vars: &[String],
+) -> Option<std::sync::Arc<Expr>> {
+    let mut owned = outcome.expr.as_ref()?.clone();
+    if !outcome.real_vars.is_empty() && outcome.real_vars.len() < original_vars.len() {
+        if let Some(index_map) =
+            crate::core::expr_rewrite::try_build_var_support(original_vars, &outcome.real_vars)
+        {
+            remap_var_indices(std::sync::Arc::make_mut(&mut owned), &index_map);
+        }
+    }
+    Some(owned)
 }
 
 pub use crate::core::{is_valid_bitwidth, CobraError, ErrorInfo, Result};

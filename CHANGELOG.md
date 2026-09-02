@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-02
+
+### Added
+
+- Python bindings, in `python/`: a `cobra-mba` PyPI package built on PyO3 and
+  maturin, importable as `cobra_mba`. It exposes the parser, an immutable
+  `Expr` tree with Python operators, the simplifier, its options, and the full
+  diagnostic and telemetry bundle. Wheels target CPython 3.10 and newer through
+  the stable ABI, so one wheel per platform serves every supported interpreter.
+  The binding is a separate Cargo package with `publish = false`, so the
+  crates.io publish set is unchanged.
+- `cobra_mba.simplify_many`: simplifies a batch on a pool of worker threads,
+  about four times faster than a Python loop on six cores. Results keep input
+  order, and `on_error="none"` leaves `None` in place of an item that failed to
+  parse rather than losing the batch.
+- `Expr.evaluate_many`: evaluates one expression at many points in a single
+  call, 7x faster than a Python loop with list columns and 25x with bytes in
+  and out. Columns are sequences of integers or bytes holding little-endian
+  64-bit values, which is the shape `numpy.ndarray.tobytes()` produces and
+  `numpy.frombuffer` reads back. There is no zero-copy buffer path because
+  Python only added the buffer protocol to its stable ABI in 3.11 and the
+  wheels target 3.10.
+- Example scripts under `python/examples/`: a batch corpus sweep and a bulk
+  evaluation benchmark, both exercised by the test suite, plus IDAPython and
+  Binary Ninja templates that translate decompiler output into the
+  simplifier's syntax.
+- `outcome_expr_in_original_space`: maps a finished `SimplifyOutcome`'s
+  expression back into the caller's variable namespace. A result that dropped
+  variables is indexed against `real_vars`, so rendering it against the
+  caller's table without this step prints the wrong names. `cobra-cli` and the
+  Python bindings now share this one helper, and a parity suite compares their
+  rendered output byte for byte.
+- `tools/check_locks.py`, run in CI: the Python binding has its own
+  `Cargo.lock`, and this fails the build if any crate common to both locks
+  resolves to a different version. The exact `ahash` pin exists so fixed-seed
+  hashing matches across builds, and a binding that drifted from it would
+  produce different signatures from the same input.
+
 ## [0.3.0] - 2026-08-24
 
 ### Added
@@ -130,7 +168,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserved the candidate signature and structured `CostRejected` diagnostic
   when the global size guard declines a pathological expansion.
 
-[Unreleased]: https://github.com/binsnake/cobra/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/binsnake/cobra/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/binsnake/cobra/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/binsnake/cobra/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/binsnake/cobra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/binsnake/cobra/releases/tag/v0.1.0
