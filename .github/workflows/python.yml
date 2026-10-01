@@ -64,7 +64,7 @@ jobs:
         run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python }}
 
@@ -124,7 +124,7 @@ jobs:
         run: rustup toolchain install 1.88.0 --profile minimal
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
 
